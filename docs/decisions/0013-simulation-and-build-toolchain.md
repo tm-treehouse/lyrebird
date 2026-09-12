@@ -42,12 +42,18 @@ experiment [0008](0008-multibit-delta-sigma-with-dwa.md) calls for.
 
 ### cocotb 2.x, and why version matters
 
-Verified working on cocotb 2.1.0 with Python 3.14. The 2.x API is not the one
+Verified working on cocotb 2.1.0 with Python 3.14.6. The 2.x API is not the one
 in most tutorials:
 
 - `cocotb.fork` is removed; use `cocotb.start_soon`.
 - `Clock(...)` takes `unit`, not `units`.
 - The runner moved to `cocotb_tools.runner`.
+
+**The floor is 2.1, not 2.0, and that is forced rather than chosen.** cocotb
+2.0.x refuses to build on Python 3.14 and says so explicitly: it supports a
+maximum of Python 3.13. Since the API is identical across the 2.x line, the
+only reason to pin 2.0.x would be an external constraint, and it would mean
+moving to Python 3.13 as well.
 
 ### HDL language subset
 
@@ -71,8 +77,13 @@ which is a feature here.
 | Yosys 0.67+post, with `synth_gatemate` | installed |
 | cocotb 2.1.0, Python 3.14.6 | installed in `.venv` |
 | KiCad 10.0.6 | installed, `kicad-cli` not on PATH |
-| nextpnr-himbaechel | **missing** |
-| openFPGALoader | **missing** |
+| numpy, scipy, matplotlib | installed in `.venv` |
+| GTKWave | installed, reads the FST dumps from `WAVES=1` |
+| clang, make, cmake | installed |
+| nextpnr-himbaechel | **missing**, needed before any hardware |
+| openFPGALoader | **missing**, needed before any hardware |
+| FTDI D3XX library | **missing**, needed for host work |
+| git-lfs | **missing**, worth deciding before `hardware/datasheets/` fills |
 
 `tools/synth.sh` runs synthesis and stops with a clear message when
 place-and-route is unavailable, so the synthesis half stays useful for resource

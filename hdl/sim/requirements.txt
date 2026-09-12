@@ -1,6 +1,17 @@
 # Simulation and analysis environment.
-# cocotb 2.x removed cocotb.fork and renamed the Clock `units` argument to
-# `unit`, so 1.x examples will not run unchanged.
-cocotb>=2.1
-numpy>=1.26
-pytest>=8.0
+#
+# cocotb 2.x, not 1.x: cocotb.fork was removed, Clock takes `unit` rather than
+# `units`, and the runner moved to cocotb_tools.runner. 1.x examples will not
+# run unchanged.
+#
+# The floor is 2.1 rather than 2.0 because cocotb 2.0.x refuses to build on
+# Python 3.14, which is what is installed here. Its own check says it supports
+# a maximum of Python 3.13. The API is the same across the 2.x line, so this
+# costs nothing; use cocotb 2.0.x only if you also move to Python 3.13.
+cocotb>=2.1,<3
+
+# Analysis, not simulation. scipy.signal designs the interpolation half-band
+# chain; numpy takes the FFT of the dumped element lines.
+numpy>=2.0
+scipy>=1.14
+matplotlib>=3.9
