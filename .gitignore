@@ -72,3 +72,12 @@ scratch/
 
 # ---- Model ----
 model/**/__pycache__/
+
+# SKiDL generated symbol caches
+*_sklib.py
+
+# SKiDL run artefacts and generated netlists. The Python in
+# hardware/netlist/ is the source; run it to regenerate.
+*.erc
+*.log
+hardware/*/lyrebird-*.xml
