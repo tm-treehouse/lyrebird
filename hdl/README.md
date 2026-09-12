@@ -111,14 +111,36 @@ element weights in the model to confirm the rotation is actually converting that
 mismatch into out-of-band noise. Also drive deliberate word drops on the FT601Q
 side to exercise tag resync.
 
-## Clocking caveat
+## Clock routing, and the one pinout constraint
 
 The global mesh is driven from a mux fed by the PLL block, so a clock does not
-reach it by an independent route. The mux does include the PLL's bypassed
-reference clock, and there is a `PLL_REF_BYPASS` control. Confirm the open
-toolchain exposes that bypass before relying on it. The module's reclocking
-flip-flops set the final edge timing, so FPGA-side jitter is far less critical
-than it would otherwise be, but there is no reason to add it.
+reach it by an independent route. The bypass path exists and the open toolchain
+uses it automatically, but not through the port the datasheet suggests.
+
+**The recipe.** Put the clock on one of the four dedicated clock-capable pins,
+`CLK0` to `CLK3`, instantiate a `CC_BUFG` driven by that pad, and do not
+instantiate a PLL on it. nextpnr sees the pad is clock-capable and wires the
+CLKIN reference straight into the GLBOUT mux, so the clock reaches the global
+mesh without passing through the VCO.
+
+**The trap.** `CC_PLL` declares a `CLK_REF_OUT` port, matching the datasheet,
+but nextpnr rejects it outright: *"Output CLK_REF_OUT cannot be used if PLL is
+used."* The bypass belongs to the CLKIN-to-GLBOUT path, not to a configured
+PLL. Do not try to reach it that way.
+
+**The constraint this puts on the pinout.** If the clock lands on an ordinary
+pin rather than a clock-capable one, the packer silently falls back to routing
+it through the fabric as a user global, which adds exactly the jitter the
+bypass avoids. It is not an error, so nothing will tell you. Both `MCLK` and
+the FT601Q clock must be assigned to dedicated clock pins.
+
+**No PLL is needed anywhere in this design.** Neither clock requires frequency
+synthesis, since the sample rate is a divided enable inside the `MCLK` domain
+rather than a clock of its own. All four PLLs stay unused and both clocks
+bypass straight to the mesh.
+
+Verified against the Yosys GateMate blackbox library and the nextpnr GateMate
+clock packer, not just the datasheet.
 
 ## Build
 
