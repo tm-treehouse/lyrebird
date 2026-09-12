@@ -130,6 +130,54 @@ def order_sweep():
     return out
 
 
+
+# ------------------------------------------------------------ fixed point
+def fixed_point(target_db: float | None = None):
+    """Minimum coefficient width per stage. Float is not buildable on an FPGA.
+
+    The criterion is the design target, not the double-precision result. Some
+    stages land far past the target in float, and holding them there would buy
+    stopband nobody asked for at the price of wider words.
+    """
+    if target_db is None:
+        target_db = -abs(halfband.STOPBAND_TARGET_DB)
+    say()
+    say("=" * 72)
+    say("COEFFICIENT WORD WIDTH  (fixed point; float is not buildable)")
+    say(f"criterion: stopband at or below {target_db:.0f} dB, the design target")
+    say("=" * 72)
+    out = {}
+    for family in ("48k",):
+        c = halfband.build(family)
+        say(f"-- {family} family")
+        say(f"{'stage':>5}  {'float stop':>11}  {'min bits':>9}  "
+            f"{'stop @ min':>11}  {'ripple':>10}  {'CSD adders':>11}")
+        rows = []
+        for st in c.distinct():
+            h = st.hb
+            ref = h.stopband_db
+            chosen = None
+            for bits in range(8, 33):
+                _, rip, stop = h.quantized(bits)
+                if stop <= target_db:
+                    chosen = (bits, stop, rip)
+                    break
+            bits, stop, rip = chosen if chosen else (32, *h.quantized(32)[1:][::-1])
+            adders = h.csd_terms(bits)
+            say(f"{st.index:>5}  {ref:>11.1f}  {bits:>9}  {stop:>11.1f}  "
+                f"{rip:>10.5f}  {adders:>11}")
+            rows.append((st.index, bits, stop, adders))
+        worst = max(r[1] for r in rows)
+        total_adders = sum(r[3] for r in rows)
+        say(f"   widest coefficient word: {worst} bits")
+        say(f"   total CSD adders if built as shifts and adds: {total_adders}")
+        say()
+        out[family] = rows
+    say("Both rate families share these coefficients. The passband edge is")
+    say("normalised so 20 kHz falls at the same fraction of the lower family's")
+    say("rate, which means one coefficient set serves both oscillators.")
+    return out
+
 # ---------------------------------------------------------------- mismatch
 def mismatch_study(order, ntf, amp_dbfs):
     say()
@@ -207,6 +255,7 @@ def order_figure(sweep):
 
 def main() -> int:
     filters()
+    fixed_point()
     sweep = order_sweep()
     ok = [k for k in ORDERS if sweep[k][2].snr_db >= chain.DYNAMIC_RANGE_TARGET_DB]
     order = min(ok) if ok else max(ORDERS, key=lambda k: sweep[k][2].snr_db)

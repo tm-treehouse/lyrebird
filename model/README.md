@@ -63,6 +63,37 @@ The delay line storage is small next to the elastic buffer.
 **The group delay at 48 kHz is 1.5 ms and is not free.** It adds to the
 prefill latency rather than hiding inside it.
 
+### Coefficient word width: 26 bits worst case, 8 bits for the fast stages
+
+Float is not buildable on an FPGA, so every filter is specified as a fixed
+signed fraction. The criterion is the 120 dB design target rather than the
+double-precision result, because several stages land far past the target in
+float and holding them there would buy stopband nobody asked for at the price
+of wider words.
+
+| Stage | Rate in | Min bits | Stopband achieved | CSD adders |
+| --- | --- | --- | --- | --- |
+| 1 | 48 kHz | 26 | -120.1 dB | 249 |
+| 4 | 384 kHz | 22 | -120.4 dB | 41 |
+| 5 | 768 kHz | 19 | -120.2 dB | 18 |
+| 6 | 1.536 MHz | 18 | -123.0 dB | 17 |
+| 7 | 3.072 MHz | 10 | -142.2 dB | 9 |
+| 8 | 6.144 MHz | 8 | -122.7 dB | 3 |
+| 9 | 12.288 MHz | 8 | -146.8 dB | 3 |
+
+The shape is the useful part and it favours the hardware. The stages needing
+wide coefficients run slowly, so they can be time-shared. The stages running at
+the element clock need only eight bits and three adders each, so they can be
+built as shifts and adds with no multiplier at all.
+
+Worst case is 26 bits. The 340 adder total is dominated by stage 1's 249, and
+stage 1 runs at the base sample rate, so it does not need 249 physical adders.
+
+**Both rate families share one coefficient set.** The passband edge is
+normalised so 20 kHz falls at the same fraction of the lower family's rate,
+which means the 44.1 and 48 kHz families use identical filters and only the
+oscillator changes. That halves the coefficient storage.
+
 ### Rotation: plain data weighted averaging is enough
 
 Measured at order 3 over 2^21 samples, with the DC offset removed. Element
@@ -108,5 +139,15 @@ of concentrated rather than broadband energy.
 
 ## What this model does not include
 
-Coefficient quantisation, finite integrator gain, clock jitter, and the analog
-reconstruction filter. Those are where the remaining margin goes.
+**The interpolator and the modulator have never been connected.** Each was
+measured on its own: the cascade against its own response, the modulator
+against a tone generated directly at the element rate. No real PCM has been
+run end to end. That is the largest remaining gap, because the cascade's
+transition-band behaviour reaches the modulator input and the modulator's
+stability was characterised against a clean tone.
+
+**The datapath is not sized.** Coefficient width is settled above; the signal
+word and accumulator widths are not, and the HDL needs both.
+
+Also absent: finite integrator gain, clock jitter, and the analog
+reconstruction filter.
