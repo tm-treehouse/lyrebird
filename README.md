@@ -27,8 +27,9 @@ half.
 
 See [docs/usb-audio-handoff.md](docs/usb-audio-handoff.md) for the original
 design context, [docs/decisions/](docs/decisions/) for the rationale behind the
-load-bearing choices, and [hardware/interface.md](hardware/interface.md) for
-the contract between the two boards.
+load-bearing choices, [docs/open-items.md](docs/open-items.md) for what is
+still undecided, and [hardware/interface.md](hardware/interface.md) for the
+contract between the two boards.
 
 ## Layout
 

@@ -113,16 +113,20 @@ fabric to write and verify. It requires the 40K configuration.
 
 Prefill absorbs host scheduling jitter, which is a time-domain problem, so the
 buffer is sized in milliseconds and the sample count scales with rate. Size for
-the worst case, storing one sample per 40-bit entry:
+the worst case. SDP 40K mode, 80 bits wide, three 24-bit samples per word, per
+[0011](../docs/decisions/0011-pack-three-samples-per-fifo-word.md):
 
 | Prefill | 96 kHz | 192 kHz |
 | --- | --- | --- |
-| 50 ms | 10 blocks | 20 blocks |
-| 100 ms | 19 blocks | 38, does not fit |
+| 50 ms | 7 blocks | 13 blocks |
+| 100 ms | 13 blocks | 25 blocks |
 
-Thirty-two blocks exist, so 192 kHz caps prefill near 80 ms. This is the only
-resource in the design that is genuinely constrained. Interpolator delay lines
-and coefficients are small next to it.
+Thirty-two blocks exist, so the specified 100 ms at 192 kHz uses 25 and leaves
+7 spare. Committing every block would reach 128 ms at 192 kHz. Interpolator
+delay lines and coefficients come to well under one block.
+
+Read granularity is three samples, so the Fs side reads a word every third
+sample tick and tracks left/right by counter rather than by word boundary.
 
 ## Resources
 

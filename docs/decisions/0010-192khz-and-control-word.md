@@ -1,6 +1,8 @@
 # 0010 — 192 kHz support and an in-band control word
 
-**Status:** accepted
+**Status:** accepted. Buffer sizing below corrected by
+[0011](0011-pack-three-samples-per-fifo-word.md): the packing assumed here
+wastes 40 percent of every word, and 100 ms at 192 kHz does in fact fit.
 
 ## Context
 
