@@ -35,21 +35,31 @@ than leaving both.
   but the repository is not configured for it, and that decision is much
   cheaper before the directory fills with multi-megabyte PDFs than after.
 
-## Blocking HDL
+## Outputs of the modelling task, not blockers
 
-- **Modulator order and loop topology.** Three places call the order "modest"
+These three were previously listed as blocking HDL, which had it backwards.
+They are what the numerical model of the audio chain produces. None of them is
+an input to starting it, and none can sensibly be decided in isolation, because
+they only mean anything measured as a chain.
+
+- **Modulator order and loop topology.** Three records call the order "modest"
   and none give a number.
 - **Interpolation filter design.** Stage count is fixed at seven to nine by
-  [0010](decisions/0010-192khz-and-control-word.md), but tap counts, passband
+  [0010](decisions/0010-192khz-and-control-word.md); tap counts, passband
   ripple and stopband attenuation are open. Most of the audio quality lives
   here.
 - **Dynamic element matching rotation algorithm.** Plain rotation versus
   something more sophisticated.
+
+## Blocking HDL
+
 - **Status word bit layout.** Described in prose in
   [0010](decisions/0010-192khz-and-control-word.md), never mapped to bits.
+  Blocks the status path only.
 - **Prefill threshold and the lock state machine.** Fifty to a hundred
   milliseconds is a range, not a threshold, and the mute, drain, prefill,
-  resume sequence exists only as prose.
+  resume sequence exists only as prose. Blocks finishing that state machine,
+  not starting it.
 
 ## Behaviour gaps
 
@@ -78,7 +88,8 @@ relitigated by accident.
 
 ## Not blocked
 
-Four of the five tasks the original handoff proposed depend on none of the
+**Nothing blocks starting.** Four of the five tasks the original handoff
+proposed depend on none of the
 above: the bridge read interface, the word unpacker with tag hunting, the host
 pump, and the testbench. Only the clock-domain crossing touched the open list,
 and [0011](decisions/0011-pack-three-samples-per-fifo-word.md) settled its
