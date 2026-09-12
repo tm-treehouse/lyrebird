@@ -1,0 +1,67 @@
+# ---- OS / editor ----
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# ---- KiCad ----
+# Commit: .kicad_pro .kicad_sch .kicad_pcb .kicad_sym .pretty/ .kicad_dru
+# Ignore: local state, autosave, locks, caches
+*.kicad_prl
+*-backups/
+_autosave-*
+*.lck
+~*.*#
+fp-info-cache
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*.net
+
+# Fab output is regenerated from source; tag a release instead of committing it.
+# Drop a dated zip in hardware/fab/ and force-add it if a board is actually built.
+hardware/fab/**
+!hardware/fab/.gitkeep
+!hardware/fab/README.md
+
+# ---- FPGA build (Yosys / nextpnr / Project Trellis) ----
+hdl/build/
+*.json.tmp
+*.blif
+*.asc
+*.config
+*.bit
+*.svf
+*.rpt
+*.vcd
+*.fst
+*.ghw
+abc.history
+
+# Yosys netlist output lives in hdl/build/, but catch strays
+hdl/**/*_synth.json
+hdl/**/*_pnr.json
+
+# ---- Simulation (cocotb / Icarus / Verilator) ----
+sim_build/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+results.xml
+obj_dir/
+*.o
+*.d
+
+# ---- Host driver (C/C++) ----
+host/build/
+*.a
+*.so
+*.dylib
+*.exe
+compile_commands.json
+.cache/
+
+# ---- Local scratch ----
+scratch/
+*.wav
+!docs/**/*.wav
