@@ -1,0 +1,6 @@
+# Simulation and analysis environment.
+# cocotb 2.x removed cocotb.fork and renamed the Clock `units` argument to
+# `unit`, so 1.x examples will not run unchanged.
+cocotb>=2.1
+numpy>=1.26
+pytest>=8.0

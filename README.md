@@ -45,13 +45,18 @@ contract between the two boards.
 
 - **PCB** — KiCad
 - **FPGA** — Cologne Chip GateMate CCGM1A1, Yosys plus nextpnr-himbaechel via
-  Project Peppercorn, both prebuilt in the OSS CAD Suite
-- **Simulation** — cocotb over Icarus or Verilator
+  Project Peppercorn
+- **Simulation** — Verilator with cocotb, driven by `hdl/sim/run.py`
 - **Host** — C against FTDI D3XX
+
+See [0013](docs/decisions/0013-simulation-and-build-toolchain.md) for verified
+versions and which tools are still missing locally.
 
 ## Status
 
-Skeleton only. Nothing is implemented yet.
+Both toolchain paths are proven end to end on the first module,
+`lyrebird_tag_decode`: eight passing cocotb tests under Verilator, and a clean
+GateMate mapping through Yosys.
 
 Supports 44.1 through 192 kHz, switched at runtime by an in-band control word.
 Bus powered from a single USB cable, with precision regulation confined to the

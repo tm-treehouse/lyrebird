@@ -6,7 +6,7 @@ See [0008](../docs/decisions/0008-multibit-delta-sigma-with-dwa.md).
 
 - `rtl/` — synthesizable sources only.
 - `constraints/` — pinout and timing. One file per board revision.
-- `sim/` — cocotb testbenches.
+- `sim/` — cocotb testbenches and the Verilator runner.
 - `build/` — Yosys and nextpnr output. Git-ignored.
 
 ## Signal chain
@@ -136,12 +136,50 @@ kilohertz, so one multiplier can be time-shared across many taps.
 
 ## Verification
 
-The modulator can be qualified before any board exists. Run it in a testbench,
-sum the element lines in the model exactly as the resistors will, take an FFT,
-and measure in-band signal-to-noise and distortion. Deliberately mismatch the
-element weights in the model to confirm the rotation is actually converting that
-mismatch into out-of-band noise. Also drive deliberate word drops on the FT601Q
-side to exercise tag resync.
+Verilator with cocotb. See
+[0013](../docs/decisions/0013-simulation-and-build-toolchain.md).
+
+```
+python hdl/sim/run.py              # every suite
+python hdl/sim/run.py tag_decode   # one suite
+WAVES=1 python hdl/sim/run.py      # dump FST waveforms
+```
+
+Sources are SystemVerilog restricted to the subset Yosys accepts: `logic`,
+`always_ff`, `always_comb`, `localparam`. No interfaces, no packed structs.
+Verilator would take more, but the same files have to synthesise.
+
+**Two tiers, deliberately.** Functional tests live in cocotb: protocol
+handshakes, tag resync, control word decoding, underrun behaviour, the lock
+state machine. Short, event-driven, and far easier in Python than in an HDL
+testbench.
+
+The audio measurement does not use cocotb. Reading 28 element lines from Python
+every cycle makes the binding the bottleneck rather than the simulator. Dump
+the element lines from the simulation and analyse them in numpy afterwards,
+which means you simulate once and analyse many times. Testing the rotation
+against a dozen mismatch distributions then costs one simulation rather than
+twelve.
+
+The measurement itself: sum the element lines exactly as the resistors will,
+take an FFT, and read in-band signal-to-noise and distortion. Deliberately
+mismatch the weights to confirm the rotation converts that into out-of-band
+noise rather than in-band distortion. Separately, drive word drops on the
+bridge side to exercise tag resync.
+
+**Verilator is two-state**, so it will not show X propagation and will happily
+simulate a design whose reset is incomplete. Do not rely on it to catch
+uninitialised state.
+
+## Build
+
+```
+tools/synth.sh <toplevel> [sources...]
+```
+
+Yosys with `synth_gatemate`, then nextpnr-himbaechel. The script stops after
+synthesis with a message when place-and-route is unavailable, which keeps it
+useful for resource counts.
 
 ## Clock routing, and the one pinout constraint
 
@@ -174,6 +212,4 @@ bypass straight to the mesh.
 Verified against the Yosys GateMate blackbox library and the nextpnr GateMate
 clock packer, not just the datasheet.
 
-## Build
 
-Nothing wired up yet. Scripts land in `tools/`.

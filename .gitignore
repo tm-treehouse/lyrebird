@@ -61,6 +61,10 @@ host/build/
 compile_commands.json
 .cache/
 
+# ---- Python environment ----
+.venv/
+venv/
+
 # ---- Local scratch ----
 scratch/
 *.wav
