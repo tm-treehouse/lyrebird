@@ -13,7 +13,7 @@ result.
 
 | Signal | Direction | Purpose |
 | --- | --- | --- |
-| `MCLK` | module to main | Audio master clock from whichever oscillator is enabled |
+| `MCLK` | module to main | Element clock, the enabled oscillator divided by two |
 | `ELEM[31:0]` | main to module | Thermometer element lines, see allocation below |
 | `OSC_EN_441` | main to module | Enable the 22.5792 MHz oscillator |
 | `OSC_EN_48` | main to module | Enable the 24.576 MHz oscillator |
@@ -43,10 +43,17 @@ element matching rotation and must not be assumed stable.
 
 ## Rules
 
-**Logic levels are 2.5 V.** This is set by the GateMate GPIO banks, which are
-LVCMOS up to 2.5 V and are not 3.3 V tolerant. See
+**Logic levels on the header are 2.5 V.** This is set by the GateMate GPIO
+banks, which are LVCMOS up to 2.5 V and are not 3.3 V tolerant. See
 [0005](../docs/decisions/0005-ft601q-bridge-io-voltage.md). Nothing on the main
 board is safe above 2.75 V.
+
+**The module's own domain is 3.3 V**, including the oscillators, the clock
+chain and the element reference rail. A translator on the module converts
+`MCLK`, `OSC_EN_441` and `OSC_EN_48` at the boundary. It lives on the module
+side deliberately, so the mezzanine never carries 3.3 V. The element lines are
+not translated; the registers' input threshold accepts 2.5 V directly. See
+[0012](../docs/decisions/0012-module-clock-architecture.md).
 
 **Every element line is reclocked on the module** before it reaches a resistor,
 by a flip-flop clocked from the module oscillator and powered from the reference

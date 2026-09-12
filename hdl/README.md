@@ -22,7 +22,7 @@ FT601Q words ──> elastic buffer ──> interpolation ──> modulator ─�
 | Domain | Source | Contents |
 | --- | --- | --- |
 | 66.67 MHz | `CLK` from the FT601Q | FIFO read handshake, word unpacker |
-| `MCLK` | Output module oscillator | Interpolator, modulator, DWA, element output |
+| `MCLK` | Module oscillator, divided by two | Interpolator, modulator, DWA, element output |
 
 Only two domains. The sample rate is a divided enable inside the `MCLK` domain
 rather than a clock of its own, so the modulator and the sample tick share one

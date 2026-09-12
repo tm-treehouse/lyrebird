@@ -17,14 +17,12 @@ than leaving both.
 
 ## Blocking a schematic
 
-- **Oscillator supply voltage.** The most likely source of a wrong purchase.
-  The reclocking registers sit on the element reference rail and the FPGA is not
-  3.3 V tolerant, so the master clock must be 2.5 V logic. Translating it adds
-  the jitter the architecture exists to avoid. Many good low-jitter oscillators
-  are 3.3 V parts.
-- **Element reference rail voltage.** Assumed 2.5 V throughout, including when
-  deriving the 8 uV noise target, but not actually forced to match the header
-  logic level. Raising it raises full scale.
+- **Fanout and divider part.** Divides the oscillator by two and distributes
+  the element clock to two register packages with tight skew, on the clean
+  3.3 V rail. Constrained by
+  [0012](decisions/0012-module-clock-architecture.md); no part chosen.
+- **Register part.** The logic family is constrained to one whose input
+  threshold is 2.0 V at a 3.3 V supply, in a 16-bit package. No part chosen.
 - **Element resistor value.** Thin film and arrays are specified; the value is
   not.
 - **Op amp, charge pump, headphone amplifier.** No parts chosen.

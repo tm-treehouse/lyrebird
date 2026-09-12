@@ -1,6 +1,8 @@
 # 0008 — Multi-bit delta-sigma with dynamic element matching
 
-**Status:** accepted
+**Status:** accepted. The 2.5 V element reference rail assumed here, including
+in the noise target, is superseded by
+[0012](0012-module-clock-architecture.md), which moves it to 3.3 V.
 
 ## Context
 

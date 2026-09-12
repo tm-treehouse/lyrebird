@@ -19,3 +19,4 @@ What is *not* decided lives in [../open-items.md](../open-items.md).
 | [0009](0009-usb-bus-power.md) | USB bus power, and which rails are precision |
 | [0010](0010-192khz-and-control-word.md) | 192 kHz support and an in-band control word. Buffer sizing corrected by 0011 |
 | [0011](0011-pack-three-samples-per-fifo-word.md) | Pack three samples per 80-bit FIFO word |
+| [0012](0012-module-clock-architecture.md) | Module clock architecture and a 3.3 V element rail. Supersedes 0008's 2.5 V rail |

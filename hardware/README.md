@@ -77,13 +77,28 @@ There is no DAC chip. The FPGA runs the modulator; this board turns element
 lines into an analog waveform. See
 [0008](../docs/decisions/0008-multibit-delta-sigma-with-dwa.md).
 
-| Section | Role |
+| Section | Part or role |
 | --- | --- |
-| Audio oscillators | 22.5792 and/or 24.576 MHz. One runs at a time |
-| Reclocking flip-flops | Every element line, clocked by the oscillator, on the reference rail |
+| Audio oscillators | Crystek CCHD-957 at 49.152 and 45.1584 MHz. One runs, the other in standby |
+| Divider and fanout | Divide by two to the element clock, distribute with tight skew |
+| Level translator | 74AVC4T245, 2.5 V toward the connector, 3.3 V toward the module |
+| Reclocking registers | One 16-bit package per channel, on the element reference rail |
 | Matched resistors | Summing network, 28 elements for three-bit differential stereo |
 | Reconstruction filter | Passive, before the op amp |
 | Output stage | Differential to single-ended, then line and/or headphone |
+
+**The module domain is 3.3 V**, the header stays at 2.5 V, and the translator
+sits on this side of the boundary so the mezzanine never carries 3.3 V. Full
+scale is therefore 3.3 V rather than 2.5 V, worth about 2.4 dB. See
+[0012](../docs/decisions/0012-module-clock-architecture.md).
+
+Two oscillators are required because the sample rate families sit at a ratio of
+147 to 160, which no divider bridges. They run at twice the element clock
+because jitter expressed in time improves with carrier frequency, and because a
+16 ns round trip through the translator would leave only about 4 ns of setup
+margin at the undivided rate. The standby pin shuts the resonator down rather
+than only gating the output, which is what keeps an idle oscillator from
+radiating next to the analog section.
 
 ### Reclocking
 
@@ -106,6 +121,13 @@ one clock-to-output distribution. Even-order cancellation depends on the two
 sides matching, so this is worth protecting. Decouple at the package, because
 that supply pin is where the element switching current actually comes from.
 
+**Choose a logic family whose input threshold is 2.0 V at a 3.3 V supply.** The
+registers sit on the 3.3 V rail but their data inputs are driven at 2.5 V by
+the FPGA, which guarantees 2.4 V. A family referencing its threshold to 0.7
+times the supply would sit at 2.31 V and be marginal. This is why the element
+lines need no translators, which would otherwise mean seven more packages
+injecting skew into the signals least able to tolerate it.
+
 ### The element reference rail
 
 **This is a voltage reference, not a logic supply.** Each element contributes
@@ -115,7 +137,7 @@ it rides on the signal as modulation sidebands instead of sitting under it as a
 floor.
 
 For a dynamic range near 110 dB, rail noise wants to be about 110 dB below the
-rail, which on 2.5 V is roughly 8 uV across the audio band. Good low-noise
+rail, which on 3.3 V is roughly 10 uV across the audio band. Good low-noise
 regulators reach that and generic ones do not. This is the one place in the
 design where the specific regulator part matters.
 
