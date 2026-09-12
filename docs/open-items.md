@@ -12,7 +12,6 @@ than leaving both.
 | Item | Where | Note |
 | --- | --- | --- |
 | LTM4622 run-pin behaviour | [0009](decisions/0009-usb-bus-power.md) | Design the enumeration gating in; verify before trusting the sequencing |
-| Bitstream size | [0006](decisions/0006-configuration-from-spi-flash.md) | Circular: comes from a first build. Oversize the flash and move on |
 | Connector pin assignment | [interface.md](../hardware/interface.md) | Waits on layout by design |
 
 ## Blocking a schematic
@@ -32,6 +31,9 @@ than leaving both.
 - **Whether to provision an unpopulated quad-SPI PSRAM footprint**, six pins,
   as insurance against a future requirement. See
   [0011](decisions/0011-pack-three-samples-per-fifo-word.md).
+- **Whether to use git-lfs** for `hardware/datasheets/`. The tool is installed
+  but the repository is not configured for it, and that decision is much
+  cheaper before the directory fills with multi-megabyte PDFs than after.
 
 ## Blocking HDL
 

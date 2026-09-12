@@ -69,6 +69,39 @@ happily simulate a design whose reset behaviour is incomplete. Do not rely on
 it to catch uninitialised state. It also rejects delays in synthesisable code,
 which is a feature here.
 
+## The build flow, and one non-obvious requirement
+
+```
+yosys  -luttree  ->  nextpnr-himbaechel  ->  gmpack  ->  openFPGALoader
+```
+
+**`synth_gatemate -luttree` is required, not optional.** Without it ABC maps
+logic to `CC_LUT4`, and nextpnr-himbaechel rejects that cell type outright.
+The fabric's native element is a LUT tree, so synthesis has to target
+`CC_L2T4`/`CC_L2T5`. The failure is a hard error well into place-and-route,
+with a message that does not point at the cause.
+
+**Place-and-route refuses to run without a CCF pin constraints file.** There is
+an `allow-unconstrained` override, which is useful for resource counts and
+never valid for hardware. See [hdl/constraints/README.md](../../hdl/constraints/README.md),
+which also records the clock-pin trap from
+[0012](0012-module-clock-architecture.md): a clock on an ordinary pin silently
+falls back to fabric routing rather than erroring.
+
+**The OSS CAD Suite is sourced per shell, never added to PATH permanently.** It
+ships its own Yosys, 0.69+24 against the 0.67 from Homebrew, and having both on
+PATH means losing track of which one built a given artifact. `tools/synth.sh`
+sources its `environment` script and honours an `OSS_CAD_SUITE` override.
+
+### Bitstream size, which settles a flash question
+
+An essentially empty design, 0 percent of the logic fabric, already packs to
+**97,566 bytes**. That suggests the configuration is close to fixed-size rather
+than scaling with utilisation, so the full design will land in the same
+ballpark. A 2 Mbit flash gives roughly two and a half times headroom and costs
+no more than something smaller, which closes the sizing question left open in
+[0006](0006-configuration-from-spi-flash.md).
+
 ## Environment as verified
 
 | Tool | Status |
@@ -80,19 +113,24 @@ which is a feature here.
 | numpy, scipy, matplotlib | installed in `.venv` |
 | GTKWave | installed, reads the FST dumps from `WAVES=1` |
 | clang, make, cmake | installed |
-| nextpnr-himbaechel | **missing**, needed before any hardware |
-| openFPGALoader | **missing**, needed before any hardware |
-| FTDI D3XX library | **missing**, needed for host work |
+| nextpnr-himbaechel, with CCGM1A1 and CCGM1A2 databases | installed via OSS CAD Suite |
+| gmpack, gmunpack | installed via OSS CAD Suite |
+| openFPGALoader 1.1.1 | installed |
+| git-lfs 3.8.0 | installed, repository not yet configured to use it |
+| FTDI D3XX library | universal dylib, arm64 native confirmed; not yet vendored |
 | git-lfs | **missing**, worth deciding before `hardware/datasheets/` fills |
 
-`tools/synth.sh` runs synthesis and stops with a clear message when
-place-and-route is unavailable, so the synthesis half stays useful for resource
-counts and for catching anything the simulator accepts but the fabric will not.
+Homebrew has no generic nextpnr, only `nextpnr-ice40`, so the OSS CAD Suite is
+the only practical route to the GateMate target. Its build recipes include
+Project Peppercorn and the GateMate database generator.
+
+KiCad 10.0.6 is installed but `kicad-cli` is not linked; it lives at
+`/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli`.
 
 ## Consequences
 
-The first module through both paths was `lyrebird_tag_decode`, with eight
-passing tests and a clean GateMate mapping. Worth noting what synthesis found:
-52 output bits collapsed into 28 flip-flops, because the sample field and the
-control opcode and payload are the same 24 bits of the word and only one of
+The first module through both paths was `lyrebird_tag_decode`: eight passing
+tests, and a complete run from source to bitstream. Worth noting what synthesis
+found: 52 output bits collapsed into 28 flip-flops, because the sample field and
+the control opcode and payload are the same 24 bits of the word and only one of
 them is ever valid.
