@@ -64,12 +64,16 @@ for status or control later.
 
 ## Wire format
 
-One padded sample per bus word, with all four byte enables asserted.
+One padded sample per bus word, with all four byte enables asserted. Four word
+types, distinguished by the tag byte. See
+[0010](../docs/decisions/0010-192khz-and-control-word.md).
 
-```
-DATA[31:24]  tag       0xA5 = left, 0x5A = right
-DATA[23:0]   sample    24-bit, signed
-```
+| Tag | Direction | Payload |
+| --- | --- | --- |
+| `0xA5` | in | Left sample, 24-bit signed in `DATA[23:0]` |
+| `0x5A` | in | Right sample, same |
+| `0xC3` | in | Control: opcode in `DATA[23:16]`, payload in `DATA[15:0]` |
+| `0x3C` | out | Status, on the transmit direction |
 
 On a 32-bit bus with word-aligned transfers the interface preserves word
 boundaries, so the single-dropped-byte failure mode that motivated the tags no
@@ -77,6 +81,27 @@ longer really applies. The tags stay because they recover L/R alignment if a
 whole word is lost, and because they cost nothing. Require several consecutive
 well-formed words before declaring lock, since real audio can contain the tag
 values in the sample bits.
+
+Control words are inline, so they take effect in stream order. `SET_RATE`
+discards buffered audio, because samples already in the elastic buffer belong
+to the old rate: mute, drain, reconfigure, prefill, resume.
+
+## Sample rates
+
+| Rate | Oscillator | Ratio | Half-band stages |
+| --- | --- | --- | --- |
+| 44.1 / 88.2 / 176.4 kHz | 22.5792 MHz | 512 / 256 / 128 | 9 / 8 / 7 |
+| 48 / 96 / 192 kHz | 24.576 MHz | 512 / 256 / 128 | 9 / 8 / 7 |
+
+The modulator always runs at the oscillator rate, so noise shaping is fixed in
+absolute frequency and audible-band performance does not vary with sample rate.
+Only the interpolator changes, and the stages line up so that a higher rate
+simply bypasses stages from the front. Changing rate within a family needs no
+oscillator settling; crossing families does.
+
+Volume is digital and lives here, applied inside the interpolation chain at
+full internal precision rather than to the incoming PCM, so truncation lands at
+the modulator input where it is shaped.
 
 ## The elastic buffer
 
@@ -86,15 +111,18 @@ empty, almost-full and almost-empty flags, and exposed pointers. That is the
 clock-domain crossing and the prefill threshold as a hard block rather than
 fabric to write and verify. It requires the 40K configuration.
 
-Sizing, at 96 kHz stereo and 24 bits, storing one sample per 40-bit entry:
+Prefill absorbs host scheduling jitter, which is a time-domain problem, so the
+buffer is sized in milliseconds and the sample count scales with rate. Size for
+the worst case, storing one sample per 40-bit entry:
 
-| Prefill | Blocks, of 32 available |
-| --- | --- |
-| 50 ms | 10 |
-| 100 ms | 19 |
+| Prefill | 96 kHz | 192 kHz |
+| --- | --- | --- |
+| 50 ms | 10 blocks | 20 blocks |
+| 100 ms | 19 blocks | 38, does not fit |
 
-At 48 kHz both halve. Interpolator delay lines and coefficients are small next
-to this; the elastic buffer remains the only resource meaningfully consumed.
+Thirty-two blocks exist, so 192 kHz caps prefill near 80 ms. This is the only
+resource in the design that is genuinely constrained. Interpolator delay lines
+and coefficients are small next to it.
 
 ## Resources
 

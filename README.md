@@ -52,6 +52,7 @@ the contract between the two boards.
 
 Skeleton only. Nothing is implemented yet.
 
+Supports 44.1 through 192 kHz, switched at runtime by an in-band control word.
 Bus powered from a single USB cable, with precision regulation confined to the
 three module rails that reach the signal. Three-bit differential drive is a
 recommendation rather than a measurement, which is why 32 element lines are
