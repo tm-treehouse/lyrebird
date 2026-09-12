@@ -16,12 +16,38 @@ than leaving both.
 
 ## Blocking a schematic
 
+Found by auditing unconnected pins in the generated netlists, not by reading
+this list, so treat the netlist as the authority on what is missing.
+
+### Selected but not yet in the netlist
+
+- **LTM4622.** Chosen in [0009](decisions/0009-usb-bus-power.md) for the 1.0 V
+  core and 2.5 V I/O rails, but absent from `main_board.py`, so both rails
+  currently have no source. It is also not in the stock KiCad libraries, so it
+  needs a symbol as well as wiring.
+- **SPI flash.** Size settled at 2 Mbit by
+  [0013](decisions/0013-simulation-and-build-toolchain.md), part not chosen and
+  not wired. The configuration mode pins are strapped but the flash they read
+  from does not exist yet.
+- **Programming header.** The JTAG pins are unconnected.
+- **Ferrite at the USB input**, named in
+  [0009](decisions/0009-usb-bus-power.md), not in the netlist.
+
+### Never chosen at all
+
+- **USB connector.** Both the USB 2.0 pair and the SuperSpeed pairs on the
+  bridge are unconnected. No connector selected.
+- **Bridge crystal**, plus its load capacitors. The crystal pins are open.
+- **Bridge reference resistor** on `RREF`, a precision value from its
+  datasheet.
+- **Power-on reset network** for `POR_ADJ` and `POR_EN`, which the GateMate
+  datasheet gives a formula for.
 - **Fanout and divider part.** Divides the oscillator by two and distributes
   the element clock to two register packages with tight skew, on the clean
   3.3 V rail. Constrained by
-  [0012](decisions/0012-module-clock-architecture.md); no part chosen.
-- **Register part.** The logic family is constrained to one whose input
-  threshold is 2.0 V at a 3.3 V supply, in a 16-bit package. No part chosen.
+  [0012](decisions/0012-module-clock-architecture.md).
+- **Register part.** Constrained to a family whose input threshold is 2.0 V at
+  a 3.3 V supply, in a 16-bit package. No stock symbol exists either.
 - **Element resistor value.** Thin film and arrays are specified; the value is
   not.
 - **Op amp, charge pump, headphone amplifier.** No parts chosen.
