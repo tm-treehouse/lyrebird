@@ -1,0 +1,54 @@
+========================================================================
+INTERPOLATION CASCADE  (48 kHz family)
+========================================================================
+stage      in kHz     out kHz   taps   nonzero   ripple dB   stop dB
+    1        48.0        96.0    163        83     0.00001    -122.1
+    4       384.0       768.0     27        15     0.00000    -133.6
+    5       768.0      1536.0     15         9     0.00000    -130.3
+    6      1536.0      3072.0     11         7     0.00000    -135.6
+    7      3072.0      6144.0     11         7     0.00000    -168.9
+    8      6144.0     12288.0      7         5     0.00000    -140.7
+    9     12288.0     24576.0      7         5     0.00000    -163.6
+
+    48.0 kHz  ratio  512  stages 9  first 1
+      passband ripple  34.9 micro-dB p-p, -15.0 micro-dB at 20 kHz
+      worst image      -122.1 dB at 26.3 kHz
+      multipliers      2.86 at the element clock, 70.2 MAC/s
+      storage          62 coefficient words, 567 delay words
+      group delay      1501 us
+    96.0 kHz  ratio  256  stages 8  first 2
+      passband ripple  22.6 micro-dB p-p, -8.4 micro-dB at 20 kHz
+      worst image      -122.1 dB at 52.6 kHz
+      multipliers      2.78 at the element clock, 68.3 MAC/s
+      storage          62 coefficient words, 404 delay words
+      group delay      657 us
+   192.0 kHz  ratio  128  stages 7  first 3
+      passband ripple  15.0 micro-dB p-p, -2.2 micro-dB at 20 kHz
+      worst image      -122.1 dB at 105.2 kHz
+      multipliers      2.62 at the element clock, 64.3 MAC/s
+      storage          62 coefficient words, 241 delay words
+      group delay      235 us
+
+
+========================================================================
+MODULATOR ORDER SWEEP  (fs 24.576 MHz, 1000 Hz tone, band 20-20000 Hz, N=2^20)
+========================================================================
+order     MSA   amp dBFS    SNR dB   SNDR dB   stable
+    2   0.996       -3.0     126.4     126.3     True
+    3   0.918       -3.7     168.2     168.1     True
+    4   0.855       -4.4     204.3     204.2     True
+    5   0.818       -4.7     215.5     215.3     True
+
+--> lowest order meeting the 110 dB target: 2
+
+========================================================================
+ELEMENT MISMATCH AND ROTATION  (order 2, N=2^21)
+========================================================================
+element loading: min 7, max 7  (must be constant at 7)
+
+  sigma   rotation    SNR dB   SNDR dB    THD dB
+   0.0%         on     127.0     126.9    -144.4
+   0.1%         on     127.0     126.9    -144.3
+   0.1%        off     110.2      77.1     -77.1
+   1.0%         on     126.5     126.4    -142.5
+   1.0%        off      90.2      57.1     -57.1

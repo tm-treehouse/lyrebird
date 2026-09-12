@@ -69,3 +69,6 @@ venv/
 scratch/
 *.wav
 !docs/**/*.wav
+
+# ---- Model ----
+model/**/__pycache__/
