@@ -21,6 +21,12 @@ There is no global routing, which is the part that cannot be automated and
 where SKiDL's own schematic generator hangs on the 324-ball part. Two-pin nets
 route as an L, three-pin nets as a comb to a shared vertical.
 
+**Layout is packed to roughly a square rather than run out in a strip.** Each
+cluster is arranged as a compact block, and the blocks are shelf-packed to
+about the proportions of a sheet of paper. The main board reads as 663 by
+706 mm across 14 bands; laid out as a single row it was 1765 mm wide across
+five, which is not something anyone can follow.
+
 Regenerate after the netlist changes:
 
 ```sh

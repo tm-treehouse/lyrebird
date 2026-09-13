@@ -22,6 +22,7 @@ The result opens in the schematic editor and is meant for reading the circuit.
 The netlist remains the source of truth, so edits here are overwritten.
 """
 
+import math
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -265,23 +266,62 @@ def main(netlist, outpath):
         return (max(p[1] for p in ps) - min(p[1] for p in ps),
                 max(p[2] for p in ps) - min(p[2] for p in ps))
 
-    pos = {}
-    x, y, rowh = 40.0, 40.0, 0.0
+    # A cluster is laid out as a compact block rather than a row. A row of
+    # twenty parts is a strip nobody can read; roughly square keeps a cluster
+    # scannable and keeps its wires short.
+    PAD_X, PAD_Y = 30.0, 26.0
+
+    def cluster_block(group):
+        n = len(group)
+        cols = max(1, int(math.ceil(math.sqrt(n))))
+        cells = [(r, *extent(r)) for r in group]
+        colw = [0.0] * cols
+        rowh = []
+        for i in range(0, n, cols):
+            row = cells[i:i + cols]
+            rowh.append(max(c[2] for c in row) + PAD_Y)
+            for j, c in enumerate(row):
+                colw[j] = max(colw[j], c[1] + PAD_X)
+        placements = []
+        yoff = 0.0
+        for i in range(0, n, cols):
+            row = cells[i:i + cols]
+            xoff = 0.0
+            for j, (ref, w, h) in enumerate(row):
+                placements.append((ref, xoff + colw[j] / 2,
+                                   yoff + rowh[i // cols] / 2, w, h))
+                xoff += colw[j]
+            yoff += rowh[i // cols]
+        return placements, sum(colw), yoff
+
+    blocks = []
     for group in clusters:
-        gw = sum(max(extent(r)[0] + 34.0, 44.0) for r in group)
-        gh = max(extent(r)[1] for r in group) + 34.0
-        if x + gw > SHEET_W and x > 40.0:
-            x, y, rowh = 40.0, y + rowh + 12.0, 0.0
-        gx = x
-        for r in group:
-            w, h = extent(r)
-            cw = max(w + 34.0, 44.0)
-            cx = round((gx + cw / 2) / GRID) * GRID
-            cy = round((y + gh / 2) / GRID) * GRID
-            pos[r] = (cx, cy, w, h)
-            gx += cw
-        x += gw + 16.0
-        rowh = max(rowh, gh)
+        pl, bw, bh = cluster_block(group)
+        blocks.append((pl, bw, bh))
+
+    # Shelf-pack the blocks to roughly the proportions of a sheet of paper,
+    # instead of running off to the right until a fixed width is hit.
+    # Shelf packing wastes roughly a third of the area, so aim wider than the
+    # bare area would suggest to land near a landscape sheet.
+    total = sum(bw * bh for _, bw, bh in blocks)
+    target_w = max(math.sqrt(total * 2.0), max(b[1] for b in blocks) + 20.0)
+
+    pos = {}
+    x, y, shelf_h = 20.0, 20.0, 0.0
+    max_x = 0.0
+    for pl, bw, bh in blocks:
+        if x + bw > target_w and x > 20.0:
+            x, y, shelf_h = 20.0, y + shelf_h + 14.0, 0.0
+        for ref, dx, dy, w, h in pl:
+            cx = round((x + dx) / GRID) * GRID
+            cy = round((y + dy) / GRID) * GRID
+            pos[ref] = (cx, cy, w, h)
+        x += bw + 14.0
+        max_x = max(max_x, x)
+        shelf_h = max(shelf_h, bh)
+
+    sheet_w = round(max_x + 20.0)
+    sheet_h = round(y + shelf_h + 20.0)
 
     body, uid = [], [0]
 
@@ -367,7 +407,7 @@ def main(netlist, outpath):
             labelled += 1
 
     out = ('(kicad_sch\n\t(version 20231120)\n\t(generator "lyrebird")\n'
-           f'\t(uuid "{nid()}")\n\t(paper "User" {SHEET_W} {SHEET_H})\n'
+           f'\t(uuid "{nid()}")\n\t(paper "User" {sheet_w} {sheet_h})\n'
            + "\n".join(body) + "\n)\n")
     Path(outpath).write_text(out)
     print(f"  {len(pos)} symbols, {drawn} nets wired, {labelled} pin labels, "
