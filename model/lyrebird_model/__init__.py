@@ -7,7 +7,9 @@ channel -> weighted sum -> analog output.
 The fixed facts of the design live in :mod:`lyrebird_model.chain`; everything
 else in this package is a measurement of a choice made against them.
 
-Submodules: chain, spectra, halfband, modulator, dwa.
+Submodules: chain, spectra, halfband, modulator, dwa, datapath,
+endtoend.
 """
 
-__all__ = ["chain", "spectra", "halfband", "modulator", "dwa"]
+__all__ = ["chain", "spectra", "halfband", "modulator", "dwa", "datapath",
+           "endtoend"]

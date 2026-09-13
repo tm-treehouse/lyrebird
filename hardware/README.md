@@ -173,6 +173,15 @@ tolerance matters much less than intuition suggests. One percent parts work,
 and slow temperature drift is handled for free because it is slow compared to
 the rotation.
 
+**But it is not free, and an earlier version of this note overstated it.** The
+model measured the cost of one percent mismatch at order 2, where the
+modulator's own floor hides the rotation residual. At the recommended order 3
+it costs 33 dB, not the fraction of a decibel first reported. The result still
+lands around 135 dB, comfortably past the 110 dB target, so one percent parts
+remain adequate. What changes is which component sets the floor: above order 2
+it is element matching, not the modulator. See
+[model/README.md](../model/README.md).
+
 What the rotation does not fix is nonlinearity within a single resistor.
 Voltage coefficient is real in thick film and small in thin film, so specify
 thin film and do not let a purchasing substitution quietly change it. Prefer

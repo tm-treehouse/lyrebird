@@ -189,11 +189,18 @@ class Run:
 
 
 def simulate(ntf: NTF, u: np.ndarray, fs: float, f_sig: float = 0.0,
-             state_limit: float = 1e4) -> Run:
+             state_limit: float = 1e4,
+             dither: np.ndarray | None = None) -> Run:
     """Run the CIFB-with-feedforward loop over the input record.
 
     Pure Python loop on purpose: the recursion is sequential and there is no
     vectorised form. About 1.1 s per 2**20 samples at order 5.
+
+    ``dither`` is added at the quantizer input, inside the loop, so the
+    feedback shapes it the way it shapes quantization error and it leaves the
+    audio band. Dither added to ``u`` instead passes straight through, because
+    the signal transfer function is exactly 1. See :func:`dither_sequence` and
+    the limit-cycle measurement in ``run_endtoend.py``.
     """
     L = ntf.order
     a = [float(v) for v in ntf.a]
@@ -204,9 +211,12 @@ def simulate(ntf: NTF, u: np.ndarray, fs: float, f_sig: float = 0.0,
     clipped = 0
     stable = True
     uu = np.asarray(u, dtype=np.float64)
+    dd = None if dither is None else np.asarray(dither, dtype=np.float64)
     for i in range(n):
         ui = uu[i]
         y = ui + x[L - 1]
+        if dd is not None:
+            y += dd[i]
         k = int(np.floor(3.5 * y + 4.0))
         if k < 0:
             k = 0
@@ -231,6 +241,19 @@ def simulate(ntf: NTF, u: np.ndarray, fs: float, f_sig: float = 0.0,
     out = (2.0 * codes.astype(np.float64) - 7.0) / 7.0
     return Run(codes=codes, out=out, state_peak=np.array(peak), clipped=clipped,
                stable=stable, amp=float(np.max(np.abs(uu))), f_sig=f_sig, fs=fs)
+
+
+def dither_sequence(n: int, lsb_fraction: float = 0.5,
+                    seed: int | None = None) -> np.ndarray:
+    """RPDF dither for the quantizer input, scaled in quantizer LSBs.
+
+    One LSB here is ``2/7``, the spacing of the eight output levels. The
+    quantizer is multi-bit, so dither at a fraction of an LSB costs almost
+    nothing in noise -- and what it does cost the loop shapes out of the audio
+    band, because it is injected inside the feedback.
+    """
+    rng = np.random.default_rng(seed)
+    return lsb_fraction * LSB * (rng.random(n) - 0.5)
 
 
 def tone(n: int, fs: float, f_target: float, amp_dbfs: float) -> tuple[np.ndarray, float]:
