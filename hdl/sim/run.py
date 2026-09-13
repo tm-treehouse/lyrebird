@@ -27,6 +27,35 @@ SUITES = {
     # Framing and resync on top of the tag decoder.
     "unpack": ("lyrebird_unpack",
                ["lyrebird_unpack.sv", "lyrebird_tag_decode.sv"]),
+    # The FT601Q read handshake, and the elastic buffer behind it. Both drive
+    # lyrebird_sim_rx, which is scaffolding: the real bus reader, unpacker and
+    # elastic buffer wired end to end with the transmit direction tied off, so
+    # the BFM attaches unchanged and the buffer is fed real bus words. It also
+    # sizes the buffer down, since a suite here cannot override parameters.
+    # CC_FIFO_40K comes from lyrebird_sim_cc_fifo_40k.sv, a model of the hard
+    # block; the Yosys one mis-addresses 80-bit SDP. See that file.
+    "ft601q_read": (
+        "lyrebird_sim_rx",
+        [
+            "lyrebird_sim_rx.sv",
+            "lyrebird_ft601q_read.sv",
+            "lyrebird_unpack.sv",
+            "lyrebird_tag_decode.sv",
+            "lyrebird_elastic.sv",
+            "lyrebird_sim_cc_fifo_40k.sv",
+        ],
+    ),
+    "elastic": (
+        "lyrebird_sim_rx",
+        [
+            "lyrebird_sim_rx.sv",
+            "lyrebird_ft601q_read.sv",
+            "lyrebird_unpack.sv",
+            "lyrebird_tag_decode.sv",
+            "lyrebird_elastic.sv",
+            "lyrebird_sim_cc_fifo_40k.sv",
+        ],
+    ),
     # Self-tests for the reusable test infrastructure: the FT601Q bus
     # functional model and the element sinks. The toplevel here is simulation
     # scaffolding, not design RTL.
