@@ -176,11 +176,32 @@ the rotation.
 **But it is not free, and an earlier version of this note overstated it.** The
 model measured the cost of one percent mismatch at order 2, where the
 modulator's own floor hides the rotation residual. At the recommended order 3
-it costs 33 dB, not the fraction of a decibel first reported. The result still
-lands around 135 dB, comfortably past the 110 dB target, so one percent parts
-remain adequate. What changes is which component sets the floor: above order 2
-it is element matching, not the modulator. See
-[model/README.md](../model/README.md).
+it costs 33 dB, not the fraction of a decibel first reported. What changes is
+which component sets the floor: above order 2 it is element matching, not the
+modulator.
+
+**Specify the ratio tolerance, not the absolute tolerance.** The rotation
+averages the elements against each other, so what matters is how closely the
+seven match, and an element's absolute value only sets overall gain, which
+nothing here depends on. An array at one percent absolute with a tenth of a
+percent ratio spec beats half-percent discretes comfortably. Arrays are
+specified this way precisely because it is the number that matters.
+
+Measured end-to-end, order 3, averaged over three element draws:
+
+| Matching | 48 kHz | 96 kHz | 192 kHz |
+| --- | --- | --- | --- |
+| perfect | 138.1 dB | 141.1 dB | 138.1 dB |
+| 0.05% | 138.0 dB | 141.0 dB | 137.9 dB |
+| 0.1% | 138.0 dB | 140.8 dB | 137.6 dB |
+| 0.5% | 135.8 dB | 137.0 dB | 133.5 dB |
+| 1% | 132.2 dB | 132.6 dB | 129.9 dB |
+
+Two things to read off it. Tightening from one percent to half buys about 4 dB,
+not the 6 dB a halving suggests, because the 24-bit source floor is already
+close underneath. And tightening past a tenth of a percent buys nothing at all:
+at that point the source sets the floor and better resistors are wasted money.
+See [model/README.md](../model/README.md).
 
 What the rotation does not fix is nonlinearity within a single resistor.
 Voltage coefficient is real in thick film and small in thin film, so specify
