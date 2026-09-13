@@ -14,6 +14,17 @@
   "modulator": {
     "order": 3,
     "topology": "CIFB with input feedforward",
+    "state_bits": [
+      28,
+      20,
+      20
+    ],
+    "state_int_bits": 1,
+    "state_frac_bits": [
+      26,
+      18,
+      18
+    ],
     "coeff_bits": 24,
     "coeff_frac_bits": 22,
     "a": [

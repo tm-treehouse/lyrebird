@@ -514,10 +514,8 @@ carry are all untested. 0010 warns that high-level material above 20 kHz eats
 modulator headroom, and the passband-edge rows in the headroom table are the
 only evidence collected against that.
 
-**The modulator's own arithmetic is not sized.** The interpolator's datapath is
-measured; the integrator word widths, the loop filter's own coefficient widths,
-and the effect of truncating them are not. Peak integrator states were recorded
-and they are small, which is the CIFB-with-feedforward topology doing what its
+**The modulator's arithmetic is sized**, by `run_modarith.py`. Peak integrator
+states are small, which is the CIFB-with-feedforward topology doing what its
 docstring claims -- every integrator is driven by the loop error, not by the
 signal, so the states never carry the audio:
 
@@ -529,6 +527,37 @@ signal, so the states never carry the audio:
 So the states need no integer bits beyond the sign over the range measured.
 That is a starting point for sizing, not a size: how many fractional bits they
 need, and what happens when the loop coefficients are truncated, is untested.
+
+### Modulator word widths
+
+| | Total bits | Sign | Integer | Fractional |
+| --- | --- | --- | --- | --- |
+| Feedback coefficients | 10 | 1 | 1 | 8 |
+| Integrator 1 state | 28 | 1 | 1 | 26 |
+| Integrators 2 and 3 | 20 | 1 | 1 | 18 |
+
+**Only the first integrator needs a wide word, and that is the opposite of the
+obvious guess.** Holding all three at 20 bits and widening one to 28 gains
+42.3 dB if it is the first and 0.1 to 0.3 dB if it is either of the others.
+Rounding at the first integrator is integrated twice more before it reaches the
+quantizer, so it is amplified at low frequency; rounding at the last is not
+integrated at all. Sizing per integrator rather than flat costs 68 bits of
+state instead of 84.
+
+**The integer bit is required, not margin.** Near the maximum stable input the
+third integrator reaches between 0.8 and 1.13 depending on how the coefficients
+round, so zero integer bits would overflow. One gives a range of plus or minus
+two.
+
+**The coefficients need far less than they are exported at.** Ten bits total
+holds full performance, against the 24 in the export. The export is not wrong,
+only generous; narrowing it is free if the multiplier size ever matters.
+
+Checked against tones at 1, 6 and 19 kHz and against the inter-sample probe at
+its maximum stable level, with no overflow in any case. Tones below about
+200 Hz cannot be measured at this transform length, because at 23.4 Hz bins the
+signal and its harmonics occupy the whole lower band; their peak states and
+overflow counts are still valid.
 
 **Volume is not modelled.** 0010 puts a 16-bit linear gain inside the chain at
 full internal precision. Where exactly it goes, and what a deep cut does to the

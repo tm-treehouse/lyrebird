@@ -11,6 +11,9 @@ package lyrebird_coeffs_pkg;
     localparam int ModOrder     = 3;
     localparam int ModCoeffBits = 24;
     localparam int ModCoeffFrac = 22;
+    localparam int ModStateInt  = 1;
+    localparam int ModStateBits [0:2] = '{28, 20, 20};
+    localparam int ModStateFrac [0:2] = '{26, 18, 18};
 
     localparam logic signed [23:0] ModA [0:2] = '{
         24'sd739297, 24'sd3202025, 24'sd5610492

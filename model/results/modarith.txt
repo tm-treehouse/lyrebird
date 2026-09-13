@@ -1,0 +1,48 @@
+Reference, effectively unquantized: 168.0 dB
+
+Coefficient width, states held wide
+  total bits      SNDR    loss
+          10     168.1    -0.1
+          12     167.9     0.1
+          14     168.4    -0.4
+          16     168.4    -0.4
+          20     168.7    -0.7
+          24     168.0     0.0
+  -> 10 bits total is enough
+
+Which integrator needs the width: all at 20 bits, widen one to 28
+         widened      SNDR    gain
+            none     124.2       -
+    integrator 1     166.3    42.2
+    integrator 2     124.0    -0.2
+    integrator 3     124.1    -0.0
+  -> only the first. Rounding there is integrated twice more before
+     it reaches the quantizer, so it is amplified at low frequency;
+     rounding at the last integrator is not integrated at all.
+
+Integrators 2 and 3, with the first held at 28 bits (cap 166.5 dB)
+  total bits      SNDR   below cap
+          12     126.4        40.1
+          14     138.5        28.1
+          16     150.5        16.0
+          18     160.5         6.0
+          20     166.3         0.2
+          22     166.2         0.3
+  -> 20 bits total is enough
+
+Check: coefficients 10 bits, states [28, 20, 20] bits
+                   input      SNDR    ovf               peak states
+       1000 Hz  -3.7     166.3      0     [0.070, 0.266, 0.340]
+       6000 Hz  -3.7     166.4      0     [0.068, 0.259, 0.348]
+      19000 Hz  -3.7     169.8      0     [0.068, 0.257, 0.344]
+       1000 Hz  -0.9     165.5      0     [0.100, 0.520, 0.823]
+            inter-sample       n/a      0     [0.050, 0.210, 0.279]
+
+  Tones below about 200 Hz are not measurable here: at 23.4 Hz bins
+  the signal and its harmonics occupy the whole lower band. Their
+  peak states and overflow counts are still valid.
+
+  One integer bit is required, not optional. The largest state seen
+  above is 0.82, near the maximum stable input, and it moves
+  with the coefficient rounding: an earlier sweep reached 1.13. Zero
+  integer bits would overflow; one gives range +/-2.

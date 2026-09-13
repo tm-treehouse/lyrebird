@@ -85,6 +85,12 @@ def main() -> int:
                       "elements_per_side": chain.N_ELEMENTS},
         "modulator": {
             "order": len(ntf.a), "topology": "CIFB with input feedforward",
+            # From run_modarith.py. Only the first integrator needs the wide
+            # word: rounding there is integrated twice more before reaching
+            # the quantizer, so it is amplified at low frequency.
+            "state_bits": [28, 20, 20],
+            "state_int_bits": 1,
+            "state_frac_bits": [26, 18, 18],
             "coeff_bits": MOD_BITS,
             "coeff_frac_bits": MOD_FRAC,
             "a": [q(float(v), MOD_BITS, MOD_FRAC) for v in ntf.a],
@@ -118,6 +124,9 @@ def main() -> int:
           f'    localparam int ModOrder     = {len(ntf.a)};',
           f'    localparam int ModCoeffBits = {MOD_BITS};',
           f'    localparam int ModCoeffFrac = {MOD_FRAC};',
+          f'    localparam int ModStateInt  = 1;',
+          "    localparam int ModStateBits [0:2] = '{28, 20, 20};",
+          "    localparam int ModStateFrac [0:2] = '{26, 18, 18};",
           '']
     sv.append(f'    localparam logic signed [{MOD_BITS-1}:0] '
               f'ModA [0:{len(ntf.a)-1}] = \'{{')
