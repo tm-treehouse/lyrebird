@@ -34,7 +34,10 @@ respin. The two boards revise independently, which is the point of the split.
 | --- | --- |
 | FT601Q | USB 3.0 bridge, QFN-76, 32-bit FIFO. VCCIO on the 2.5 V rail |
 | GateMate CCGM1A1 | FPGA, BGA324 15x15 mm. GPIO banks on the same 2.5 V rail |
-| SPI flash | FPGA configuration, SPI Active mode |
+| MX25R6435F | 64 Mbit quad SPI flash, FPGA configuration, SPI Active mode |
+| LTM4622 | Dual switching module, the 2.5 V and 1.0 V rails |
+| USB 3.0 Micro-B | Bus power and data, one cable |
+| 30 MHz crystal | The bridge's only clock source; an oscillator will not do |
 
 Roughly 43 pins face the bridge and 32 are provisioned for element lines to the
 mezzanine, against 162 single-ended GPIO. Put the element outputs in their own
@@ -208,6 +211,23 @@ GateMate selects its configuration mode by strapping `CFG_MD[3:0]` to GND or
 VDD_WA at reset. This design uses SPI Active, so the FPGA loads itself from
 flash with no host involvement. A separate header carries the programming
 interface. See [0006](../docs/decisions/0006-configuration-from-spi-flash.md).
+
+**The flash is an MX25R6435F, 64 Mbit.** Two things fix that. The bitstream
+scales with utilisation rather than being a fixed image
+([0013](../docs/decisions/0013-simulation-and-build-toolchain.md)), so the
+2 Mbit an earlier revision called ample is not; and Cologne Chip's own
+evaluation board for this die fits exactly this part at exactly this size.
+Its 1.65 to 3.6 V supply range is the other half of the choice: `VDD_WA` is
+2.5 V and an ordinary 2.7 to 3.6 V flash cannot run there.
+
+**Power-on reset is deliberate rather than default.** `POR_EN` goes to
+`VDD_WA` and `RST_N` to `VDD_CLK`, as the datasheet's figure 3.4 has it, and
+`POR_ADJ` carries a 47 k to `VDD_CLK` with 2.2 uF to ground. Against the
+internal 133 k / 75 k divider the datasheet's formula gives about 19.4 ms of
+release delay, which clears the 4.3 ms programmed soft start on the 2.5 V
+rail by better than four times. Keeping R3a at or below 100 k is the
+datasheet's own condition for the network never latching the part in reset,
+so it only sets the release time.
 
 ## Committing KiCad
 

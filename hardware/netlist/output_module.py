@@ -30,6 +30,21 @@ N_USED = 28
 PER_CH = 14          # 7 positive + 7 negative
 
 
+def _res(a, b, value):
+    r = Part("Device", "R", value=value,
+             footprint="Resistor_SMD:R_0402_1005Metric")
+    r[1] += a
+    r[2] += b
+    return r
+
+
+def _cap(a, b, value, footprint="Capacitor_SMD:C_0805_2012Metric"):
+    c = Part("Device", "C", value=value, footprint=footprint)
+    c[1] += a
+    c[2] += b
+    return c
+
+
 def build():
     lp.setup()
     gnd = Net("GND"); gnd.drive = 7
@@ -37,6 +52,14 @@ def build():
     v3v3_clk = Net("+3V3_CLK")     # clock chain, its own regulator
     v3v3_ref = Net("+3V3_REF")     # element reference: sets full scale
     vpos = Net("+5V_A"); vneg = Net("-5V_A")
+    # The A side of the translator, the header-facing domain, has to be 2.5 V
+    # and the header only carries +5V and ground (interface.md), so the
+    # module regulates it. It is a logic supply, not a reference: nothing on
+    # it reaches the signal.
+    v2v5 = Net("+2V5")
+    # Oscillator enables after translation, in the module's 3.3 V domain.
+    osc_en = {"OSC_EN_48": Net("OSC_EN_48_3V3"),
+              "OSC_EN_441": Net("OSC_EN_441_3V3")}
 
     # ---- Mezzanine header, mating with the main board's J2
     mez = Part("Connector_Generic", "Conn_02x40_Odd_Even", ref="J1",
@@ -77,7 +100,7 @@ def build():
         y["Vdd"] += v3v3_clk
         y["GND"] += gnd
         y["OUT"] += osc_out
-        y["EN"] += ctrl[en]
+        y["EN"] += osc_en[en]
 
     # ---- Divide by two to the element clock. Higher carrier gives lower
     # absolute jitter; dividing keeps those edges (0012).
@@ -106,11 +129,34 @@ def build():
     for p in tr.pins:
         nm = str(p.name)
         if nm.startswith("VCCA"):
-            p += Net("+2V5")
+            p += v2v5
         elif nm.startswith("VCCB"):
             p += v3v3_clk
         elif nm == "GND":
             p += gnd
+
+    # Bank 1 carries the element clock back to the FPGA: B to A, so 1DIR is
+    # low and 1OE low. This is the only path MCLK may take. Wiring ELEM_CLK
+    # straight to the header would put a 3.3 V edge on a GateMate clock ball
+    # whose absolute maximum is 2.75 V, and the assertion at the end of this
+    # function exists because that is exactly what an earlier revision did.
+    tr["1DIR"] += gnd
+    tr["1~{OE}"] += gnd
+    tr["1B1"] += elem_clk
+    tr["1A1"] += mclk_out
+    # The spare channel's input is tied rather than left floating; its output
+    # side, 1A2, stays open.
+    tr["1B2"] += gnd
+
+    # Bank 2 carries the two oscillator enables outward: A to B, 2DIR high.
+    # DIR and OE are referenced to VCC(A), so they strap to the 2.5 V rail or
+    # ground and never to 3.3 V (0012).
+    tr["2DIR"] += v2v5
+    tr["2~{OE}"] += gnd
+    tr["2A1"] += ctrl["OSC_EN_48"]
+    tr["2B1"] += osc_en["OSC_EN_48"]
+    tr["2A2"] += ctrl["OSC_EN_441"]
+    tr["2B2"] += osc_en["OSC_EN_441"]
 
     # ---- Reclocking registers, one package per channel so both polarities
     # share a die (0012). PLACEHOLDER SYMBOL: stock octal; the real part is a
@@ -141,11 +187,13 @@ def build():
     sum_p, sum_n = Net("SUM_P"), Net("SUM_N")
     reg_d = [[p for p in r.pins if str(p.name).startswith("D")] for r in regs]
     reg_q = [[p for p in r.pins if str(p.name).startswith("Q")] for r in regs]
-    arrays = []
-    for k in range(4):
-        ra = Part("Device", "R_Network08", ref=f"RN{k+1}", value="1k thin film",
-                  footprint="Resistor_SMD:R_Array_Concave_4x0402")
-        arrays.append(ra)
+    # R_Network08 was the wrong symbol: it is a bussed array with a single
+    # common terminal, so all 28 elements and both summing nodes resolved to
+    # one net. R_Pack04 is four isolated elements, which is what the concave
+    # 4x0402 footprint has pads for anyway. Seven packages cover 28 elements.
+    arrays = [Part("Device", "R_Pack04", ref=f"RN{k+1}", value="1k thin film",
+                   footprint="Resistor_SMD:R_Array_Concave_4x0402")
+              for k in range(7)]
 
     e = 0
     for ch in range(2):                     # L, R
@@ -159,20 +207,25 @@ def build():
                 d = reg_d[ch * 2 + side]
                 if j < len(d):
                     elem[e] += d[j]          # FPGA line into the register
-                ra = arrays[e // 8]
-                pins = list(ra.pins)
-                a = pins[(e % 8) * 2] if len(pins) >= 16 else pins[e % 8]
-                b = pins[(e % 8) * 2 + 1] if len(pins) >= 16 else pins[-1]
+                ra = arrays[e // 4]
+                k = e % 4                    # R_Pack04 pairs pins k+1 and 8-k
                 if j < len(q):
-                    q[j] += a                # register output drives resistor
-                b += node                    # resistor into the summing node
+                    q[j] += ra[k + 1]        # register output drives resistor
+                ra[8 - k] += node            # resistor into the summing node
                 e += 1
 
     # ---- Precision rails. The element reference sets full scale and carries
     # the element switching current, which no regulator loop can track, so it
     # gets its own part and heavy local decoupling (0012, hardware/README.md).
-    for ref, out, val in (("U5", v3v3_ref, "LT3045 element reference"),
-                          ("U6", v3v3_clk, "LT3045 clock chain")):
+    # V_OUT = 100 uA * R_SET. 33.2k and 24.9k are E96 values, giving 3.32 V
+    # and 2.49 V. Neither absolute value matters: the reference rail sets
+    # full scale but full scale is whatever it is, and what the design cares
+    # about is the noise on it. SET was previously left open on all of these,
+    # which means they had no programmed output voltage.
+    for ref, out, val, rset in (
+            ("U5", v3v3_ref, "LT3045 element reference", "33.2k 0.1%"),
+            ("U6", v3v3_clk, "LT3045 clock chain", "33.2k 0.1%"),
+            ("U9", v2v5, "LT3045 header-side 2.5 V", "24.9k 0.1%")):
         u = Part("Regulator_Linear", "LT3045xDD", ref=ref, value=val,
                  footprint="Package_DFN_QFN:DFN-12-1EP_3x3mm_P0.45mm_EP1.65x2.38mm")
         for p in u.pins:
@@ -183,6 +236,8 @@ def build():
                 p += out
             elif nm == "GND":
                 p += gnd
+        lp.lt3045_housekeeping(u, v5, gnd, rset, _res, _cap)
+        _cap(out, gnd, "10uF")
 
     # ---- Output stage. Differential to single-ended, which the differential
     # element drive gives for free (0008).
@@ -219,7 +274,17 @@ def build():
     # ---- Module identity: combined line and headphone is 0b11; line only is
     # 0b01 (hardware/interface.md). Strapped for line only until the module
     # variant is decided.
-    ctrl["ID0"] += v3v3_ref
+    #
+    # ID0 straps to the module's 2.5 V logic rail, never to the element
+    # reference. That rail is 3.3 V and this net runs across the header to a
+    # GateMate input whose absolute maximum is 2.75 V; an earlier revision
+    # shorted the two. 1k against the 10k pull-down on the main board gives
+    # 2.27 V, which is a valid high, and the series resistance means no
+    # damage if the main board ever drives the pin.
+    r = Part("Device", "R", value="1k",
+             footprint="Resistor_SMD:R_0402_1005Metric")
+    r[1] += ctrl["ID0"]
+    r[2] += v2v5
     r = Part("Device", "R", value="10k",
              footprint="Resistor_SMD:R_0402_1005Metric")
     r[1] += ctrl["ID1"]
@@ -232,7 +297,15 @@ def build():
                  footprint="Capacitor_SMD:C_0402_1005Metric")
         c[1] += v3v3_ref
         c[2] += gnd
-    mclk_out += elem_clk
+
+    # ---- Same assertion as the main board. The header is 2.5 V logic by
+    # contract and carries +5V deliberately; everything else on it must be
+    # unable to exceed 2.75 V (interface.md, 0012).
+    import builtins
+    lp.assert_below_abs_max(
+        builtins.default_circuit,
+        hv_rails={"+5V", "+3V3_CLK", "+3V3_REF", "+5V_A", "-5V_A"},
+        protected={mez: {"+5V"}})
 
 
 def main() -> int:

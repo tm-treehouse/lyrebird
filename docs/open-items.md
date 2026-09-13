@@ -11,7 +11,8 @@ than leaving both.
 
 | Item | Where | Note |
 | --- | --- | --- |
-| LTM4622 run-pin behaviour | [0009](decisions/0009-usb-bus-power.md) | Design the enumeration gating in; verify before trusting the sequencing |
+| LTM4622 run-pin behaviour | [0009](decisions/0009-usb-bus-power.md) | Gating is now designed in and only channel 2, the core rail, is switched: channel 1 feeds the bridge's own `VCCIO`, so gating it would remove the supply for the pin doing the gating. `WAKEUP_N` drives it through an inverting NMOS. The caveat that keeps this open is that `WAKEUP_N` means "bus not suspended", not "enumeration complete", so it releases earlier than the one unit load rule strictly wants. Verify against silicon |
+| LTM4622 footprint | `hardware/symbols/` | The symbol exists; the LGA-25 land pattern does not. Pad size is a manufacturer number, not a guess |
 | Connector pin assignment | [interface.md](../hardware/interface.md) | Waits on layout by design |
 
 ## Blocking a schematic
@@ -19,31 +20,38 @@ than leaving both.
 Found by auditing unconnected pins in the generated netlists, not by reading
 this list, so treat the netlist as the authority on what is missing.
 
-### Selected but not yet in the netlist
+### Closed
 
-- **LTM4622.** Chosen in [0009](decisions/0009-usb-bus-power.md) for the 1.0 V
-  core and 2.5 V I/O rails, but absent from `main_board.py`, so both rails
-  currently have no source. It is also not in the stock KiCad libraries, so it
-  needs a symbol as well as wiring.
-- **SPI flash.** Part not chosen and not wired, and the size is no longer
-  settled: [0013](decisions/0013-simulation-and-build-toolchain.md) now shows
-  the bitstream scales with utilisation rather than being fixed, so 2 Mbit is
-  not safely ample. Size it once something near the full design builds. The
-  configuration mode pins are strapped but the flash they read from does not
-  exist yet.
-- **Programming header.** The JTAG pins are unconnected.
-- **Ferrite at the USB input**, named in
-  [0009](decisions/0009-usb-bus-power.md), not in the netlist.
+The main board's connectivity gaps are wired. The LTM4622 has a symbol in
+`hardware/symbols/lyrebird.kicad_sym` and sources both switching rails; the
+flash is an MX25R6435F at 64 Mbit, which is what Cologne Chip's own board for
+this die fits and which runs at the 2.5 V `VDD_WA` where an ordinary 2.7 V
+part cannot; the JTAG pins go to a 2x5 header; the ferrite is at `VBUS`; a
+USB 3.0 Micro-B receptacle carries both the 2.0 pair and the SuperSpeed
+pairs; the crystal, its load capacitors and the `RREF` resistor are fitted to
+datasheet values; and the power-on reset network is sized from the GateMate
+formula. The FT601Q is down to one open pin, the one its datasheet says not
+to connect.
+
+Three real errors surfaced while wiring it, all now fixed: the bridge's
+`AVDD` was on 3.3 V when it is a 1.0 V PLL supply with a 1.4 V absolute
+maximum; every LT3045 had `SET` open, so no rail had a programmed voltage;
+and the bridge's `GPIO[1:0]` FIFO mode straps were not strapped.
+
+The mezzanine had two of its own, both of which put 3.3 V on pins rated
+2.5 V: the element clock went straight to the header instead of through the
+translator, and `ID0` was strapped to the 3.3 V element reference rail. The
+translator's signal pins were not wired at all, which is what let the clock
+bypass it. `assert_below_abs_max` in `hardware/netlist/lyrebird_parts.py`
+now fails the build on this whole class of error.
 
 ### Never chosen at all
 
-- **USB connector.** Both the USB 2.0 pair and the SuperSpeed pairs on the
-  bridge are unconnected. No connector selected.
-- **Bridge crystal**, plus its load capacitors. The crystal pins are open.
-- **Bridge reference resistor** on `RREF`, a precision value from its
-  datasheet.
-- **Power-on reset network** for `POR_ADJ` and `POR_EN`, which the GateMate
-  datasheet gives a formula for.
+- **A 2.5 V rail on the module.** Surfaced by the translator fix: `VCC(A)`
+  faces the header and must be 2.5 V, but the header carries only +5 V and
+  ground, so the module has to regulate its own. A fourth LT3045 is in the
+  netlist as the consistent choice; whether it deserves a cheaper part is
+  open, since nothing on it reaches the signal.
 - **Fanout and divider part.** Divides the oscillator by two and distributes
   the element clock to two register packages with tight skew, on the clean
   3.3 V rail. Constrained by
@@ -51,8 +59,12 @@ this list, so treat the netlist as the authority on what is missing.
 - **Register part.** Constrained to a family whose input threshold is 2.0 V at
   a 3.3 V supply, in a 16-bit package. No stock symbol exists either.
 - **Element resistor value.** Thin film and arrays are specified; the value is
-  not.
-- **Op amp, charge pump, headphone amplifier.** No parts chosen.
+  not. The symbol is now `R_Pack04`, four isolated elements, rather than
+  `R_Network08`, which is a bussed array with one common terminal and
+  collapsed all 28 elements and both summing nodes onto a single net.
+- **Op amp, charge pump, headphone amplifier.** No parts chosen. This is why
+  the LT3094's input pins are still open in the netlist: it post-regulates a
+  charge pump that does not exist yet.
 - **Reconstruction filter.** Topology and corner frequency.
 - **Which module to build first.** Line, headphone, or combined. The ID
   encoding in [interface.md](../hardware/interface.md) supports all three.
