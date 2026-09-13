@@ -81,3 +81,7 @@ model/**/__pycache__/
 *.erc
 *.log
 hardware/*/lyrebird-*.xml
+
+# ---- KiCad session state ----
+.history/
+*.kicad_prl
