@@ -25,10 +25,12 @@ this list, so treat the netlist as the authority on what is missing.
   core and 2.5 V I/O rails, but absent from `main_board.py`, so both rails
   currently have no source. It is also not in the stock KiCad libraries, so it
   needs a symbol as well as wiring.
-- **SPI flash.** Size settled at 2 Mbit by
-  [0013](decisions/0013-simulation-and-build-toolchain.md), part not chosen and
-  not wired. The configuration mode pins are strapped but the flash they read
-  from does not exist yet.
+- **SPI flash.** Part not chosen and not wired, and the size is no longer
+  settled: [0013](decisions/0013-simulation-and-build-toolchain.md) now shows
+  the bitstream scales with utilisation rather than being fixed, so 2 Mbit is
+  not safely ample. Size it once something near the full design builds. The
+  configuration mode pins are strapped but the flash they read from does not
+  exist yet.
 - **Programming header.** The JTAG pins are unconnected.
 - **Ferrite at the USB input**, named in
   [0009](decisions/0009-usb-bus-power.md), not in the netlist.

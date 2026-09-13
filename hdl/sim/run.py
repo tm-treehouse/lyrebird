@@ -23,6 +23,10 @@ SIM = Path(__file__).resolve().parent
 # suite name -> (toplevel module, source files)
 SUITES = {
     "tag_decode": ("lyrebird_tag_decode", ["lyrebird_tag_decode.sv"]),
+
+    # Framing and resync on top of the tag decoder.
+    "unpack": ("lyrebird_unpack",
+               ["lyrebird_unpack.sv", "lyrebird_tag_decode.sv"]),
     # Self-tests for the reusable test infrastructure: the FT601Q bus
     # functional model and the element sinks. The toplevel here is simulation
     # scaffolding, not design RTL.

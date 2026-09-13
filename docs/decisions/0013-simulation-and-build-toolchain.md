@@ -93,14 +93,23 @@ ships its own Yosys, 0.69+24 against the 0.67 from Homebrew, and having both on
 PATH means losing track of which one built a given artifact. `tools/synth.sh`
 sources its `environment` script and honours an `OSS_CAD_SUITE` override.
 
-### Bitstream size, which settles a flash question
+### Bitstream size scales with utilisation
 
-An essentially empty design, 0 percent of the logic fabric, already packs to
-**97,566 bytes**. That suggests the configuration is close to fixed-size rather
-than scaling with utilisation, so the full design will land in the same
-ballpark. A 2 Mbit flash gives roughly two and a half times headroom and costs
-no more than something smaller, which closes the sizing question left open in
-[0006](0006-configuration-from-spi-flash.md).
+| Design | CPE_LT | CPE_FF | Bitstream |
+| --- | --- | --- | --- |
+| `lyrebird_tag_decode` | 94 | 28 | 97,566 bytes |
+| `lyrebird_unpack` | 290 | 92 | 184,050 bytes |
+
+**An earlier revision of this record claimed configuration was close to
+fixed-size and concluded a 2 Mbit flash was ample. That was drawn from a single
+data point and is wrong.** Roughly three times the logic produced nearly twice
+the bitstream, so the format is not a flat image of the whole fabric.
+
+Both designs are still under one percent of the part, and the real design adds
+an interpolator, a modulator, the rotation and the elastic buffer. Do not pick
+a flash part until something close to the full design has been built and
+measured. 2 Mbit leaves only about 1.4 times headroom over the second figure
+here, which is too thin to commit to.
 
 ## Environment as verified
 
