@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "lyrebird")(type "KiCad")(uri "${KIPRJMOD}/footprints/lyrebird.pretty")(options "")(descr "Footprints drawn for this project"))
+)
