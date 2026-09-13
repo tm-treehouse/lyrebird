@@ -75,21 +75,32 @@ now fails the build on this whole class of error.
   but the repository is not configured for it, and that decision is much
   cheaper before the directory fills with multi-megabyte PDFs than after.
 
-## Outputs of the modelling task, not blockers
+## Answered by the modelling, and no longer open
 
-These three were previously listed as blocking HDL, which had it backwards.
-They are what the numerical model of the audio chain produces. None of them is
-an input to starting it, and none can sensibly be decided in isolation, because
-they only mean anything measured as a chain.
+Order 3, cascade of integrators with feedback and the input fed forward. Nine
+half-band stages, 163 taps falling to 7, coefficient widths 26 bits down to 8.
+Plain rotation, which one percent elements cost 33 dB without and 0.5 dB with.
+The interpolator datapath at 28 bits with accumulators of 35, 33 and 31, and
+the modulator's own states at 28, 20 and 20 bits.
 
-- **Modulator order and loop topology.** Three records call the order "modest"
-  and none give a number.
-- **Interpolation filter design.** Stage count is fixed at seven to nine by
-  [0010](decisions/0010-192khz-and-control-word.md); tap counts, passband
-  ripple and stopband attenuation are open. Most of the audio quality lives
-  here.
-- **Dynamic element matching rotation algorithm.** Plain rotation versus
-  something more sophisticated.
+All of it is measured in [model/README.md](../model/README.md) and exported to
+`model/export/coefficients.json`, with a generated SystemVerilog package so the
+RTL reads the same numbers rather than deriving its own.
+
+## Still open on the signal chain
+
+- **Volume.** [0010](decisions/0010-192khz-and-control-word.md) puts a 16-bit
+  linear gain inside the chain at full precision. Where in the chain it sits,
+  and what a deep cut does to the rounding budget, is untested.
+- **The rate-switch mechanism.** Bypassing stages from the front is the idea;
+  whether each stage carries its own bypass or a multiplexer sits between
+  stages is undecided, and it changes every stage's interface.
+- **Real material.** Every figure comes from a tone or the inter-sample probe.
+  The noise floor's shape under music has never been looked at.
+- **The low-frequency limit cycle.** One run in 36 lands 15 to 19 dB low with
+  all the excess below 100 Hz, and dither moves which run trips rather than
+  removing it. It changes no design parameter. It means a single in-band figure
+  cannot be trusted without the shape behind it.
 
 ## Blocking HDL
 
