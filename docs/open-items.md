@@ -92,9 +92,6 @@ RTL reads the same numbers rather than deriving its own.
 - **Volume.** [0010](decisions/0010-192khz-and-control-word.md) puts a 16-bit
   linear gain inside the chain at full precision. Where in the chain it sits,
   and what a deep cut does to the rounding budget, is untested.
-- **The rate-switch mechanism.** Bypassing stages from the front is the idea;
-  whether each stage carries its own bypass or a multiplexer sits between
-  stages is undecided, and it changes every stage's interface.
 - **Real material.** Every figure comes from a tone or the inter-sample probe.
   The noise floor's shape under music has never been looked at.
 - **The low-frequency limit cycle.** One run in 36 lands 15 to 19 dB low with

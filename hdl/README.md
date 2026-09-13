@@ -113,9 +113,37 @@ to the old rate: mute, drain, reconfigure, prefill, resume.
 
 The modulator always runs at the oscillator rate, so noise shaping is fixed in
 absolute frequency and audible-band performance does not vary with sample rate.
-Only the interpolator changes, and the stages line up so that a higher rate
-simply bypasses stages from the front. Changing rate within a family needs no
-oscillator settling; crossing families does.
+Only the interpolator changes.
+
+### Selecting the rate
+
+The host sends a `SET_RATE` control word. The control plane decodes it and
+drives one multiplexer in front of each stage; a stage has no bypass of its
+own and does not know which rate is running.
+
+**Every stage has one fixed rate pair, whatever the input rate.** Stage 3 takes
+192 kHz in and 384 kHz out at 48, 96 and 192 kHz alike. Only the source of its
+input changes: the previous stage's output, or the incoming samples. That is
+what makes a multiplexer in front sufficient, and it is why the stages could be
+built independently.
+
+| Rate | Stages | Enters at | Muxes fed from the stream |
+| --- | --- | --- | --- |
+| 48 kHz | 9 | stage 1 | stage 1 |
+| 96 kHz | 8 | stage 2 | stage 2 |
+| 192 kHz | 7 | stage 3 | stage 3 |
+
+The multiplier field of the rate payload is the select directly: entry stage is
+one plus the multiplier, so no decode table is needed. See
+[0010](../docs/decisions/0010-192khz-and-control-word.md).
+
+**Hold the stages upstream of the entry point in reset.** At 192 kHz stages 1
+and 2 have no valid input. Their outputs are not selected, so they cannot
+corrupt the audio, but stale state left in their delay lines would be heard on
+a later change down to 48 kHz. Reset is cheaper than reasoning about it.
+
+Changing rate within a family needs no oscillator settling; crossing families
+does.
 
 Volume is digital and lives here, applied inside the interpolation chain at
 full internal precision rather than to the incoming PCM, so truncation lands at
