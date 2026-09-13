@@ -1,11 +1,39 @@
 # Opening this in KiCad
 
-**There are no schematic files.** Not missing, not lost: the boards are
-described as code and never drawn. `netlist/` generates KiCad netlists
-directly, so there is nothing for the schematic editor to open, and there will
-not be unless someone decides to draw them. See
-[netlist/README.md](netlist/README.md) for why, including the note that SKiDL's
-own schematic generator was tried and does not complete on a 324-ball part.
+The boards are described as code, so nothing here was drawn by hand. Both a
+**schematic** and a **board** are generated from the netlist, and both open in
+KiCad.
+
+## To review the circuitry, open the schematic
+
+- `lyrebird-main-reva/lyrebird-main.kicad_sch` — 133 symbols
+- `lyrebird-dac-reva/lyrebird-dac.kicad_sch` — 42 symbols
+
+Every part appears as its real symbol with its reference and value, and **every
+pin carries a net label**. There are no drawn wires: you read connectivity from
+the labels rather than by following lines.
+
+That is deliberate. Routing wires into a readable drawing is the part that
+cannot be automated, and it is exactly where SKiDL's own schematic generator
+hangs on the 324-ball part. Labels sidestep it and stay legible at any size.
+
+Regenerate after the netlist changes:
+
+```sh
+./.venv/bin/python tools/netlist_to_schematic.py \
+    hardware/lyrebird-main-reva/lyrebird-main.net \
+    hardware/lyrebird-main-reva/lyrebird-main.kicad_sch
+```
+
+A PDF is often easier for reading away from the machine:
+
+```sh
+/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch export pdf \
+    --output /tmp/main.pdf hardware/lyrebird-main-reva/lyrebird-main.kicad_sch
+```
+
+The netlist stays the source of truth. The schematic is generated for reading,
+so edits to it will be overwritten.
 
 What you can open is a **board**, generated from the netlist. Both already
 exist:
