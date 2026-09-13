@@ -9,13 +9,17 @@ KiCad.
 - `lyrebird-main-reva/lyrebird-main.kicad_sch` — 133 symbols
 - `lyrebird-dac-reva/lyrebird-dac.kicad_sch` — 42 symbols
 
-Every part appears as its real symbol with its reference and value, and **every
-pin carries a net label**. There are no drawn wires: you read connectivity from
-the labels rather than by following lines.
+Every part appears as its real symbol with its reference and value.
 
-That is deliberate. Routing wires into a readable drawing is the part that
-cannot be automated, and it is exactly where SKiDL's own schematic generator
-hangs on the 324-ball part. Labels sidestep it and stay legible at any size.
+**Nets of two or three pins are drawn as wires**, and parts sharing one are
+placed next to each other so the wire is short. 119 of the main board's 125
+nets and 68 of the module's 82 are wired this way. Only ground, the supply
+rails and the element bus stay as labels, which is what a person does by hand:
+nobody draws a wire joining 245 ground pins.
+
+There is no global routing, which is the part that cannot be automated and
+where SKiDL's own schematic generator hangs on the 324-ball part. Two-pin nets
+route as an L, three-pin nets as a comb to a shared vertical.
 
 Regenerate after the netlist changes:
 
@@ -25,11 +29,12 @@ Regenerate after the netlist changes:
     hardware/lyrebird-main-reva/lyrebird-main.kicad_sch
 ```
 
-A PDF is often easier for reading away from the machine:
+A PDF of each is committed beside its board, and regenerates with:
 
 ```sh
 /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch export pdf \
-    --output /tmp/main.pdf hardware/lyrebird-main-reva/lyrebird-main.kicad_sch
+    --output hardware/lyrebird-main-reva/lyrebird-main-schematic.pdf \
+    hardware/lyrebird-main-reva/lyrebird-main.kicad_sch
 ```
 
 The netlist stays the source of truth. The schematic is generated for reading,

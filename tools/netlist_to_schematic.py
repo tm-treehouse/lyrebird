@@ -3,13 +3,23 @@
 
     ./.venv/bin/python tools/netlist_to_schematic.py <netlist.net> <out.kicad_sch>
 
-Symbols are placed on a grid and every pin gets a net label. There are no
-drawn wires: connectivity is read from the labels, which is how a generated
-schematic stays legible and is why SKiDL's own schematic generator, which
-tries to route wires, never completes on the 324-ball part.
+Nets of two or three pins are drawn as wires, and parts that share one are
+placed next to each other so the wire is short. Everything else gets a net
+label. That split is what a person does by hand: a decoupling capacitor is
+wired to the pin it decouples, and ground is a label, because a wire from 245
+ground pins to each other is not a drawing anyone can read.
 
-The result opens in the schematic editor and is meant for reading the circuit,
-not for driving layout. The netlist remains the source of truth.
+It also happens to cover almost everything. On these two boards 83 and 95
+percent of nets connect two or three pins; the rest are ground, the supply
+rails and the element bus.
+
+Wires are routed as an L between the two pins, or as a comb to a shared
+vertical for three. No attempt is made at global routing, which is the part
+that cannot be automated and where SKiDL's own schematic generator hangs on
+the 324-ball part.
+
+The result opens in the schematic editor and is meant for reading the circuit.
+The netlist remains the source of truth, so edits here are overwritten.
 """
 
 import sys
@@ -116,6 +126,40 @@ def load_lib(lib):
     return _libcache[lib]
 
 
+def resolve(lib, part, depth=0):
+    """A symbol with its inheritance flattened.
+
+    KiCad symbols may carry `(extends "BASE")`, inheriting the base's graphics
+    and pins while overriding properties. 74HCT574 does exactly this, and a
+    naive reader sees a symbol with no pins at all.
+    """
+    table = load_lib(lib)
+    sym = table.get(part)
+    if sym is None or depth > 4:
+        return sym
+    ext = kids(sym, "extends")
+    if not ext:
+        return sym
+    base = resolve(lib, ext[0][1], depth + 1)
+    if base is None:
+        return sym
+    # Base geometry and pins, under the derived name, with the derived
+    # symbol's own properties taking precedence.
+    own = {c[1] for c in kids(sym, "property") if len(c) > 1}
+    merged = [base[0], Q(part)]
+    for c in base[2:]:
+        if isinstance(c, list) and c and c[0] == "property" and \
+                len(c) > 1 and c[1] in own:
+            continue
+        if isinstance(c, list) and c and c[0] == "symbol" and len(c) > 1:
+            c = list(c)
+            c[1] = Q(str(c[1]).replace(str(base[1]), part, 1))
+        merged.append(c)
+    for c in kids(sym, "property"):
+        merged.append(c)
+    return merged
+
+
 def collect_pins(node, out):
     """Every pin anywhere under this symbol, with its connection point."""
     for c in node:
@@ -154,88 +198,180 @@ def main(netlist, outpath):
             for nd in kids(nnode, "node"):
                 pinnet[val(nd, "ref")][val(nd, "pin")] = name
 
+    nets = []
+    for b in kids(root, "nets"):
+        for nnode in kids(b, "net"):
+            nets.append((val(nnode, "name"),
+                         [(val(nd, "ref"), val(nd, "pin"))
+                          for nd in kids(nnode, "node")]))
+
     used, missing = {}, []
     for c in comps:
         key = f'{c["lib"]}:{c["part"]}'
         if key not in used:
-            sym = load_lib(c["lib"]).get(c["part"])
+            sym = resolve(c["lib"], c["part"])
             if sym is None:
                 missing.append(key)
             else:
                 used[key] = sym
 
-    body = []
-    uid = [0]
+    byref = {c["ref"]: c for c in comps}
+    pins_of = {}
+    for c in comps:
+        key = f'{c["lib"]}:{c["part"]}'
+        pins_of[c["ref"]] = collect_pins(used[key], []) if key in used else []
+
+    # A net is drawn as a wire when it joins two or three pins and is not a
+    # supply. Supplies and buses stay as labels; nobody draws 245 ground pins
+    # joined by wire.
+    wire_nets, label_nets = [], []
+    for name, nodes in nets:
+        supply = name.startswith(("+", "GND", "VBUS", "N$")) is False and False
+        is_supply = name.startswith(("+", "VBUS")) or name.startswith("GND")
+        if 2 <= len(nodes) <= 3 and not is_supply:
+            wire_nets.append((name, nodes))
+        else:
+            label_nets.append((name, nodes))
+
+    # Cluster parts joined by wired nets, so a wire stays short.
+    adj = defaultdict(set)
+    for _, nodes in wire_nets:
+        refs = [r for r, _ in nodes if r in pins_of]
+        for a in refs:
+            for b in refs:
+                if a != b:
+                    adj[a].add(b)
+    seen, clusters = set(), []
+    for c in comps:
+        r = c["ref"]
+        if r in seen or r not in pins_of:
+            continue
+        stack, group = [r], []
+        seen.add(r)
+        while stack:
+            cur = stack.pop()
+            group.append(cur)
+            for nb in sorted(adj[cur]):
+                if nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+        clusters.append(group)
+    clusters.sort(key=len, reverse=True)
+
+    def extent(ref):
+        ps = pins_of[ref]
+        if not ps:
+            return 10.0, 10.0
+        return (max(p[1] for p in ps) - min(p[1] for p in ps),
+                max(p[2] for p in ps) - min(p[2] for p in ps))
+
+    pos = {}
+    x, y, rowh = 40.0, 40.0, 0.0
+    for group in clusters:
+        gw = sum(max(extent(r)[0] + 34.0, 44.0) for r in group)
+        gh = max(extent(r)[1] for r in group) + 34.0
+        if x + gw > SHEET_W and x > 40.0:
+            x, y, rowh = 40.0, y + rowh + 12.0, 0.0
+        gx = x
+        for r in group:
+            w, h = extent(r)
+            cw = max(w + 34.0, 44.0)
+            cx = round((gx + cw / 2) / GRID) * GRID
+            cy = round((y + gh / 2) / GRID) * GRID
+            pos[r] = (cx, cy, w, h)
+            gx += cw
+        x += gw + 16.0
+        rowh = max(rowh, gh)
+
+    body, uid = [], [0]
 
     def nid():
         uid[0] += 1
         return f"00000000-0000-0000-0000-{uid[0]:012d}"
 
-    # lib_symbols, renamed to Lib:Part as the schematic format requires.
     libblock = ["\t(lib_symbols"]
     for key, sym in used.items():
-        s = list(sym)
-        s[1] = Q(key)
-        libblock.append("\t\t" + dump(s))
+        t = list(sym)
+        t[1] = Q(key)
+        libblock.append("\t\t" + dump(t))
     libblock.append("\t)")
     body.append("\n".join(libblock))
 
-    # Place, widest first so rows stay even.
-    sized = []
-    for c in comps:
+    for ref, (cx, cy, w, h) in pos.items():
+        c = byref[ref]
         key = f'{c["lib"]}:{c["part"]}'
-        if key not in used:
-            continue
-        pins = collect_pins(used[key], [])
-        w = (max((p[1] for p in pins), default=0) -
-             min((p[1] for p in pins), default=0))
-        h = (max((p[2] for p in pins), default=0) -
-             min((p[2] for p in pins), default=0))
-        sized.append((c, key, pins, w, h))
-    sized.sort(key=lambda t: (-t[4], t[0]["ref"]))
-
-    x, y, rowh = 30.0, 30.0, 0.0
-    placed = 0
-    for c, key, pins, w, h in sized:
-        cell_w = max(w + 40.0, 50.0)
-        cell_h = max(h + 30.0, 30.0)
-        if x + cell_w > SHEET_W:
-            x, y, rowh = 30.0, y + rowh, 0.0
-        cx = round((x + cell_w / 2) / GRID) * GRID
-        cy = round((y + cell_h / 2) / GRID) * GRID
-
         body.append(
             f'\t(symbol (lib_id "{key}") (at {cx} {cy} 0) (unit 1)\n'
-            f'\t\t(exclude_from_sim no) (in_bom yes) (on_board yes) '
-            f'(dnp no) (fields_autoplaced yes)\n'
+            f'\t\t(exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)\n'
             f'\t\t(uuid "{nid()}")\n'
-            f'\t\t(property "Reference" "{c["ref"]}" (at {cx} {cy - h/2 - 5} 0)\n'
+            f'\t\t(property "Reference" "{ref}" (at {cx} {cy - h/2 - 6.5} 0)\n'
             f'\t\t\t(effects (font (size 1.27 1.27))))\n'
-            f'\t\t(property "Value" "{c["value"]}" (at {cx} {cy + h/2 + 5} 0)\n'
+            f'\t\t(property "Value" "{c["value"]}" (at {cx} {cy + h/2 + 6.5} 0)\n'
             f'\t\t\t(effects (font (size 1.27 1.27))))\n'
-            f'\t\t(instances (project "" (path "/" (reference "{c["ref"]}") '
+            f'\t\t(instances (project "" (path "/" (reference "{ref}") '
             f'(unit 1))))\n\t)')
 
-        for num, px, py, ang in pins:
-            net = pinnet.get(c["ref"], {}).get(num)
-            if not net:
+    def pin_xy(ref, num):
+        cx, cy, _, _ = pos[ref]
+        for n, px, py, _ in pins_of[ref]:
+            if n == num:
+                return (round((cx + px) / GRID) * GRID,
+                        round((cy - py) / GRID) * GRID)
+        return None
+
+    def wire(a, b):
+        body.append(f'\t(wire (pts (xy {a[0]} {a[1]}) (xy {b[0]} {b[1]}))\n'
+                    f'\t\t(stroke (width 0) (type default)) (uuid "{nid()}"))')
+
+    def junction(pt):
+        body.append(f'\t(junction (at {pt[0]} {pt[1]}) (diameter 0)\n'
+                    f'\t\t(color 0 0 0 0) (uuid "{nid()}"))')
+
+    drawn = 0
+    for name, nodes in wire_nets:
+        pts = [pin_xy(r, pn) for r, pn in nodes if r in pos]
+        pts = [p for p in pts if p]
+        if len(pts) < 2:
+            continue
+        if len(pts) == 2:
+            a, b = pts
+            if a[0] == b[0] or a[1] == b[1]:
+                wire(a, b)
+            else:
+                corner = (a[0], b[1])
+                wire(a, corner)
+                wire(corner, b)
+        else:
+            # Comb: each pin runs horizontally to a shared vertical.
+            bus = round(sum(p[0] for p in pts) / len(pts) / GRID) * GRID
+            ys = [p[1] for p in pts]
+            wire((bus, min(ys)), (bus, max(ys)))
+            for p in pts:
+                if p[0] != bus:
+                    wire(p, (bus, p[1]))
+                junction((bus, p[1]))
+        drawn += 1
+
+    labelled = 0
+    for name, nodes in label_nets:
+        for r, pn in nodes:
+            if r not in pos:
                 continue
-            lx = round((cx + px) / GRID) * GRID
-            ly = round((cy - py) / GRID) * GRID
-            just = "right" if ang == 0 else "left"
+            pt = pin_xy(r, pn)
+            if not pt:
+                continue
             body.append(
-                f'\t(global_label "{net}" (shape passive) (at {lx} {ly} {int(ang)})\n'
-                f'\t\t(effects (font (size 1.0 1.0)) (justify {just}))\n'
+                f'\t(global_label "{name}" (shape passive) (at {pt[0]} {pt[1]} 0)\n'
+                f'\t\t(effects (font (size 1.0 1.0)) (justify right))\n'
                 f'\t\t(uuid "{nid()}"))')
-        placed += 1
-        x += cell_w
-        rowh = max(rowh, cell_h)
+            labelled += 1
 
     out = ('(kicad_sch\n\t(version 20231120)\n\t(generator "lyrebird")\n'
            f'\t(uuid "{nid()}")\n\t(paper "User" {SHEET_W} {SHEET_H})\n'
            + "\n".join(body) + "\n)\n")
     Path(outpath).write_text(out)
-    print(f"  {placed} symbols placed, {len(comps)} in netlist")
+    print(f"  {len(pos)} symbols, {drawn} nets wired, {labelled} pin labels, "
+          f"{len(clusters)} clusters")
     if missing:
         print(f"  symbol not found: {sorted(set(missing))}")
     print(f"  wrote {outpath}")
