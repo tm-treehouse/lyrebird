@@ -89,9 +89,11 @@ RTL reads the same numbers rather than deriving its own.
 
 ## Still open on the signal chain
 
-- **Volume.** [0010](decisions/0010-192khz-and-control-word.md) puts a 16-bit
-  linear gain inside the chain at full precision. Where in the chain it sits,
-  and what a deep cut does to the rounding budget, is untested.
+- **Whether volume can move earlier than the modulator input.** It is placed
+  there and measured, but the cheaper middle positions could not be measured:
+  splitting the cascade breaks either the settling offset or the coherent FFT
+  window. Worth pursuing only if a multiplier at the element clock proves
+  expensive.
 - **Real material.** Every figure comes from a tone or the inter-sample probe.
   The noise floor's shape under music has never been looked at.
 - **The low-frequency limit cycle.** One run in 36 lands 15 to 19 dB low with

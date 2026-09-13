@@ -559,9 +559,37 @@ its maximum stable level, with no overflow in any case. Tones below about
 signal and its harmonics occupy the whole lower band; their peak states and
 overflow counts are still valid.
 
-**Volume is not modelled.** 0010 puts a 16-bit linear gain inside the chain at
-full internal precision. Where exactly it goes, and what a deep cut does to the
-rounding budget above, is untested.
+### Volume goes at the modulator input
+
+Measured at 96 kHz, order 3, comparing a digital gain applied at the chain
+input against one applied after the interpolator:
+
+| Attenuation | At the chain input | At the modulator input |
+| --- | --- | --- |
+| -6 dB | 140.3 dB | 140.3 dB |
+| -20 dB | 138.7 dB | 140.2 dB |
+| -40 dB | 123.9 dB | 134.2 dB |
+| -60 dB | 104.2 dB | 114.6 dB |
+
+Identical to about -6 dB, then late placement pulls ahead by roughly 10 dB.
+What decides it is which noise sits downstream of the multiply. Applied at the
+input, the interpolator's rounding is added after the attenuation and stays
+fixed while the signal shrinks. Applied at the modulator input, that rounding
+is attenuated along with the signal, and only the modulator's own quantization
+noise stays put, which is 168 dB down and has room to spare.
+
+**Cost: one multiplier at the element clock**, against the 2.86 the
+interpolator already needs there. If that binds, the gain could be folded into
+the final stage's coefficients instead, merging two multiplies into one, at the
+price of wider coefficients and a glitch-free update on volume changes.
+
+**A middle position was not measured.** The datapath analysis puts rounding at
+stage 9 some 24 dB quieter in band than the same rounding at stage 1, so the
+harm concentrates early and a gain after the first few stages should capture
+most of the benefit at a far lower clock rate. Two attempts to measure it both
+produced invalid numbers: splitting the cascade breaks the settling offset, and
+compensating by taking the settled tail breaks the coherent FFT window. Only
+the two endpoints above are trustworthy.
 
 Also absent, as before: finite integrator gain, clock jitter, and the analog
 reconstruction filter.
