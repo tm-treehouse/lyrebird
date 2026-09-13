@@ -7,9 +7,35 @@ not be unless someone decides to draw them. See
 [netlist/README.md](netlist/README.md) for why, including the note that SKiDL's
 own schematic generator was tried and does not complete on a 324-ball part.
 
-What you can open is the **PCB editor**, driven by the netlist.
+What you can open is a **board**, generated from the netlist. Both already
+exist:
 
-## Getting a board to lay out
+- `lyrebird-main-reva/lyrebird-main.kicad_pcb` — 133 footprints, 721 pads on
+  125 nets
+- `lyrebird-dac-reva/lyrebird-dac.kicad_pcb` — 42 footprints, 308 pads on
+  82 nets
+
+Open either directly. KiCad 10 is a single application, so there is no separate
+PCB editor binary to launch; opening the board file routes to the right editor.
+
+Parts are dropped on a grid, which is placement for legibility and not layout.
+
+## Regenerating a board after the netlist changes
+
+```sh
+KPY=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
+$KPY tools/netlist_to_pcb.py \
+    hardware/lyrebird-main-reva/lyrebird-main.net \
+    hardware/lyrebird-main-reva/lyrebird-main.kicad_pcb
+```
+
+That script exists because KiCad exposes no netlist reader to Python, and
+`kicad-cli pcb import` handles foreign PCB formats rather than netlists. It
+does what the GUI's File, Import, Netlist would do. **It rebuilds the board
+from scratch, so any manual layout is lost** — once routing starts, use the
+GUI's importer instead, which updates a board in place.
+
+## Doing it by hand instead
 
 1. Generate the netlist, if it is not current:
 
