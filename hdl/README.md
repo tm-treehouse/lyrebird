@@ -9,6 +9,24 @@ See [0008](../docs/decisions/0008-multibit-delta-sigma-with-dwa.md).
 - `sim/` — cocotb testbenches and the Verilator runner.
 - `build/` — Yosys and nextpnr output. Git-ignored.
 
+## What exists
+
+| Module | Role | Tests |
+| --- | --- | --- |
+| `lyrebird_tag_decode` | Decodes one bus word into a sample or a control word | 8 |
+| `lyrebird_unpack` | Left/right framing, resync, lock state on top of it | 8 |
+| `lyrebird_sim_stub_ft601q` | Test scaffolding, not design RTL | — |
+| `lyrebird_sim_elem_dump` | Test scaffolding, not design RTL | — |
+
+The two `sim_` modules exist so the bus model and the element sink have
+something to drive. They are not part of the design and must not be extended
+into it.
+
+Still to write: the bus read master, the elastic buffer, the interpolator, the
+modulator, the rotation, and the I2S-domain output. The model in
+[../model/](../model/) carries the numbers the DSP blocks must be built
+against, including fixed-point coefficient widths.
+
 ## Signal chain
 
 ```

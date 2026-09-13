@@ -1,12 +1,23 @@
 # hardware
 
-Two KiCad projects, split at the I2S boundary per
+Two boards, split at the I2S boundary per
 [0007](../docs/decisions/0007-two-board-split-at-i2s.md). The contract between
 them is [interface.md](interface.md).
 
+**The boards are described as code, not drawn.** `netlist/` holds SKiDL
+generators that emit KiCad netlists; see [netlist/README.md](netlist/README.md)
+for why, and for what is a real part versus a placeholder. Unconnected pins in
+the generated netlist are the honest measure of how finished a board is, which
+is why a missing part shows up as an open pin rather than as something nobody
+wrote down.
+
+- `netlist/` — the generators, and the authority on connectivity.
 - `lyrebird-main-reva/` — USB connector, FT601Q, GateMate, power tree, SPI
-  flash, programming header, mezzanine header.
-- `lyrebird-dac-reva/` — audio oscillators, DAC, analog output stage.
+  flash, programming header, mezzanine header. Generated netlist lands here.
+- `lyrebird-dac-reva/` — audio oscillators, clock chain, reclocking registers,
+  resistor elements and the analog output stage. There is no DAC chip: the FPGA
+  is the converter, per
+  [0008](../docs/decisions/0008-multibit-delta-sigma-with-dwa.md).
 - `datasheets/` — vendor PDFs for parts on either board. Committed
   deliberately, because vendor links rot faster than the boards do.
 - `fab/` — gerbers, drill files, BOM, and pick-and-place. Git-ignored by

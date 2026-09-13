@@ -54,9 +54,17 @@ versions and which tools are still missing locally.
 
 ## Status
 
-Both toolchain paths are proven end to end on the first module,
-`lyrebird_tag_decode`: eight passing cocotb tests under Verilator, and a clean
-GateMate mapping through Yosys.
+Simulation and synthesis both run end to end. Three HDL modules exist with 35
+passing cocotb tests under Verilator, and `tools/synth.sh` takes a design from
+source to a packed bitstream.
+
+The audio chain is modelled numerically in [model/](model/), which settled the
+modulator order, the interpolation cascade, the fixed-point coefficient widths
+and the rotation algorithm with measurements. Both boards are described as code
+in [hardware/netlist/](hardware/netlist/), which generates KiCad netlists and
+makes an unfinished board show up as unconnected pins.
+
+What is not done is tracked in [docs/open-items.md](docs/open-items.md).
 
 Supports 44.1 through 192 kHz, switched at runtime by an in-band control word.
 Bus powered from a single USB cable, with precision regulation confined to the
