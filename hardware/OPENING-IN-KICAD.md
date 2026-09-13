@@ -6,8 +6,35 @@ KiCad.
 
 ## To review the circuitry, open the schematic
 
-- `lyrebird-main-reva/lyrebird-main.kicad_sch` — 133 symbols
-- `lyrebird-dac-reva/lyrebird-dac.kicad_sch` — 42 symbols
+**Start with the PDF.** Each board has a multi-page one beside it, a page per
+functional block:
+
+- `lyrebird-main-reva/lyrebird-main-schematic.pdf` — 8 pages
+- `lyrebird-dac-reva/lyrebird-dac-schematic.pdf` — 6 pages
+
+The individual sheets are in each board's `sheets/` directory if you want them
+in the editor. A single all-in-one sheet also exists as
+`lyrebird-main.kicad_sch` and `lyrebird-dac.kicad_sch`.
+
+### How the pages are chosen
+
+A sheet is anchored on each major part, meaning anything with eight or more
+pins, and every other part joins the major part it belongs with. Association
+is by shared net, ignoring ground because it touches everything and associates
+nothing. A part touching only supply rails, which is most decoupling, joins
+the owner of its rail: the major part with the most pins on it. Without that
+rule a bypass capacitor lands with whatever happens to share its rail, which
+put 55 parts on the programming header.
+
+Page names come from the generators' own section comments where the part was
+created there, and from the part's value where it came from the shared parts
+library. Regenerate with:
+
+```sh
+./.venv/bin/python tools/netlist_to_sheets.py \
+    hardware/lyrebird-main-reva/lyrebird-main.net \
+    hardware/lyrebird-main-reva/sheets
+```
 
 Every part appears as its real symbol with its reference and value.
 
