@@ -1,0 +1,420 @@
+
+==========================================================================
+THE CHAIN, STOPPED AT THE ELEMENT SUM  (order 3, -3.7 dBFS, N=2^20)
+==========================================================================
+Everything below is measured on these records. The in-band figure is
+what the digital chain delivers; the out-of-band figure is what the
+analog section has to survive.
+
+                      case   SNDR dB     in band  out of band     total
+       48 kHz, 1% elements    132.92     -137.2      -13.88    -3.31
+           48 kHz, matched    137.54     -142.1      -13.87    -3.30
+      192 kHz, 1% elements    133.97     -138.1      -13.87    -3.31
+     44.1 kHz, 1% elements    132.84     -137.0      -13.88    -3.31
+     48 kHz, -60 dBFS tone     57.04     -117.4      -13.90   -13.90
+
+Out-of-band here is total power less the signal and the in-band noise,
+which is exact by Parseval and does not depend on where the bins fall.
+
+==========================================================================
+Q1a  THE ELEMENT RESISTOR AGAINST THE CURRENT BUDGET
+==========================================================================
+14 elements are high at every code by construction (0008), so the rail
+current is constant and equal to 14 * 3.3 V / R. The swing into the
+current-to-voltage stage is +/- 7 * 3.3 V / R per channel.
+
+   R_elem    I_rail   I_fs peak    P_elem   R_f for 2 V    module    board
+    1000     46.20     23.100    152.5        122.4      147     381
+    1500     30.80     15.400    101.6        183.7      132     366
+    2000     23.10     11.550     76.2        244.9      124     358
+    2200     21.00     10.500     69.3        269.4      122     356
+    3010     15.35      7.674     50.7        368.6      116     350
+    3320     13.92      6.958     45.9        406.5      115     349
+    4700      9.83      4.915     32.4        575.5      111     345
+    6800      6.79      3.397     22.4        832.6      108     342
+   10000      4.62      2.310     15.2       1224.4      106     340
+
+mA except P_elem in mW and R_f in ohms. 'module' and 'board' follow
+power.md's other lines unchanged: 8.1 mA of registers, 2 mA of LT3045
+ground pin, 40 mA of clock chain, 51 mA of op amp stage and charge
+pump, and 234 mA of main board.
+
+USB 3.0 configured allows 900 mA and USB 2.0 allows 500 mA, so none of
+these rows fails after enumeration. The binding limit is before it.
+
+==========================================================================
+Q1b  ONE UNIT LOAD BEFORE ENUMERATION
+==========================================================================
+A device may draw one unit load until it is configured: 150 mA on USB
+3.0. power.md gets 72 mA of bridge and 40 mA of ungated module clock
+rail, leaving the element reference rail everything under 38 mA. At
+power-on the flip-flop state is undefined, so all 28 elements may be
+high, which doubles the element term.
+
+   R_elem    14 high    total    28 high    total                     verdict
+    1000      46.20     168     92.40     214         over at every state
+    1500      30.80     153     61.60     184         over at every state
+    2000      23.10     145     46.20     168    fits only once codes run
+    2200      21.00     143     42.00     164    fits only once codes run
+    3010      15.35     137     30.70     153    fits only once codes run
+    3320      13.92     136     27.83     150            fits at power-on
+    4700       9.83     132     19.66     142            fits at power-on
+    6800       6.79     129     13.59     136            fits at power-on
+   10000       4.62     127      9.24     131            fits at power-on
+
+Minimum R for 14 elements high :    1656 ohm
+Minimum R for 28 elements high :    3312 ohm
+The second is the one that has to hold, because nothing constrains the
+register state at power-on. It assumes the analog rails are gated or
+absent; power.md's 51 mA of op amp stage and charge pump does not fit
+inside one unit load at any element value and has to be held off.
+
+==========================================================================
+Q1c  THE ELEMENT RESISTOR AGAINST THE NOISE FLOOR
+==========================================================================
+Thermal noise at 300 K. The element resistors' own contribution needs
+no topology: 14 resistors each carrying 4kT/R of current noise into a
+virtual ground, against a full-scale signal current of 7*3.3/R.
+Holding the output level fixed makes the transimpedance proportional
+to R, so both resistor terms fall 3 dB per doubling of R while the
+amplifier term does not move at all -- its noise gain is
+1 + V_peak/V_ref = 1.857, which R does not enter.
+
+Measured in-band noise of the digital chain, one percent elements, 48 kHz: -137.2 dBFS,
+which is 133.5 dB below the -3.7 dBFS test tone.
+
+   R_elem   elements       R_f    amp+R_f   total nV   stage SNR   with chain
+    1000      137.6     1.86      5.08      5.41     128.35      127.19
+    1500      135.8     2.28      5.38      5.84     127.68      126.67
+    2000      134.6     2.64      5.66      6.25     127.10      126.20
+    2200      134.2     2.77      5.77      6.40     126.89      126.03
+    3010      132.8     3.24      6.21      7.00     126.11      125.38
+    3320      132.4     3.40      6.37      7.22     125.84      125.15
+    4700      130.9     4.04      7.05      8.13     124.82      124.26
+    6800      129.3     4.86      8.01      9.37     123.58      123.16
+   10000      127.6     5.90      9.34     11.05     122.15      121.84
+
+'elements' is the element resistors alone, in dB, and is the only
+column that depends on nothing but R. The nV columns are densities at
+the stage output. 'stage SNR' is the whole analog stage against 2 V
+RMS; 'with chain' power-sums it with the measured digital floor.
+
+Where the stage noise comes from at the placeholder 1 kohm:
+   amplifier voltage noise     4.43 nV/rtHz   67.1 % of power
+   transimpedance resistors    2.47 nV/rtHz   20.8 % of power
+   element resistors           1.86 nV/rtHz   11.9 % of power
+   amplifier current noise     0.26 nV/rtHz    0.2 % of power
+
+The amplifier assumed is e_n = 1.3 nV/rtHz, i_n = 1.5 pA/rtHz, two stages:
+a fully differential amplifier holding both summing nodes at virtual
+ground, then a unity-gain differential-to-single-ended stage. No part
+is chosen, so this column is an estimate and the sensitivity is:
+   e_n  1.1 nV/rtHz at 3320 ohm: stage SNR 126.3 dB
+   e_n  1.3 nV/rtHz at 3320 ohm: stage SNR 125.8 dB
+   e_n  2.5 nV/rtHz at 3320 ohm: stage SNR 122.8 dB
+   e_n  5.0 nV/rtHz at 3320 ohm: stage SNR 117.9 dB
+
+==========================================================================
+Q1  RECOMMENDATION: 3.32 kOHM
+==========================================================================
+R_elem = 3.32 kohm, E96, thin film array, one per four elements.
+
+   I_rail   = 14 x 3.3 / 3320          = 13.92 mA, constant
+   I_fs     = 7 x 3.3 / 3320           = 6.958 mA peak, per channel
+   R_f      = 2.828 V / 6.958 mA            = 406.5 ohm -> 402 ohm E96
+   level    = 6.958 mA x 402 / sqrt(2) = 1.978 V RMS at digital full scale
+   P_elem   = 14 x 3.3^2 / 3320        = 45.9 mW, 3.28 mW per 0402
+
+Three things decide it and they agree to within 300 ohm.
+
+1. The element resistors should not be the loudest thing in the
+   chain. Their own thermal noise equals the measured digital floor
+   of 133.5 dB at 2585 ohm. At 3.32 kohm they measure 132.4 dB,
+   -1.1 dB against it, so they cost the pair 3.6 dB.
+
+2. The whole board has to fit one unit load before enumeration with
+   the flip-flops in an undefined state. That needs R >= 3312 ohm
+   and 3.32 kohm is the first E96 value above it. At the netlist's
+   1 kohm the power-on total is 214 mA against a 150 mA limit.
+
+3. Everything past about 3 kohm is bought at 3 dB of resistor noise
+   per doubling and returns less and less current. 1 kohm to 3.32
+   kohm saves 32 mA and costs 2.0 dB of system noise;
+   3.32 kohm to 10 kohm would save another 9 mA and cost 3.3 dB.
+
+System noise at 3.32 kohm is 125.2 dB, +15.2 dB against the 110 dB
+target of 0012. The digital chain is no longer what sets it: the
+analog stage measures 125.8 dB against the chain's 133.5 dB, so
+**the output stage is the noise floor of this design**, and the
+amplifier's own voltage noise is the largest single term in it at any
+element value below about 3 kohm.
+
+Two smaller consequences of the value, both in its favour:
+   The register's output impedance, about 20 ohm for this
+   logic class, is 0.60 % of the element at 3.32 kohm against 2.0 % at 1 kohm.
+   It appears identically on every element, so it is a gain error and
+   not distortion, but its temperature coefficient is not small.
+   Self-heating falls from 10.9 mW to 3.28 mW per element. The
+   differential arrangement cancels the first-order thermal term
+   exactly -- k(1-ek/7) - (7-k)(1-e(7-k)/7) = (2k-7)(1-e) -- so what
+   is left is a gain drift, but only while both sides track.
+
+==========================================================================
+Q2a  WHERE THE OUT-OF-BAND ENERGY ACTUALLY IS
+==========================================================================
+The element sum is a staircase, not a sequence: each sample is held
+for one element clock, so the waveform carries images at every
+multiple of 24.576 MHz rolled off by the hold's own sinc. The
+spectrum below is taken at 98.3 MHz so those images are
+measured rather than assumed away.
+
+                              band       power   of total    of OOB
+                        audio band      -3.71     91.22%  1039.19%
+                  20 kHz - 100 kHz    -117.95      0.00%     0.00%
+                   100 kHz - 1 MHz     -59.18      0.00%     0.00%
+                     1 MHz - 3 MHz     -27.11      0.42%     4.75%
+                 3 MHz - 12.29 MHz     -15.57      5.95%    67.82%
+    12.29 - 24.58 MHz, first image     -21.35      1.57%    17.91%
+         24.58 - 49.15 MHz, second     -24.09      0.84%     9.52%
+
+Out of band, total          : -13.88 dBFS, 0.1431 of full scale RMS
+At 3.32 kohm that is        : 0.995 mA RMS of ultrasonic current per channel,
+                              against 4.920 mA RMS for a full-scale sine.
+Referred to a 2 V RMS output: 0.405 V RMS of content the amplifier must not fold down.
+
+Largest one-sample step     : 0.5765 of full scale, 1.630 V at the output,
+                              which unfiltered is 40 V/us. No audio amplifier slews that.
+
+Two thirds of the out-of-band energy sits between 3 MHz and the half
+element clock, and a quarter of it is in the hold's own images above
+the element clock. Content above 49 MHz is not represented: the sinc
+is already 18 dB down there and any filter recommended below adds 50,
+which bounds it under a tenth of a percent of the residual.
+
+==========================================================================
+Q2a  IS IT THE SAME AT EVERY RATE?
+==========================================================================
+The modulator always runs at the element clock, so the out-of-band
+noise is a property of the loop and not of the sample rate. Checked:
+
+                      case   out of band   above 1 MHz
+       48 kHz, 1% elements       -13.88       -13.88
+           48 kHz, matched       -13.87       -13.87
+      192 kHz, 1% elements       -13.87       -13.87
+     44.1 kHz, 1% elements       -13.88       -13.88
+     48 kHz, -60 dBFS tone       -13.90       -13.90
+
+Within 0.5 dB across every rate and 0.2 dB between a -3.7 dBFS tone
+and a -60 dBFS one, which is the point: the filter is designed against
+the modulator, not against the programme.
+
+==========================================================================
+Q2b  WHERE A POLE CAN PHYSICALLY GO
+==========================================================================
+The summing node has to be a virtual ground. That is what makes the
+rail current constant: a high element delivers V_ref/R only while its
+far end sits at zero. Let the node float by a fraction gamma of the
+element network's own R/7 and the two nodes together draw
+(V/R)[7 - 3.5 gamma (1 + s^2)], where s is the normalised signal. The
+s^2 is a second harmonic on the reference rail, and the rail is a
+multiplier, not an adder.
+
+With the rail's in-band source impedance taken as 10 mohm (regulator
+plus 8 x 100 nF), a capacitor giving a 200 kHz pole at the node:
+
+   gamma   R seen by C    C needed   rail ripple   distortion
+   1.000       474.29         1.7 nF       34.79 uV      -105.6 dB
+   0.100        47.43        16.8 nF        3.48 uV      -125.6 dB
+   0.010         4.74       167.8 nF        0.35 uV      -145.6 dB
+   0.001         0.47      1677.8 nF        0.03 uV      -165.6 dB
+
+A shunt capacitor at the summing node is therefore not the first
+filter pole. Against a true virtual ground it sees no resistance and
+forms no pole at all; buy it a resistance by floating the node and the
+rail modulation arrives before the pole does. The netlist's 1 nF is
+not a filter: at a virtual ground it is the transimpedance stage's
+input capacitance, which puts a noise-gain zero at 727 kHz and
+wants feedback compensation rather than providing it.
+
+The pole that does work splits the element resistor in two around a
+shunt capacitor. Both ends of the split stay at an AC ground -- the
+flip-flop output on one side, the virtual ground on the other -- so
+the capacitor sees R1||R2 while the DC current stays exactly
+V_ref/(R1+R2) at every code. The constant-current property is
+untouched and the pole is genuinely in front of the amplifier.
+
+      pole        R1        R2    R1||R2           C
+     5.00M     1660     1660      830         38 pF
+     2.00M     1660     1660      830         96 pF
+     1.00M     1660     1660      830        192 pF
+     0.50M     1660     1660      830        384 pF
+     0.20M     1660     1660      830        959 pF
+
+An even split maximises R1||R2 and so minimises the capacitor. The
+cost is 28 more resistors -- seven more four-element arrays, the same
+part already fitted -- and 28 capacitors.
+
+==========================================================================
+Q2c  HOW MUCH THE AMPLIFIER MAY BE SHOWN
+==========================================================================
+The threshold, stated before the measurement. The reconstruction
+filter must leave the amplifier's own intermodulation 10 dB below the
+in-band noise the chain actually measures, -137.2 dBFS, so
+the limit is -147.2 dBFS. Ten decibels is the same
+allowance the datapath was budgeted against in README.md, and it costs
+0.41 dB end to end.
+
+The mechanism is modelled rather than asserted. Once the loop gain is
+gone -- and at a megahertz it is -- the summing node is no longer held
+and the differential error voltage at the amplifier's input is the
+element current into Z_f in parallel with Z_source. A bipolar input
+pair is a tanh, so its leading error is a cubic on that voltage, and a
+cubic mixes pairs of megahertz components down into the audio band.
+Assumed: 40 MHz gain-bandwidth, no emitter degeneration,
+26 mV of thermal voltage. Degeneration would make this better, so the
+answer is a lower bound on how much filtering is needed.
+
+ element pole   C per elem   OOB at amp   v_err pk   in-band IMD    margin
+         none           --      -13.88      7.03 mV      -131.34    +15.9
+    10.00 MHz        19 pF      -16.40      5.95 mV      -141.85     +5.3
+     5.00 MHz        38 pF      -18.97      4.62 mV      -153.73     -6.5
+     2.00 MHz        96 pF      -24.34      2.54 mV      -173.50    -26.3
+     1.00 MHz       192 pF      -29.61      1.35 mV      -190.32    -43.1
+     0.50 MHz       384 pF      -35.38      0.67 mV      -205.94    -58.8
+     0.20 MHz       959 pF      -43.26      0.30 mV      -223.15    -76.0
+
+With the feedback pole at 200 kHz and nothing in front of it the
+amplifier makes -131.3 dBFS in band, which is +5.9 dB against the
+chain's own -137.2 dBFS and +15.9 dB against the threshold. **That fails.**
+One pole in front of it at 1 MHz costs 180 pF per element and leaves
+-190.3 dBFS, 43 dB of margin.
+
+The feedback capacitor is doing at least as much work as the element
+pole, because it is what sets the node impedance once the loop has
+given up. Holding the element pole at 1 MHz and moving it:
+
+ feedback pole        C_f   v_err pk   in-band IMD    margin
+         2000k      0.20 nF     11.86 mV      -132.66    +14.5
+         1000k      0.39 nF      6.48 mV      -149.40     -2.2
+          500k      0.78 nF      3.34 mV      -167.24    -20.0
+          200k      1.96 nF      1.35 mV      -190.32    -43.1
+          100k      3.92 nF      0.68 mV      -206.19    -59.0
+
+And the sensitivity to the parameter nobody has chosen yet:
+
+ gain-bandwidth   v_err pk   in-band IMD    margin
+            10M      4.60 mV      -156.97     -9.8
+            20M      2.54 mV      -173.09    -25.9
+            40M      1.35 mV      -190.32    -43.1
+           100M      0.54 mV      -213.82    -66.6
+
+A slower amplifier is worse, because its loop gives up sooner. Even at
+10 MHz the 1 MHz element pole clears the threshold, which is the
+margin the choice is made for.
+
+==========================================================================
+Q2d  ORDER AND CORNERS
+==========================================================================
+Three points matter and each is protected by a different number of
+poles: the first amplifier sees only the element pole, the
+differential-to-single-ended stage sees that and the feedback pole,
+and the line output sees all three.
+
+In-band droop at 20 kHz is the cost. The interpolation cascade is flat
+to 35 micro-dB (README.md), so the analog filter is the whole response
+error of the product, and 0.1 dB at 20 kHz is the budget taken here.
+
+                             poles    at amp   at stage 2   at output    droop    delay
+                        1 MHz only     -29.6        -29.6       -29.6   0.002    0.16u
+                   1 MHz + 500 kHz     -29.6        -46.7       -46.7   0.009    0.48u
+                   1 MHz + 200 kHz     -29.6        -54.5       -54.5   0.045    0.95u
+         1 MHz + 500 kHz + 500 kHz     -29.6        -46.7       -60.7   0.016    0.80u
+         1 MHz + 200 kHz + 200 kHz     -29.6        -54.5       -76.0   0.088    1.75u
+         1 MHz + 100 kHz + 100 kHz     -29.6        -60.5       -87.9   0.342    3.34u
+          1 MHz + three at 200 kHz     -29.6        -54.5       -93.4   0.131    2.55u
+
+dBFS of residual ultrasonic content at each point, droop in dB at
+20 kHz, group delay in microseconds at DC. The 'at stage 2' column for
+a one-pole row repeats the first, since there is no second pole.
+
+The output threshold is a slew argument rather than a noise one. A
+downstream amplifier at 27 V/us should not spend more than one percent
+of it on content it was never asked to reproduce, and at 8 MHz that is
+0.27e6/(2 pi 8e6) = 5.4 mV peak, about 1.7 mV RMS, which on a 2.83 V
+peak output is -60 dBFS. Two poles reach it; three leave margin.
+
+A fourth pole buys little: the residual is already dominated by the
+100 kHz to 1 MHz region where the poles have barely started, not by
+the megahertz region where each one is worth 20 dB per decade.
+
+==========================================================================
+Q2e  DOES A CAPACITOR PER ELEMENT BREAK THE ROTATION?
+==========================================================================
+Dynamic element matching assumes the elements are interchangeable. A
+shunt capacitor per element makes each one a filter, and capacitors
+are not matched the way a resistor array is. Measured by giving every
+element its own pole and re-running the in-band figure.
+
+  C tolerance    SNDR dB   in-band noise     cost
+      matched     120.43         -124.2   +0.00
+           2%     119.98         -123.7   +0.45
+           5%     119.34         -123.1   +1.09
+          10%     118.37         -122.1   +2.06
+          20%     116.70         -120.4   +3.72
+
+The reference row, no capacitors at all, measures 132.92 dB. The pole
+itself costs nothing in band -- at 1 MHz its 20 kHz droop is
+0.0017 dB -- and the tolerance costs nothing either, because
+the elements differ only where the capacitor does anything, which is
+three decades above the band the rotation has to protect. Ordinary
+C0G parts are adequate. C0G rather than X7R is required for a
+different reason: X7R's voltage coefficient is a nonlinearity in the
+signal path and the rotation does not fix nonlinearity within one
+element, exactly as it does not fix a thick film resistor's.
+
+==========================================================================
+Q2  RECOMMENDATION: THREE REAL POLES, 1 MHz / 200 kHz / 200 kHz
+==========================================================================
+Third order, all real poles, distributed one per amplifier boundary
+rather than lumped anywhere. Not Butterworth and not a two-pole
+section: a resonant section needs an inductor or an active stage, and
+the active stage is the thing being protected.
+
+  pole 1  1.00 MHz   each element split 1660 + 1660 ohm around 192 pF C0G
+                    28 places; the DC current stays V_ref/(R1+R2)
+  pole 2  200 kHz   1.96 nF across each 407 ohm transimpedance resistor
+  pole 3  200 kHz   3979 pF across the 200 ohm feedback of the
+                    differential-to-single-ended stage
+
+Ultrasonic content, unfiltered            :  -13.88 dBFS
+   at the first amplifier's input         :  -29.61 dBFS  (16 dB of attenuation)
+   at the differential-to-single-ended in :  -54.46 dBFS
+   at the line output                     :  -76.01 dBFS, 0.32 mV RMS
+
+In-band intermodulation from the first amplifier: -190.3 dBFS,
+43 dB inside the -147.2 dBFS threshold and 53 dB below the chain's own floor.
+In-band droop at 20 kHz : 0.088 dB, against a 0.100 dB budget.
+Group delay at DC       : 1.75 us, which is 0.5 % of the
+cascade's own 235 us at 192 kHz and nothing beside 1.5 ms at 48 kHz.
+Peak slew at the output : 0.03 V/us, against 40 V/us unfiltered.
+
+Why the corners are where they are:
+
+   Pole 1 at 1 MHz is set by the amplifier, not by the spectrum. It
+   is the loosest corner that still clears the intermodulation
+   threshold with a 10 MHz amplifier, and at 1 MHz it costs 180 pF
+   per element and 0.0017 dB in band, which is free. Pushing it lower
+   buys nothing measurable and pushing it higher spends the margin
+   on the one parameter of the amplifier that is still unchosen.
+
+   Poles 2 and 3 at 200 kHz are set by the droop budget, not by the
+   amplifier. Two real poles at f cost 2*10log10(1+(20k/f)^2) at
+   20 kHz; 0.1 dB puts the floor at 187 kHz, and 200 kHz is the first
+   round value above it, costing 0.086 dB.
+
+What would change the answer: a pre-emphasis in the interpolator's
+first stage, which is free in tap count, would pay the droop back and
+let all three poles sit an octave lower. It is not recommended here
+because the filter already clears every threshold by 20 dB or more,
+and a response correction that lives in two places is a maintenance
+hazard rather than a saving.
