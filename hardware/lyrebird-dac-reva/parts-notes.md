@@ -120,13 +120,33 @@ programmed — bus hold pulls that line toward 3.3 V, and the line runs across
 the mezzanine to a GateMate ball with a 2.75 V absolute maximum.
 
 This is not caught by `lp.assert_below_abs_max`, because a data input is not a
-driving pin and the check is right about that in general. It is recorded here
-rather than worked around, because the two candidate fixes both belong
-elsewhere: the GateMate's I/O state before configuration was not found in a
-datasheet during this work and decides whether the question arises at all, and
-if it does, a pull-down that wins against bus hold sits on the main board, not
-here. No ALVC-family 16-bit flip-flop without bus hold exists; the alternatives
-are the threshold and output-stage failures in the tables above.
+driving pin and the check is right about that in general.
+
+**It is settled against Cologne Chip's UG1003**, the GateMate interface guide
+for 3.3 V peripherals. UG1003 states plainly that VDDIO may not exceed 2.7 V
+and that "any voltage above VDDIO supply voltage should be avoided on the
+GateMate pins", so the hazard is real rather than theoretical. But for a 3.3 V
+source driving a GateMate input at low speed its recommended circuit is a bare
+**10 kΩ to 100 kΩ series resistor and nothing else**, because "the input
+overvoltage security circuitry of the GateMate input pin will limit the input
+voltage". A 10 kΩ resistor from 3.3 V into a 2.5 V pin delivers about **80 µA**
+into that clamp, and Cologne Chip endorses it. Bus hold is specified as a
+**75 µA maximum current**, not a resistance, so it sits just inside the
+envelope the vendor sanctions, and it stays inside it at any line voltage
+because it is a current limit by construction.
+
+**So no pull-down is needed, on either board**, and the element lines stay as
+they are: straight from the header to the register inputs, which is what 0012
+wants them to be.
+
+One gap remains and is stated rather than papered over: **whether GateMate
+GPIO are high impedance before configuration completes is not spelled out in
+the datasheet**, so whether the bus hold ever gets to pull a line up is
+unconfirmed. It does not change the conclusion, because the clamp covers the
+worst case either way.
+
+No ALVC-family 16-bit flip-flop without bus hold exists; the alternatives are
+the threshold and output-stage failures in the tables above.
 
 Spare bits: 14 elements in a 16-bit package leaves bit 8 of each bank unused.
 Its data inputs are tied low rather than left to the hold latch, so the spare

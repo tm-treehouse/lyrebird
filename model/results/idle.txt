@@ -2,6 +2,64 @@ Idle-channel behaviour of the order-3 loop.
 window 2**23 at the element clock (341 ms, 2.93 Hz bins), preamble 2**18 discarded, datapath at the recommended widths.
 
 ==============================================================================
+A.  WHAT A 2**20 TRANSFORM DOES TO A 20 Hz QUESTION
+==============================================================================
+The tripped run is reproducible, so it can be taken apart. This is
+the 176.4 kHz row of the datapath verification table, the one
+README.md reports at 125.06 dB against a 143.31 dB neighbour.
+
+Kaiser main lobe half-width           : 12 bins
+2**20 bin width at 22.5792 MHz       : 21.53 Hz
+so the DC main lobe reaches            : +/-258 Hz
+shortest transform that keeps it below 20 Hz: 2**23.69 = 13.55 M samples
+
+The band it is being asked about starts at 20 Hz. At 2**20 the DC
+lobe covers 20-100 Hz entirely and most of 100 Hz-2 kHz as well, so
+at that record length near-DC energy and low-band energy are not
+different measurements.
+
+And the loop always has near-DC energy. Its eight levels are 0.2857
+apart, so the mean of an N-sample record sits on a grid of (2/7)/N.
+    one unbalanced sample in 2**20 is  -128.3 dBFS of near-DC
+    one unbalanced sample in 2**22 is  -140.3 dBFS of near-DC
+    one unbalanced sample in 2**23 is  -146.3 dBFS of near-DC
+    one unbalanced sample in 2**24 is  -152.4 dBFS of near-DC
+
+The same 2**20 record, measured two ways:
+
+      mean removed      SNDR     20-100     0.1-2k     2k-20k     <20 Hz
+        arithmetic    125.06     -130.2       -3.7     -148.4        nan
+          windowed    143.40     -172.9       -3.7     -148.4        nan
+
+18.34 dB of the reported figure is the arithmetic mean not being the
+mean the transform sees. The Kaiser weights the centre of the record
+far above its ends, so a record whose offset drifts across the window
+keeps a DC bin after x - x.mean(), and that bin's lobe lands in the
+lowest audio bins. Subtracting the windowed mean instead removes it.
+
+The same trajectory, continued, measured over longer windows with
+plain mean removal -- the original method, nothing corrected:
+
+    window       bin    DC lobe      SNDR     20-100     <20 Hz
+     2**20    21.53       258    125.06     -130.2        nan
+     2**21    10.77       129    143.69     -173.9     -187.5
+     2**22     5.38        65    143.94     -174.2     -189.7
+     2**23     2.69        32    144.11     -173.4     -182.0
+
+The loss is gone by 2**21 and does not come back. It was never in
+the loop; it was the transform being asked a question 8 times
+finer than its resolution.
+
+What the loop is actually doing, per 2**20 block of the same record,
+as a count of unbalanced samples:
+  +1.00  -1.00  +1.00  -1.00  +0.00  +0.00  -0.00  +0.00
+
+One sample per million, alternating sign: a near-DC wander of
+-128.3 dBFS at roughly 10.8 Hz. That is the smallest non-zero value the
+output alphabet can express over that window, it is below the audio
+band, and it is 18 dB of the reported in-band figure.
+
+==============================================================================
 B.  HOW OFTEN DOES IT TRIP ON NEAR-IDLE MATERIAL?
 ==============================================================================
 Every figure behind the 1-in-36 came from a 1 kHz tone at -3.7 dBFS.
@@ -14,7 +72,7 @@ ring on the transition is not in the window. Getting that wrong
 reads as -50 dBFS of low-frequency energy and looks exactly like the
 fault.
 
-180 trials of 2**23 samples, 558 s.
+180 trials of 2**23 samples, 608 s.
 
 20 Hz to 100 Hz, dBFS, per trial. 'corrected' is a 2**23 window with
 the windowed mean removed; 'as before' is the 2**20 window with the
@@ -104,4 +162,325 @@ Trials more than 10 dB above their cell's median in the 20-100 Hz band, of 180:
 The two methods disagree by 71.1 dB on average and 214.7 dB at worst,
 always in the same direction: the short window reports more.
 
-total 558 s
+==============================================================================
+C.  CONDITIONS
+==============================================================================
+C1. DC at the modulator input.
+    The textbook mechanism for an idle tone: a constant input the
+    loop cannot express, corrected by an occasional extra sample, at
+    a rate proportional to the offset. For the correction rate to
+    land between 20 and 100 Hz wants 3.5*dc*fs in that range, which
+    is 2.33e-07 to 1.16e-06, i.e. -133 to -119 dBFS.
+
+    window 2**22, 5.86 Hz bins, windowed mean removed
+             DC     dBFS  predicted |  20 Hz-20 k    20-100    2k-20k     peak in band
+      0.000e+00     -inf       0.0 Hz |      -338.9    -360.3    -339.3     10752 Hz   -363
+      1.000e-08   -160.0       0.9 Hz |      -180.7    -333.6    -180.7     18480 Hz   -201
+      3.162e-08   -150.0       2.7 Hz |      -178.8    -327.1    -178.8     19682 Hz   -200
+      1.000e-07   -140.0       8.6 Hz |      -178.8    -324.8    -178.8     18967 Hz   -201
+      3.162e-07   -130.0      27.2 Hz |      -179.7    -323.8    -179.7     19049 Hz   -201
+      1.000e-06   -120.0      86.0 Hz |      -179.7    -330.4    -179.7     19465 Hz   -200
+      3.162e-06   -110.0     272.0 Hz |      -179.0    -329.3    -179.0     19418 Hz   -201
+      1.000e-05   -100.0     860.2 Hz |      -180.0    -335.1    -180.0     19705 Hz   -199
+      3.162e-05    -90.0    2720.1 Hz |      -179.6    -320.3    -179.6     16318 Hz   -199
+      1.000e-04    -80.0    8601.6 Hz |      -173.4    -339.7    -173.4     17203 Hz   -179
+      3.162e-04    -70.0   27200.6 Hz |      -180.5    -333.1    -180.5     19236 Hz   -202
+      1.000e-03    -60.0   86016.0 Hz |      -180.5    -343.3    -180.5     18434 Hz   -194
+      4.000e-07   -128.0      34.4 Hz |      -179.7    -318.4    -179.7     19963 Hz   -200
+      8.000e-07   -121.9      68.8 Hz |      -179.7    -330.7    -179.7     19887 Hz   -200
+      1.200e-06   -118.4     103.2 Hz |      -179.7    -329.9    -179.7     18955 Hz   -202
+      1.600e-06   -115.9     137.6 Hz |      -180.0    -327.7    -180.0     19816 Hz   -200
+      2.000e-06   -114.0     172.0 Hz |      -179.6    -325.7    -179.6     19699 Hz   -201
+      2.400e-06   -112.4     206.4 Hz |      -179.6    -333.2    -179.6     19822 Hz   -198
+      2.800e-06   -111.1     240.8 Hz |      -179.4    -335.5    -179.4     19535 Hz   -200
+      3.200e-06   -109.9     275.3 Hz |      -179.6    -343.6    -179.6     19822 Hz   -201
+
+    No idle tone at any offset. In band -181 to -173 dBFS, all of it the shaped floor above 2 kHz;
+    the 20-100 Hz band runs -344 to -318 dBFS, which is nothing at all.
+    A third-order loop with an eight-level quantizer does not lock
+    to a constant the way a first-order one-bit loop does.
+
+C2. Input level, and how quiet is quiet.
+                  material   20 Hz-20 k     20-100     <20 Hz   unbalanced samples
+     near silence -60 dBFS        -68.4      -91.9     -100.6                -91.0
+     near silence -60 dBFS        -68.2      -94.8      -95.0                 35.0
+     near silence -60 dBFS        -68.4      -91.5      -96.8                -49.0
+     near silence -80 dBFS        -88.4     -111.9     -120.6                 -9.0
+     near silence -80 dBFS        -88.2     -114.8     -115.0                  4.0
+     near silence -80 dBFS        -88.4     -111.5     -116.8                 -5.0
+    near silence -100 dBFS       -108.4     -131.8     -140.4                 -0.0
+    near silence -100 dBFS       -108.2     -134.8     -135.0                  1.0
+    near silence -100 dBFS       -108.4     -131.5     -136.8                  0.0
+    near silence -120 dBFS       -128.3     -151.6     -161.2                 -0.0
+    near silence -120 dBFS       -128.2     -155.3     -154.9                  0.0
+    near silence -120 dBFS       -128.4     -151.4     -156.7                  0.0
+    near silence -140 dBFS       -149.9     -175.6     -181.2                  0.0
+    near silence -140 dBFS       -149.4     -175.6     -182.1                 -1.0
+    near silence -140 dBFS       -149.9     -172.7     -183.8                  1.0
+           digital silence       -176.1     -324.1     -331.8                 -1.0
+           digital silence       -176.3     -338.7     -353.3                 -0.0
+           digital silence       -183.0     -348.1     -353.3                  0.0
+
+C3. Where a fade ends.
+    The window begins after a decay rather than after a cut, and the
+    decay's starting level sets how far into the fade the loop is
+    when the material reaches zero.
+       fade from   20 Hz-20 k     20-100     <20 Hz     state entering the window   ptr
+           -3 dB       -179.9     -340.2     -353.6  [+0.0115, +0.0737, +0.1622]     2
+           -3 dB       -180.8     -342.4     -346.7  [-0.0058, -0.0230, -0.0363]     2
+           -3 dB       -179.3     -324.7     -332.1  [-0.0126, -0.0335, +0.0021]     6
+          -20 dB       -180.8     -340.5     -352.7  [+0.0029, -0.0092, -0.0784]     6
+          -20 dB       -182.5     -325.0     -332.2  [+0.0117, +0.0140, -0.0452]     6
+          -20 dB       -179.9     -342.8     -346.6  [-0.0197, -0.0816, -0.1432]     4
+          -40 dB       -180.6     -342.7     -359.4  [+0.0054, -0.0084, -0.0835]     4
+          -40 dB       -182.8     -324.9     -331.8  [-0.0241, -0.0773, -0.0457]     6
+          -40 dB       -178.3     -325.0     -330.8  [-0.0372, -0.1530, -0.2171]     6
+          -60 dB       -180.7     -344.6     -352.7  [+0.0057, +0.0361, +0.1055]     1
+          -60 dB       -177.6     -341.2     -353.6  [+0.0074, +0.0478, +0.1090]     6
+          -60 dB       -180.8     -325.0     -332.4  [-0.0289, -0.1101, -0.1584]     6
+          -80 dB       -180.4     -341.6     -353.5  [+0.0057, -0.0007, -0.0361]     0
+          -80 dB       -179.9     -342.8     -370.5  [-0.0045, +0.0038, +0.0791]     0
+          -80 dB       -176.1     -335.1     -346.6  [-0.0079, -0.0217, -0.0282]     0
+
+C4. The state and the pointer entering the window.
+    integrator 1 spans -0.0372 to +0.0292
+    integrator 2 spans -0.1532 to +0.1033
+    integrator 3 spans -0.2171 to +0.1646
+    pointer takes 5 of its 7 values over 33 trials
+    correlation of |state 1| with the 20-100 Hz result: -0.04
+    correlation of |state 2| with the 20-100 Hz result: +0.03
+    correlation of |state 3| with the 20-100 Hz result: -0.08
+    correlation of the pointer with it: -0.10
+    None of them predicts anything, because there is nothing to
+    predict: the spread of the result is the spread of the material.
+
+C5. The rotation pointer at idle, and what mismatch does with it.
+    At idle the codes alternate 3, 4, 3, 4. The pointer advances by
+    the code, so it advances by 7 every two samples and returns to
+    where it started: period 2. Every code therefore lights the same
+    elements every time, and rotation stops averaging mismatch away.
+
+      elements   20 Hz-20 k     20-100     2k-20k   DC removed
+       matched       -176.1     -324.1     -176.1       -337.8
+       matched       -176.3     -338.7     -176.3       -380.9
+       matched       -183.0     -348.1     -183.0       -376.0
+          0.1%       -156.8     -222.3     -156.8        -94.3
+          0.1%       -179.0     -252.4     -179.0        -63.1
+          0.1%       -174.6     -243.5     -174.6        -73.1
+          1.0%       -136.2     -202.3     -136.2        -74.3
+          1.0%       -164.2     -232.4     -164.2        -43.1
+          1.0%       -154.8     -223.5     -154.8        -53.1
+
+    Mismatch at idle is a static offset, not noise: the DC column is
+    where it goes, and the in-band figure does not move. A static
+    offset at the output is what the coupling capacitor is for.
+
+==============================================================================
+D.  THE 15.7 dB ATTRIBUTED TO ROUND-HALF-UP IS THE SAME ARTIFACT
+==============================================================================
+README.md's 'which way ties go' table reports half-up costing 15.7 dB
+at 96 kHz, 124.58 against 140.25, and explains it as a static input
+offset turned into idle tones. The offset is real. The 15.7 dB is
+not.
+
+Re-running that table's own function today reproduces the shape but
+at a different rate -- 44.1 kHz reads 124.73 against 137.55 -- which
+is already the giveaway. Half-up leaves the same offset at every
+rate, so a fault caused by the offset cannot move from one rate to
+another between runs. A lottery over records can.
+
+Same records, measured four ways. (12 runs, 33 s)
+
+      rate    rounding   DC at mod in   2**20 plain   2**20 windowed   2**22 plain   2**22 windowed
+     48.0k     half_up         -168.7        137.56           137.57        138.41           138.41
+     48.0k   half_even         -203.0        137.54           137.54        138.42           138.42
+     96.0k     half_up         -169.6        140.23           140.23        141.39           141.39
+     96.0k   half_even         -193.8        140.23           140.25        141.41           141.41
+    192.0k     half_up         -169.2        143.76           143.82        144.30           144.35
+    192.0k   half_even         -204.1        143.83           143.83        144.35           144.35
+     44.1k     half_up         -169.0        124.73           137.53        137.98           137.98
+     44.1k   half_even         -210.3        137.55           137.55        137.99           137.99
+     88.2k     half_up         -170.3        140.14           140.15        140.88           140.88
+     88.2k   half_even         -187.3        140.15           140.15        140.88           140.88
+    176.4k     half_up         -169.8        143.20           143.33        144.10           144.10
+    176.4k   half_even         -196.8        143.31           143.33        144.07           144.07
+
+Measured as published, half-up is up to 12.8 dB worse.
+Measured over 2**22 with the windowed mean removed, up to 0.01 dB.
+
+Unbalanced samples per 2**20 block, the near-DC term itself:
+     48.0k    half_up   +0.0  +0.0  -0.0  +0.0
+     48.0k  half_even   -0.0  -0.0  -0.0  -0.0
+     96.0k    half_up   +0.0  -0.0  +0.0  -0.0
+     96.0k  half_even   -0.0  +0.0  -0.0  +0.0
+    192.0k    half_up   -0.0  +0.0  +0.0  +1.0
+    192.0k  half_even   -0.0  -0.0  -0.0  +0.0
+     44.1k    half_up   -1.0  +1.0  -0.0  +0.0
+     44.1k  half_even   -0.0  -0.0  -0.0  -0.0
+     88.2k    half_up   -0.0  +0.0  +0.0  +0.0
+     88.2k  half_even   +0.0  +0.0  +0.0  -0.0
+    176.4k    half_up   +0.0  -0.0  +0.0  -0.0
+    176.4k  half_even   -0.0  +0.0  -0.0  -0.0
+
+Both rounding modes leave the same one-sample-per-million residue.
+The rounding does not decide whether a run reads low; which block the
+residue lands in does.
+
+What survives: half-up does leave a real DC offset at the modulator
+input, -170 to -169 dBFS against -210 to -187 dBFS for ties to even, and that
+offset does reach the output as DC. Convergent rounding removes it
+for one adder's difference, so the recommendation stands. The reason
+given for it does not: the offset costs nothing measurable in the
+audio band.
+
+==============================================================================
+E.  THE 1-IN-36 COUNT, RECOUNTED
+==============================================================================
+This is run_endtoend.py's limit-cycle experiment rerun unchanged --
+six rates, six input perturbations, with and without a quarter LSB
+of dither at the quantizer -- with the same records measured both
+ways. The published count is 1 of 36 without dither and 1 of 36
+with, a different one, which is what 'dither moves which run trips'
+was based on.
+
+(72 runs, 134 s)
+
+  as published: 2**20, arithmetic mean
+        rate     dither                                six perturbations
+       48.0k       none    137.7   137.7   137.7   137.7   137.7   137.7
+       48.0k   0.25 LSB    137.7   137.7   137.7   137.7   137.7   137.7
+       96.0k       none    140.7   140.8   140.7   140.7   140.7   140.8
+       96.0k   0.25 LSB    140.8   140.7   140.7   140.8   140.8   140.8
+      192.0k       none    143.4   143.4   143.3   143.4   143.4   143.4
+      192.0k   0.25 LSB    143.4   143.3   143.4   143.3   143.4   143.4
+       44.1k       none    137.1   137.1   137.1   137.1   137.1   137.1
+       44.1k   0.25 LSB    137.2   137.2   137.2   137.1   137.1   137.2
+       88.2k       none    140.3   140.3   140.3   140.3   140.3   140.2
+       88.2k   0.25 LSB    140.3   140.3   140.3   140.3   140.3   140.3
+      176.4k       none    143.3   143.3   143.3   143.2   143.3   143.3
+      176.4k   0.25 LSB    124.9   143.3   143.3   143.3   143.3   143.3
+  -> 1 of 72 more than 5 dB below their row median
+
+  same records: 2**20, windowed mean
+        rate     dither                                six perturbations
+       48.0k       none    137.7   137.7   137.7   137.7   137.7   137.7
+       48.0k   0.25 LSB    137.7   137.7   137.7   137.7   137.7   137.7
+       96.0k       none    140.7   140.8   140.8   140.8   140.7   140.8
+       96.0k   0.25 LSB    140.8   140.7   140.8   140.8   140.8   140.8
+      192.0k       none    143.4   143.4   143.4   143.4   143.4   143.4
+      192.0k   0.25 LSB    143.4   143.4   143.4   143.4   143.4   143.4
+       44.1k       none    137.1   137.1   137.1   137.1   137.1   137.1
+       44.1k   0.25 LSB    137.2   137.2   137.2   137.1   137.1   137.2
+       88.2k       none    140.3   140.3   140.3   140.3   140.3   140.2
+       88.2k   0.25 LSB    140.3   140.3   140.3   140.3   140.3   140.3
+      176.4k       none    143.3   143.3   143.3   143.3   143.3   143.3
+      176.4k   0.25 LSB    143.3   143.3   143.3   143.3   143.3   143.3
+  -> 0 of 72 more than 5 dB below their row median
+
+  same records: 2**22, windowed mean
+        rate     dither                                six perturbations
+       48.0k       none    138.4   138.4   138.4   138.4   138.4   138.4
+       48.0k   0.25 LSB    138.4   138.4   138.4   138.4   138.4   138.4
+       96.0k       none    141.3   141.3   141.3   141.3   141.3   141.3
+       96.0k   0.25 LSB    141.3   141.3   141.3   141.3   141.3   141.3
+      192.0k       none    144.3   144.3   144.3   144.3   144.3   144.3
+      192.0k   0.25 LSB    144.3   144.3   144.3   144.3   144.3   144.3
+       44.1k       none    138.0   138.0   138.0   138.0   138.0   138.0
+       44.1k   0.25 LSB    138.0   138.0   138.0   138.0   138.0   138.0
+       88.2k       none    141.1   141.1   141.1   141.1   141.1   141.1
+       88.2k   0.25 LSB    141.1   141.1   141.1   141.1   141.1   141.1
+      176.4k       none    143.8   143.8   143.8   143.8   143.8   143.8
+      176.4k   0.25 LSB    143.8   143.8   143.8   143.8   143.8   143.8
+  -> 0 of 72 more than 5 dB below their row median
+
+The count that was read as a loop fault is a count of how often the
+near-DC residue lands where the window can see it. Corrected, the
+dither comparison has nothing left to compare: both columns are
+flat.
+
+==============================================================================
+F.  BLAST RADIUS: WHICH PUBLISHED FIGURES MOVE
+==============================================================================
+x - x.mean() is used at five measurement sites that produced
+published figures:
+    lyrebird_model/endtoend.py:232   every end-to-end table
+    run_experiments.py:210           rotation and mismatch
+    run_analog.py:113 and :623       the analog section
+    run_endtoend.py:443              the limit-cycle count
+
+The term only shows when the near-DC residue is large, which is a
+lottery per record, so the only way to know which published numbers
+carry it is to measure them both ways. Each row below is one record
+measured twice, not two runs.
+
+F1. End to end per rate, and the chain as it will be built.
+    (README 'The chain end to end' and 'as it will actually be built')
+
+          rate    elements   as published   2**20 windowed   2**22 windowed   moved by
+         48.0k     matched         137.57           137.57           138.42      -0.00
+         48.0k          1%         132.92           132.92           133.94      -0.00
+         96.0k     matched         140.27           140.29           141.42      +0.01
+         96.0k          1%         133.72           133.73           134.21      +0.00
+        192.0k     matched         143.83           143.83           144.38      +0.00
+        192.0k          1%         133.97           133.97           134.71      +0.00
+         44.1k     matched         137.56           137.56           138.00      +0.00
+         44.1k          1%         132.84           132.84           133.30      +0.00
+         88.2k     matched         140.18           140.18           140.92      +0.01
+         88.2k          1%         132.83           132.83           133.95      +0.00
+        176.4k     matched         125.06           143.40           144.08     +18.34
+        176.4k          1%         133.32           133.32           133.94      +0.00
+
+F2. Element mismatch and rotation (run_experiments.py:210), 2**21.
+     order   mismatch   rotation   as published   corrected   moved by
+         2       0.0%         on         128.42      128.42      +0.00
+         2       0.1%         on         128.43      128.43      +0.00
+         2       0.1%        off          76.74       76.74      +0.00
+         2       1.0%         on         127.71      127.71      +0.00
+         2       1.0%        off          56.72       56.72      +0.00
+         3       0.0%         on         169.24      169.24      -0.00
+         3       0.1%         on         154.81      154.81      +0.00
+         3       0.1%        off          77.07       77.07      -0.00
+         3       1.0%         on         134.96      134.96      +0.00
+         3       1.0%        off          57.06       57.06      -0.00
+
+F3. Where the volume control goes, 96 kHz.
+         gain at   attenuation   as published   corrected   moved by
+           input           -6 dB         134.59      134.60      +0.00
+           input          -20 dB         120.59      120.59      -0.00
+           input          -40 dB         100.16      100.16      +0.00
+           input          -60 dB          80.53       80.54      +0.01
+       modulator           -6 dB         140.26      140.27      +0.01
+       modulator          -20 dB         140.14      140.16      +0.01
+       modulator          -40 dB         133.47      133.47      +0.00
+       modulator          -60 dB         113.44      113.44      +0.00
+
+F4. Modulator order sweep, tone at the element clock, 2**20.
+     order   as published   corrected   moved by
+         2         127.42      127.42      +0.00
+         3         168.10      168.10      +0.00
+         4         204.10      204.10      -0.00
+         5         215.34      215.34      -0.00
+
+F5. The analog section's own site (run_analog.py:623): the same
+    element sum behind a 1 MHz pole per element, 48 kHz, 1%
+    elements, capacitor tolerance swept. This is the table printed
+    in results/analog.txt as Q2e.
+
+      C tolerance   as published   2**20 windowed   2**21 windowed   moved by
+          matched         120.43           132.93           133.75     +12.50
+               2%         119.98           132.94           133.75     +12.96
+               5%         119.34           132.93           133.73     +13.59
+              10%         118.37           132.84           133.62     +14.47
+              20%         116.70           132.41           133.15     +15.70
+
+      C tolerance   cost as published   cost corrected
+          matched               +0.00            +0.00
+               2%               +0.45            -0.01
+               5%               +1.09            -0.01
+              10%               +2.06            +0.08
+              20%               +3.72            +0.52
+
+
+    (F1-F4: 77 s)
+
+total 1098 s

@@ -437,15 +437,126 @@ def build():
         _res(o, lo, "100R")
         line_out[ch] = lo
 
+    # ---- The bipolar rail. A 5 V input cannot make +5 V with headroom, so a
+    # charge pump makes both polarities and low-dropout regulators drop to
+    # the final rails: op amp rejection falls off steeply with frequency, so
+    # at a pump's switching frequency the amplifier rejects far less than its
+    # headline figure (0009).
+    #
+    # LTC3265: boost charge pump, inverting charge pump, and a 50 mA LDO on
+    # each, in one package. Verified against datasheet 3265fa.
+    #
+    # VIN_N is tied to VOUT+ rather than to VIN_P, which is the datasheet's
+    # own instruction for this case: "If VIN_N is tied to VOUT+, the output at
+    # VOUT- will be -VOUT+ or -2 * VIN_P. This configuration is suitable for
+    # symmetric outputs at LDO+ and LDO- pins." Tying it to VIN_P instead
+    # would cap the negative raw rail at -VIN_P, which cannot support a -5 V
+    # output through a regulator that needs its dropout.
+    pump_p = Net("PUMP_P")          # 2 x VIN_P, also the inverting pump input
+    pump_n = Net("PUMP_N")          # -PUMP_P
+    vpos_raw = Net("+6V_A")         # LDO+, the LT3045's input
+    vneg_raw = Net("-6V_A")         # LDO-, the LT3094's input
+    pump = Part("lyrebird", "LTC3265", ref="U13", value="LTC3265EDHC#TRPBF",
+                footprint="Package_DFN_QFN:DFN-18-1EP_3x5mm_P0.5mm_EP1.66x4.4mm")
+    pump["VIN_P"] += v5
+    pump["GND"] += gnd
+    pump["VOUT+"] += pump_p
+    pump["VIN_N"] += pump_p
+    pump["VOUT-"] += pump_n
+    pump["LDO+"] += vpos_raw
+    pump["LDO-"] += vneg_raw
+    _cap(v5, gnd, "10uF")
+    _cap(pump_p, gnd, "10uF")
+    _cap(pump_n, gnd, "10uF")
+    _cap(pump_p, gnd, "1uF", "Capacitor_SMD:C_0603_1608Metric")  # at VIN_N
+    _cap(vpos_raw, gnd, "10uF")
+    _cap(vneg_raw, gnd, "10uF")
+    # Flying capacitors, one per pump.
+    _cap(pump["CBST+"], pump["CBST-"], "1uF 25V X7R")
+    _cap(pump["CINV+"], pump["CINV-"], "1uF 25V X7R")
+    # MODE low is constant frequency rather than Burst Mode. Burst costs less
+    # quiescent current but puts the ripple at a hysteretic rate that moves
+    # with load; constant frequency puts it at a known 500 kHz where the
+    # LT3045 and LT3094 that follow reject it, which is the whole reason they
+    # are there. RT to ground selects the 500 kHz default, the highest
+    # available and the furthest from the audio band.
+    pump["MODE"] += gnd
+    pump["RT"] += gnd
+    # Reference bypass on both LDOs: the datasheet's stated purpose is to
+    # reduce their output noise, and these two rails reach the signal.
+    _cap(pump["BYP+"], gnd, "100nF", "Capacitor_SMD:C_0402_1005Metric")
+    _cap(pump["BYP-"], gnd, "100nF", "Capacitor_SMD:C_0402_1005Metric")
+    # ADJ servos to +/-1.2 V. 49.9k over 12.4k gives 1.2 x (1 + 49.9/12.4) =
+    # 6.03 V, which leaves the LT3045 and LT3094 a volt of headroom over
+    # their +/-5 V outputs and keeps the pump's own 32 ohm output impedance
+    # out of the final rail.
+    _res(vpos_raw, pump["ADJ+"], "49.9k 1%")
+    _res(pump["ADJ+"], gnd, "12.4k 1%")
+    _res(vneg_raw, pump["ADJ-"], "49.9k 1%")
+    _res(pump["ADJ-"], gnd, "12.4k 1%")
+    # EN+ and EN- must not float, and they are what holds the analog stage
+    # off before enumeration. One unit load applies until the device is
+    # configured, and this stage does not fit inside it at any element value
+    # (analog.txt Q1b), so it is gated on MUTE_N: low or undriven means the
+    # pumps and both LDOs are off. The polarity is already right, since
+    # MUTE_N is asserted low to mute. The enable thresholds are 2 V rising
+    # maximum and 0.4 V falling minimum, so the header's 2.5 V logic clears
+    # them, and each pin has a 0.7 uA internal pull-down, so nothing here can
+    # drive the mezzanine above its own level.
+    pump["EN+"] += ctrl["MUTE_N"]
+    pump["EN-"] += ctrl["MUTE_N"]
+    # 100 k to ground so the net is defined rather than held by 0.7 uA while
+    # the FPGA is unconfigured and its pin is high impedance.
+    _res(ctrl["MUTE_N"], gnd, "100k")
+
+    # Final rails. Both regulators are the reason the pump is allowed near an
+    # audio stage at all: 0.8 uVRMS of their own and steep rejection of what
+    # arrives from the pump.
+    pos = Part("Regulator_Linear", "LT3045xDD", ref="U14",
+               value="LT3045 op amp positive rail",
+               footprint="Package_DFN_QFN:DFN-12-1EP_3x3mm_P0.45mm_EP1.65x2.38mm")
+    for p in pos.pins:
+        nm = str(p.name)
+        if nm.startswith("IN"):
+            p += vpos_raw
+        elif nm.startswith("OUT"):
+            p += vpos
+        elif nm == "GND":
+            p += gnd
+    lp.lt3045_housekeeping(pos, vpos_raw, gnd, "49.9k 0.1%", _res, _cap)
+    _cap(vpos, gnd, "10uF")
+
+    # The LT3094 is the negative counterpart and its pins mirror the LT3045's,
+    # verified against its own datasheet: 100 uA out of SET through R_SET sets
+    # the output, so 49.9k gives -4.99 V and is the value its own Table 1
+    # lists for -5 V. "If unused, tie EN/UV to IN. Do not float the EN/UV
+    # pin." "If power good and fast start-up functionality are not needed, tie
+    # PGFB to IN." EN/UV enables on either polarity beyond +/-1.35 V, so
+    # tying it to the negative input is an enable, not a shutdown.
     neg = Part("Regulator_Linear", "LT3094xDD", ref="U8",
                value="LT3094 op amp negative rail",
                footprint="Package_DFN_QFN:DFN-12-1EP_3x3mm_P0.45mm_EP1.65x2.38mm")
     for p in neg.pins:
         nm = str(p.name)
-        if nm.startswith("OUT"):
+        if nm.startswith("IN"):
+            p += vneg_raw
+        elif nm.startswith("OUT"):
             p += vneg
         elif nm == "GND":
             p += gnd
+    _res(neg["SET"], gnd, "49.9k 0.1%")
+    _cap(neg["SET"], gnd, "4.7uF")
+    vneg_raw += neg["EN/UV"]
+    vneg_raw += neg["PGFB"]
+    # Unlike the LT3045, the LT3094's pin description gives no instruction for
+    # an unused ILIM, so the current limit is programmed rather than the pin
+    # tied: the scale factor is 3.75 A x kohm, so 24.9k sets about 150 mA,
+    # well above the 22 mA this rail carries and below what the pump's LDO
+    # can deliver into a fault.
+    _res(neg["ILIM"], gnd, "24.9k 1%")
+    # VIOC: "If unused, float the VIOC pin." PG is an open-collector flag and
+    # is unused, as on the LT3045s.
+    _cap(vneg, gnd, "10uF")
 
     # ---- Module identity: combined line and headphone is 0b11; line only is
     # 0b01 (hardware/interface.md). Strapped for line only until the module
@@ -480,7 +591,8 @@ def build():
     import builtins
     lp.assert_below_abs_max(
         builtins.default_circuit,
-        hv_rails={"+5V", "+3V3_CLK", "+3V3_REF", "+5V_A", "-5V_A"},
+        hv_rails={"+5V", "+3V3_CLK", "+3V3_REF", "+5V_A", "-5V_A",
+                  "PUMP_P", "PUMP_N", "+6V_A", "-6V_A"},
         protected={mez: {"+5V"}})
 
 

@@ -32,8 +32,9 @@ Three details in that formula are not decoration.
 is exactly 1 with zero delay, and both paths run the same cascade, so ``x`` and
 ``u_ref`` line up sample for sample once the same ``settle_samples`` prefix is
 dropped from each. Getting that prefix wrong produces a confident number that
-is wrong by tens of dB, so :func:`alignment_lag` measures the lag rather than
-trusting it.
+is wrong by tens of dB, so :func:`alignment_margin` measures how much worse
+the error gets when the two paths are slid apart, rather than trusting the
+offset.
 
 **The gain has to be fitted, and fitted in band.** Element mismatch is a
 static weight per element, so it shows up as a gain error of order
@@ -53,9 +54,17 @@ over all the windows of a render, because the mismatch gain is a static
 property of the elements rather than something that changes window to window;
 the per-window spread is reported as a check that a scalar is the right model.
 
-**The mean has to go, per window.** Element mismatch leaves a static offset,
-and at 23.4 Hz bins a Kaiser main lobe is nine bins wide, so DC leaks to
-210 Hz -- straight through the 20 to 100 Hz band where the wander lives.
+**The mean has to go, and it has to go before the gain fit as well as after
+it.** Element mismatch leaves a static offset, and at 23.4 Hz bins a Kaiser
+main lobe is twelve bins wide, so DC leaks to 280 Hz -- straight through the
+20 to 100 Hz band where the wander lives, and straight through the band the
+gain is fitted over. Removing it from the error but not from the fit is not
+half right, it is wrong: measured on a -70 dBFS record at one percent
+elements, the gain came out 1.207 instead of 0.9988 and the reported error
+stopped moving when the input level moved, sitting at -88.4 dBFS whether the
+record was at -12, -40 or -70 dBFS. **An error figure that does not respond to
+the input is not measuring the converter**, and that tell is worth more than
+the rule it broke.
 
 Windows
 -------
@@ -302,8 +311,18 @@ def band_gain_terms(x: np.ndarray, ref: np.ndarray, fs: float,
     """
     n = len(ref)
     w = spectra.analysis_window(n)
-    X = np.fft.rfft(np.asarray(x, dtype=np.float64) * w)
-    U = np.fft.rfft(np.asarray(ref, dtype=np.float64) * w)
+    a = np.asarray(x, dtype=np.float64)
+    b = np.asarray(ref, dtype=np.float64)
+    # The mean has to go before the fit, not only after it. Element mismatch
+    # leaves a static offset on the element sum, and at 23.4 Hz bins the
+    # Kaiser main lobe is twelve bins wide, so that offset leaks to 280 Hz --
+    # inside the band the fit is taken over. Left in, it biases the gain by
+    # whatever the reference happens to carry down there, which is nothing
+    # when the music is loud and everything when it is quiet: measured, it put
+    # the fitted gain at 1.207 instead of 0.9988 on a -70 dBFS record and
+    # invented an error at -88 dBFS that did not move when the level did.
+    X = np.fft.rfft((a - a.mean()) * w)
+    U = np.fft.rfft((b - b.mean()) * w)
     f = spectra.bin_freqs(n, fs)
     sel = (f >= band[0]) & (f <= band[1])
     cross = float(np.real(np.vdot(U[sel], X[sel])))
@@ -311,41 +330,61 @@ def band_gain_terms(x: np.ndarray, ref: np.ndarray, fs: float,
     return cross, auto
 
 
-def alignment_lag(x: np.ndarray, ref: np.ndarray, span: int = 8,
-                  n: int = 1 << 16, floor_dbfs: float = -60.0) -> int:
-    """Lag, in samples, at which ``x`` best matches ``ref``. Must come back 0.
+def alignment_margin(x: np.ndarray, ref: np.ndarray, fs: float,
+                     band: tuple[float, float] = BAND,
+                     n: int = 1 << 18, shift: int = 256,
+                     floor_dbfs: float = -60.0) -> tuple[float, float]:
+    """How much worse the error gets if the two paths are slid apart.
 
     The settling offset is the one thing in this measurement that silently
     produces confident nonsense: slice the two paths by different amounts and
     the error becomes the signal itself, delayed.
 
-    The comparison is taken on the loudest stretch of the record, not the
-    first. Programme material has silent passages, and a lag estimated on one
-    of those is the lag of the noise, which is a random number between plus and
-    minus ``span`` and reads as a fault that is not there. Records with nothing
-    loud enough to decide on return 0, because there is nothing to check.
+    A plain argmax of the cross-correlation over a few samples cannot check
+    that. The signal is band-limited to 20 kHz and sampled at 24.576 MHz, so
+    its autocorrelation is flat to six decimal places over plus or minus eight
+    samples -- every small lag looks equally good and the argmax reports
+    whichever way the out-of-band noise happened to fall. Measured on real
+    material that false-alarmed on 34 of 90 segments.
+
+    What is checked instead is the thing that matters: the in-band error at the
+    offset actually used, against the in-band error at plus and minus
+    ``shift`` samples. Correct alignment makes the first far smaller than the
+    second. ``shift`` of 256 samples is 10.4 us, a fifth of a period at
+    10 kHz, so it is a real displacement for anything with treble in it.
+
+    Returns ``(error at lag 0 in dBFS, margin in dB)``. A margin of ``nan``
+    means the record had nothing loud enough to decide on.
     """
-    ref = np.asarray(ref, dtype=np.float64)
     x = np.asarray(x, dtype=np.float64)
-    m = min(len(ref), len(x), n)
+    ref = np.asarray(ref, dtype=np.float64)
+    m = min(len(ref), len(x)) - 2 * shift
+    n = min(n, m)
+    if n <= 0:
+        return float("nan"), float("nan")
     c = int(np.argmax(np.abs(ref)))
-    lo = min(max(c - m // 2, 0), min(len(ref), len(x)) - m)
-    a = x[lo:lo + m]
-    b = ref[lo:lo + m]
-    a = a - a.mean()
-    b = b - b.mean()
-    pb = float(np.dot(b, b) / m)
-    if 10.0 * np.log10(max(pb, 1e-300) / 0.5) < floor_dbfs:
-        return 0
-    best, lag = -np.inf, 0
-    for k in range(-span, span + 1):
-        if k >= 0:
-            v = float(np.dot(a[k:], b[:m - k]))
-        else:
-            v = float(np.dot(a[:m + k], b[-k:]))
-        if v > best:
-            best, lag = v, k
-    return lag
+    lo = min(max(c - n // 2, shift), min(len(ref), len(x)) - n - shift)
+    b = ref[lo:lo + n]
+    w = spectra.analysis_window(n)
+    f = spectra.bin_freqs(n, fs)
+    sel = (f >= band[0]) & (f <= band[1])
+    U = np.fft.rfft((b - b.mean()) * w)
+    p_ref = spectra.power_spectrum(b - b.mean(), w)
+    if float(spectra.dbfs(float(p_ref[sel].sum()))) < floor_dbfs:
+        return float("nan"), float("nan")
+
+    def err_db(k: int) -> float:
+        a = x[lo + k:lo + k + n]
+        X = np.fft.rfft((a - a.mean()) * w)
+        g = (float(np.real(np.vdot(U[sel], X[sel])))
+             / float(np.real(np.vdot(U[sel], U[sel]))))
+        e = (a - a.mean()) - g * (b - b.mean())
+        pe = spectra.power_spectrum(e - e.mean(), w)
+        return float(spectra.dbfs(float(pe[sel].sum())))
+
+    e0 = err_db(0)
+    es = min(err_db(shift), err_db(-shift))
+    return e0, es - e0
 
 
 @dataclass
@@ -485,14 +524,16 @@ def run_segment(job: dict) -> dict:
     if not r.stable:
         return {"label": job.get("label"), "stable": False,
                 "windows": [], "state_peak": r.state_peak.tolist(),
-                "clipped": r.clipped, "lag": 0, "peak_u": r.peak_u}
+                "clipped": r.clipped, "align": (float("nan"), float("nan")),
+                "peak_u": r.peak_u}
     stats = measure(r, window=job.get("window", WINDOW),
                     t_offset=job.get("t0", 0.0))
     return {
         "label": job.get("label"), "stable": True,
         "windows": [s.__dict__ for s in stats],
         "state_peak": r.state_peak.tolist(), "clipped": r.clipped,
-        "lag": alignment_lag(r.x, r.u_ref), "peak_u": r.peak_u,
+        "align": alignment_margin(r.x, r.u_ref, r.mode.element_clock),
+        "peak_u": r.peak_u,
     }
 
 
@@ -552,23 +593,73 @@ def true_peak(cascade: halfband.Cascade, mode: chain.Mode, pcm: np.ndarray,
     x = endtoend.fade(np.asarray(pcm, dtype=np.float64), fade_n)
     settle = cascade.settle_samples(mode)
     guard = int(np.ceil(settle / mode.ratio)) + 8
-    tp = 0.0
+    tp, where = 0.0, 0
     n = len(x)
     for i in range(0, n, block):
         lo = max(i - guard, 0)
         hi = min(i + block + guard, n)
         y, _ = datapath.interpolate(cascade, x[lo:hi], mode, coeff_bits=coeff_bits)
         core = y[settle:len(y) - settle] if len(y) > 2 * settle else y[settle:]
-        if len(core):
-            tp = max(tp, float(np.abs(core).max()))
+        if not len(core):
+            continue
+        j = int(np.argmax(np.abs(core)))
+        if abs(core[j]) > tp:
+            tp = float(abs(core[j]))
+            where = int(round((lo * mode.ratio + j) / mode.ratio))
     sample_peak = float(np.abs(x).max())
+    at = int(np.argmax(np.abs(x)))
     return {
         "sample_peak": sample_peak,
         "sample_peak_dbfs": 20.0 * np.log10(max(sample_peak, 1e-30)),
         "true_peak": tp,
         "true_peak_dbfs": 20.0 * np.log10(max(tp, 1e-30)),
         "overshoot_db": 20.0 * np.log10(max(tp, 1e-30) / max(sample_peak, 1e-30)),
+        "true_peak_at": where,
+        "sample_peak_at": at,
+        "apart": abs(where - at),
     }
+
+
+def true_peak_index(cascade: halfband.Cascade, mode: chain.Mode,
+                    pcm: np.ndarray, coeff_bits=COEFF_BITS,
+                    fade_n: int = 256, block: int = 1 << 13) -> tuple[int, float]:
+    """Where in the PCM record the cascade reconstructs its largest peak.
+
+    Not the same place as the largest sample, and for clipped material not
+    close to it. Measured on a percussive record clipped 12 dB, the loudest
+    sample is at PCM index 271 and the loudest reconstructed peak is at 73150
+    -- one and a half seconds apart, and 2.5 dB higher. A headroom measurement
+    windowed on the loudest sample therefore misses the moment that decides
+    the answer, which is the whole point of windowing on a peak at all.
+    """
+    x = endtoend.fade(np.asarray(pcm, dtype=np.float64), fade_n)
+    settle = cascade.settle_samples(mode)
+    guard = int(np.ceil(settle / mode.ratio)) + 8
+    best, where = 0.0, 0
+    for i in range(0, len(x), block):
+        lo = max(i - guard, 0)
+        hi = min(i + block + guard, len(x))
+        y, _ = datapath.interpolate(cascade, x[lo:hi], mode,
+                                    coeff_bits=coeff_bits)
+        core = y[settle:len(y) - settle] if len(y) > 2 * settle else y[settle:]
+        if not len(core):
+            continue
+        j = int(np.argmax(np.abs(core)))
+        if abs(core[j]) > best:
+            best = float(abs(core[j]))
+            where = int(round((lo * mode.ratio + j) / mode.ratio))
+    return where, best
+
+
+def true_peak_slice(cascade: halfband.Cascade, mode: chain.Mode,
+                    pcm: np.ndarray, n: int, coeff_bits=COEFF_BITS) -> np.ndarray:
+    """``n`` samples centred on the largest peak the cascade reconstructs."""
+    x = np.asarray(pcm, dtype=np.float64)
+    if len(x) <= n:
+        return np.pad(x, (0, n - len(x)))
+    c, _ = true_peak_index(cascade, mode, x, coeff_bits=coeff_bits)
+    lo = min(max(c - n // 2, 0), len(x) - n)
+    return x[lo:lo + n]
 
 
 def survives(cascade: halfband.Cascade, ntf: modulator.NTF, mode: chain.Mode,
@@ -655,9 +746,15 @@ def self_check() -> None:
     x = 1.004 * ref + 1e-6 * rng.standard_normal(n)
     cr, au = band_gain_terms(x, ref, fs)
     assert abs(cr / au - 1.004) < 1e-4, cr / au
-    assert alignment_lag(ref, ref) == 0
-    assert alignment_lag(ref[3:], ref[:-3]) == -3
-    assert alignment_lag(np.concatenate([np.zeros(3), ref])[:n], ref) == 3
+    # the alignment guard must reward the right offset and punish a slide
+    t2 = np.arange(1 << 16)
+    fs2 = chain.ELEMENT_CLOCK["48k"]
+    sig = 0.4 * np.sin(2.0 * np.pi * 9000.0 * t2 / fs2)
+    noise = 1e-5 * rng.standard_normal(len(t2))
+    e0, margin = alignment_margin(sig + noise, sig, fs2, shift=256)
+    assert margin > 20.0, (e0, margin)
+    e0, margin = alignment_margin(np.roll(sig, 256) + noise, sig, fs2, shift=256)
+    assert margin < 0.0, (e0, margin)
 
 
 if __name__ == "__main__":

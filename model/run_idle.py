@@ -20,8 +20,10 @@ Sections:
   A  what a 2**20 transform does to a 20 Hz question
   B  trip rate on near-idle material
   C  conditions: DC, level, where a fade ends, state and pointer at silence
-  D  remedies
-  E  a runtime detector
+  D  the 15.7 dB attributed to round-half-up
+  E  the 1-in-36 count, recounted
+  F  blast radius: which published figures move
+  G  figures
 
 Figures land in figures/idle*.png, the log in results/idle.txt.
 """
@@ -41,8 +43,8 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from lyrebird_model import (chain, datapath, endtoend, halfband,  # noqa: E402
-                            idle, material, modulator, spectra)
+from lyrebird_model import (chain, datapath, dwa, endtoend,  # noqa: E402
+                            halfband, idle, material, modulator, spectra)
 
 FIG = HERE / "figures"
 RES = HERE / "results"
@@ -473,249 +475,486 @@ def section_c() -> dict:
 
 
 # ------------------------------------------------------------------ D
-# name -> kwargs for run_trial, plus a dither factory taking (n, seed)
-REMEDIES = (
-    ("nothing", {}, None),
-    ("TPDF at the source", dict(src_dither="tpdf"), None),
-    ("RPDF 0.25 LSB at the quantizer", {}, ("rpdf", 0.25)),
-    ("RPDF 1.0 LSB at the quantizer", {}, ("rpdf", 1.0)),
-    ("high-pass 0.25 LSB at the quantizer", {}, ("hp", 0.25)),
-    ("high-pass 1.0 LSB at the quantizer", {}, ("hp", 1.0)),
-    ("DC bias, one signal LSB", dict(mod_dc=2.0 ** -26), None),
-    ("DC bias, -80 dBFS", dict(mod_dc=1e-4), None),
-    ("DC bias, -60 dBFS", dict(mod_dc=1e-3), None),
-    ("integrator reset on idle", dict(idle_reset=True), None),
-)
+def _both(x: np.ndarray, fs: float, f: float, n_harmonics: int = 10):
+    """The same record measured the published way and the corrected way."""
+    a = spectra.Measurement.of(x - x.mean(), fs, f, idle.BAND,
+                               n_harmonics=n_harmonics)
+    b = spectra.Measurement.of(idle.remove_dc(x), fs, f, idle.BAND,
+                               n_harmonics=n_harmonics)
+    return a, b
 
 
-def _dither_for(spec, n, seed):
-    if spec is None:
-        return None
-    kind, amt = spec
-    if kind == "rpdf":
-        return modulator.dither_sequence(n, amt, seed=seed)
-    return idle.shaped_dither(n, amt, seed=seed)
+def _chain_record(fam, fs_pcm, *, n, rounding=None, sigma=0.0, rotate=True,
+                  bits=24, dither="tpdf", sig_frac=None, acc_frac=None,
+                  coeff_bits=None, amp_dbfs=TEST_DBFS, gain_at=None,
+                  gain_db=0.0, seed=7, coh_n=None, want_elements=False):
+    """``endtoend.run``'s path, returning the element sum before mean removal.
 
+    Repeated here rather than called because the question is what the mean
+    removal does, and ``endtoend.run`` has already done it by the time it
+    returns.
 
-def _job_d_tone(arg):
-    """The 1-in-36 test itself: a 1 kHz tone, one remedy, both measurements."""
-    name, kw, dspec, seed, n = arg
-    ntf, c = _setup("44k1")
-    m = _mode("44k1", 176400.0)
-    fs, settle = m.element_clock, c.settle_samples(m)
-    _, f = spectra.coherent_bin(N_LEGACY, fs, F_TONE)
+    ``coh_n`` is the length the tone is made coherent to, which is the length
+    the published figure was measured over. Making a longer record coherent to
+    the same frequency keeps the published window bit-identical -- the tone is
+    the same, and the source dither for the first ``coh_n`` samples is drawn
+    from the same generator in the same order -- so the two measurements
+    compare, rather than being two different runs.
+    """
+    ntf, c = _setup(fam)
+    m = _mode(fam, fs_pcm)
+    fse, settle = m.element_clock, c.settle_samples(m)
+    coh_n = n if coh_n is None else coh_n
     n_in = endtoend.input_length(c, m, n)
-    pcm = endtoend.quantize_pcm(
-        endtoend.source_tone(n_in, m.fs, f, TEST_DBFS), 24,
-        "tpdf" if kw.get("src_dither") != "none" else "none", seed=seed)
-    y, _ = datapath.interpolate(c, pcm, m, coeff_bits=idle.COEFF_BITS,
-                                sig_frac=idle.SIG_FRAC, acc_frac=idle.ACC_FRAC)
+    n_coh = endtoend.input_length(c, m, coh_n)
+    _, f = endtoend.coherent_tone_freq(m, coh_n, F_TONE)
+    pcm = endtoend.source_tone(n_in, m.fs, f, amp_dbfs)
+    if gain_at == "input":
+        pcm = pcm * 10 ** (gain_db / 20)
+    if bits is not None:
+        if n_coh < n_in:
+            pcm = np.concatenate([
+                endtoend.quantize_pcm(pcm[:n_coh], bits, dither, seed=seed + 4),
+                endtoend.quantize_pcm(pcm[n_coh:], bits, dither, seed=99991)])
+        else:
+            pcm = endtoend.quantize_pcm(pcm, bits, dither, seed=seed + 4)
+    y, _ = datapath.interpolate(c, pcm, m, coeff_bits=coeff_bits,
+                                sig_frac=sig_frac, acc_frac=acc_frac,
+                                rounding=rounding)
     u = y[settle:settle + n]
-    if kw.get("mod_dc"):
-        u = u + kw["mod_dc"]
-    d = _dither_for(dspec, n, seed + 900)
-    if kw.get("idle_reset"):
-        o, _, _ = idle.simulate_idle_reset(ntf, u, fs, dither=d)
-    else:
-        o = modulator.simulate(ntf, u, fs, f_sig=f, dither=d).out
-    lg = spectra.Measurement.of(o[:N_LEGACY] - o[:N_LEGACY].mean(), fs, f,
-                                idle.BAND, n_harmonics=10).sndr_db
-    cor = spectra.Measurement.of(idle.remove_dc(o), fs, f, idle.BAND,
-                                 n_harmonics=10).sndr_db
-    return name, seed, float(lg), float(cor)
+    if gain_at == "modulator":
+        u = u * 10 ** (gain_db / 20)
+    r = modulator.simulate(ntf, u, fse, f_sig=f)
+    codes = np.clip(np.asarray(r.codes, dtype=np.int64), 0, chain.N_ELEMENTS)
+    pos, neg = dwa.differential(codes, rotate=rotate)
+    wp, wn = (None, None) if sigma == 0.0 else dwa.mismatch(sigma, seed=seed)
+    x = dwa.normalise(dwa.analog(pos, neg, wp, wn))
+    if want_elements:
+        return x, f, fse, float(u.mean()), pos, neg
+    return x, f, fse, float(u.mean())
 
 
-def _job_d_idle(arg):
-    name, kw, dspec, seed, n = arg
-    ntf, c = _setup("48k")
-    m = _mode("48k", 48000.0)
-    kw = dict(kw)
-    d = _dither_for(dspec, n + N_PRE, seed + 900)
-    t = idle.run_trial(c, ntf, m, idle="digital silence", pre="fade",
-                       seed=seed, n=n, n_pre=N_PRE, quantizer_dither=d, **kw)
-    return name, seed, t.b.total_db, t.b.low_db, t.b.wander_db, t.lsb_per_window
+def _job_ties(arg):
+    fam, fs_pcm, rnd, n = arg
+    x, f, fse, umean = _chain_record(
+        fam, fs_pcm, n=n, rounding=rnd, coeff_bits=idle.COEFF_BITS,
+        sig_frac=idle.SIG_FRAC, acc_frac=idle.ACC_FRAC, coh_n=N_LEGACY)
+    a20, b20 = _both(x[:N_LEGACY], fse, f)
+    a, b = _both(x, fse, f)
+    blocks = [float(x[i*N_LEGACY:(i+1)*N_LEGACY].mean() * N_LEGACY / idle.QLSB)
+              for i in range(len(x) // N_LEGACY)]
+    return (fs_pcm, rnd, umean, a20.sndr_db, b20.sndr_db, a.sndr_db,
+            b.sndr_db, blocks)
 
 
 def section_d() -> dict:
-    head("D.  DOES ANYTHING REMOVE IT?")
-    say("Two questions, because there are two things to remove. The reading")
-    say("of 125 dB, which is a measurement, and the near-DC wander, which is")
-    say("real and is 128 dB down.")
+    head("D.  THE 15.7 dB ATTRIBUTED TO ROUND-HALF-UP IS THE SAME ARTIFACT")
+    say("README.md's 'which way ties go' table reports half-up costing 15.7 dB")
+    say("at 96 kHz, 124.58 against 140.25, and explains it as a static input")
+    say("offset turned into idle tones. The offset is real. The 15.7 dB is")
+    say("not.")
     say()
-    n_tone = 1 << 22
-    args = [(name, kw, d, seed, n_tone)
-            for name, kw, d in REMEDIES for seed in range(6)]
+    say("Re-running that table's own function today reproduces the shape but")
+    say("at a different rate -- 44.1 kHz reads 124.73 against 137.55 -- which")
+    say("is already the giveaway. Half-up leaves the same offset at every")
+    say("rate, so a fault caused by the offset cannot move from one rate to")
+    say("another between runs. A lottery over records can.")
+    say()
+    n = 1 << 22
+    args = [(fam, fs, rnd, n) for fam, fs in RATES
+            for rnd in ("half_up", "half_even")]
     t0 = time.time()
     with ProcessPoolExecutor(max_workers=WORKERS) as ex:
-        rows = list(ex.map(_job_d_tone, args))
-    say(f"D1. The 1-in-36 test itself: 1 kHz at {TEST_DBFS} dBFS, 176.4 kHz,")
-    say("    six source-dither draws per remedy. 'as before' is the 2**20")
-    say("    window with the arithmetic mean removed; 'corrected' is 2**22")
-    say("    with the windowed mean removed. Same records, both columns.")
-    say(f"    ({len(rows)} runs, {time.time()-t0:.0f} s)")
-    say()
-    say(f"    {'remedy':>38}  {'as before, six draws':>47}  {'spread':>7}")
-    out = {}
-    for name, kw, d in REMEDIES:
-        v = [r[2] for r in rows if r[0] == name]
-        out[name] = v
-        say(f"    {name:>38}  " + " ".join(f"{x:>7.1f}" for x in v) +
-            f"  {max(v)-min(v):>7.1f}")
-    say()
-    say(f"    {'remedy':>38}  {'corrected, same six records':>47}  "
-        f"{'spread':>7}")
-    cor = {}
-    for name, kw, d in REMEDIES:
-        v = [r[3] for r in rows if r[0] == name]
-        cor[name] = v
-        say(f"    {name:>38}  " + " ".join(f"{x:>7.1f}" for x in v) +
-            f"  {max(v)-min(v):>7.1f}")
-    say()
-    allleg = [x for v in out.values() for x in v]
-    allcor = [x for v in cor.values() for x in v]
-    say(f"    Measured as before, 60 runs span "
-        f"{max(allleg)-min(allleg):.1f} dB, {min(allleg):.1f} to "
-        f"{max(allleg):.1f} dB, and")
-    say(f"    {sum(1 for x in allleg if x < np.median(allleg) - 5):d} of them "
-        f"sit more than 5 dB below the median. Corrected, the same 60 runs")
-    say(f"    span {max(allcor)-min(allcor):.1f} dB, {min(allcor):.1f} to "
-        f"{max(allcor):.1f} dB, and "
-        f"{sum(1 for x in allcor if x < np.median(allcor) - 5):d} do.")
-    say()
-    say("    That is why dither looked like it moved the fault around. Every")
-    say("    remedy changes the record, every record leaves a different")
-    say("    residue in the lowest bins, and the short window reports the")
-    say("    residue. None of them was doing anything to the loop.")
-    say()
-
-    args = [(name, kw, d, seed, N_WIN)
-            for name, kw, d in REMEDIES for seed in range(3)]
-    t0 = time.time()
-    with ProcessPoolExecutor(max_workers=WORKERS) as ex:
-        rows2 = list(ex.map(_job_d_idle, args))
-    say("D2. What each one costs at idle: digital silence after a fade, at")
-    say(f"    48 kHz, three preamble draws. ({len(rows2)} runs, "
+        rows = list(ex.map(_job_ties, args))
+    say(f"Same records, measured four ways. ({len(rows)} runs, "
         f"{time.time()-t0:.0f} s)")
     say()
-    say(f"    {'remedy':>38}  {'20 Hz-20 kHz':>13}  {'20-100 Hz':>10}  "
-        f"{'<20 Hz':>9}  {'unbalanced':>11}")
-    idle_out = {}
-    for name, kw, d in REMEDIES:
-        v = [r for r in rows2 if r[0] == name]
-        tot = float(np.mean([r[2] for r in v]))
-        lo = float(np.mean([r[3] for r in v]))
-        wa = float(np.mean([r[4] for r in v]))
-        lsb = float(np.mean([abs(r[5]) for r in v]))
-        idle_out[name] = (tot, lo, wa, lsb)
-        say(f"    {name:>38}  {tot:>13.1f}  {lo:>10.1f}  {wa:>9.1f}  "
-            f"{lsb:>11.1f}")
+    say(f"{'rate':>10}  {'rounding':>10}  {'DC at mod in':>13}  "
+        f"{'2**20 plain':>12}  {'2**20 windowed':>15}  {'2**22 plain':>12}  "
+        f"{'2**22 windowed':>15}")
+    out = {}
+    for fs_pcm, rnd, umean, a20, b20, a22, b22, blocks in rows:
+        dc = 20 * np.log10(abs(umean)) if umean else float("-inf")
+        say(f"{fs_pcm/1000:>9.1f}k  {rnd:>10}  {dc:>13.1f}  {a20:>12.2f}  "
+            f"{b20:>15.2f}  {a22:>12.2f}  {b22:>15.2f}")
+        out[(fs_pcm, rnd)] = (a20, b20, a22, b22, umean, blocks)
     say()
-    base = idle_out["nothing"][0]
-    say(f"    Cost against doing nothing, in the audio band:")
-    for name, kw, d in REMEDIES:
-        if name == "nothing":
-            continue
-        say(f"      {name:>38}  {idle_out[name][0]-base:+6.1f} dB")
-    return {"tone": out, "corrected": cor, "idle": idle_out}
+    worst20 = max(out[(fs, "half_even")][0] - out[(fs, "half_up")][0]
+                  for fam, fs in RATES)
+    worst22 = max(out[(fs, "half_even")][3] - out[(fs, "half_up")][3]
+                  for fam, fs in RATES)
+    say(f"Measured as published, half-up is up to {worst20:.1f} dB worse.")
+    say(f"Measured over 2**22 with the windowed mean removed, up to "
+        f"{worst22:.2f} dB.")
+    say()
+    say("Unbalanced samples per 2**20 block, the near-DC term itself:")
+    for fs_pcm, rnd, umean, a20, b20, a22, b22, blocks in rows:
+        say(f"  {fs_pcm/1000:>7.1f}k {rnd:>10}  " +
+            " ".join(f"{v:+5.1f}" for v in blocks))
+    say()
+    say("Both rounding modes leave the same one-sample-per-million residue.")
+    say("The rounding does not decide whether a run reads low; which block the")
+    say("residue lands in does.")
+    say()
+    up = [20 * np.log10(abs(out[(fs, "half_up")][4])) for fam, fs in RATES]
+    ev = [20 * np.log10(abs(out[(fs, "half_even")][4])) for fam, fs in RATES]
+    say("What survives: half-up does leave a real DC offset at the modulator")
+    say(f"input, {min(up):.0f} to {max(up):.0f} dBFS against {min(ev):.0f} to "
+        f"{max(ev):.0f} dBFS for ties to even, and that")
+    say("offset does reach the output as DC. Convergent rounding removes it")
+    say("for one adder's difference, so the recommendation stands. The reason")
+    say("given for it does not: the offset costs nothing measurable in the")
+    say("audio band.")
+    return out
 
 
 # ------------------------------------------------------------------ E
-DET_BLOCKS = (1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19)
-
-
-def _job_e_sens(arg):
-    """Detector reading against a known low-frequency component at the output."""
-    f_lf, amp_dbfs, block, n = arg
-    ntf, _ = _setup("48k")
-    fs = chain.ELEMENT_CLOCK["48k"]
-    a = 10 ** (amp_dbfs / 20)
-    u = a * np.sin(2 * np.pi * f_lf * np.arange(n) / fs)
-    r = modulator.simulate(ntf, u, fs)
-    return (f_lf, amp_dbfs, block, idle.detector_stat(r.codes, block),
-            float(idle.bands(r.out, fs).low_db))
-
-
-def _job_e_mat(arg):
-    """Detector reading on real material, and how much of it the gate lets through."""
-    name, dbfs, seed, block, gate, n = arg
-    ntf, c = _setup("48k")
-    m = _mode("48k", 48000.0)
-    t = idle.run_trial(c, ntf, m, idle=name, pre="tone", seed=seed, n=n,
-                       n_pre=N_PRE, idle_dbfs=dbfs, keep=True)
-    codes = t.detector["codes"]
-    im = np.abs(idle.imbalance(codes, block)) / block
-    return (name, dbfs, seed, float(im.max()), float(np.median(im)),
-            t.detector["u_rms"], t.b.low_db, t.b.total_db)
+def _job_e(arg):
+    """run_endtoend.limit_cycles, rerun, with both measurements kept."""
+    fam, fs_pcm, dfrac, k, n = arg
+    ntf, c = _setup(fam)
+    m = _mode(fam, fs_pcm)
+    fse, settle = m.element_clock, c.settle_samples(m)
+    n_in = endtoend.input_length(c, m, n)
+    _, f = endtoend.coherent_tone_freq(m, N_LEGACY, F_TONE)
+    pcm = endtoend.quantize_pcm(
+        endtoend.source_tone(n_in, m.fs, f, TEST_DBFS), 24, "tpdf")
+    y, _ = datapath.interpolate(c, pcm, m, coeff_bits=idle.COEFF_BITS,
+                                sig_frac=idle.SIG_FRAC,
+                                acc_frac=idle.ACC_FRAC)
+    base = y[settle:settle + n]
+    rng = np.random.default_rng(100 + k)
+    u = base + 0.5 * 2.0 ** -26 * (rng.random(n) + rng.random(n) - 1.0)
+    d = (None if dfrac == 0.0
+         else modulator.dither_sequence(n, dfrac, seed=200 + k))
+    r = modulator.simulate(ntf, u, fse, f_sig=f, dither=d)
+    a20, b20 = _both(r.out[:N_LEGACY], fse, f)
+    a, b = _both(r.out, fse, f)
+    return fs_pcm, dfrac, k, a20.sndr_db, b20.sndr_db, b.sndr_db
 
 
 def section_e() -> dict:
-    head("E.  A RUNTIME DETECTOR")
-    say("Nothing found above needs detecting. What follows is therefore not a")
-    say("fix but a watchdog: the cheapest thing that would notice a")
-    say("low-frequency excursion at the output if one ever appeared, sized")
-    say("against what idle actually reads so the threshold is a measurement")
-    say("rather than a guess.")
+    head("E.  THE 1-IN-36 COUNT, RECOUNTED")
+    say("This is run_endtoend.py's limit-cycle experiment rerun unchanged --")
+    say("six rates, six input perturbations, with and without a quarter LSB")
+    say("of dither at the quantizer -- with the same records measured both")
+    say("ways. The published count is 1 of 36 without dither and 1 of 36")
+    say("with, a different one, which is what 'dither moves which run trips'")
+    say("was based on.")
     say()
-    say("The statistic is the block sum of (code - 3.5), scaled by the block")
-    say("length. At idle the eight-level quantizer has no zero level, so a")
-    say("quiet loop alternates between codes 3 and 4 and the sum is near")
-    say("zero; a low-frequency wander is exactly a sustained excess of one")
-    say("over the other. An up/down counter and a comparator.")
+    n = 1 << 22
+    args = [(fam, fs, d, k, n) for fam, fs in RATES
+            for d in (0.0, 0.25) for k in range(6)]
+    t0 = time.time()
+    with ProcessPoolExecutor(max_workers=WORKERS) as ex:
+        rows = list(ex.map(_job_e, args))
+    say(f"({len(rows)} runs, {time.time()-t0:.0f} s)")
+    say()
+    out = {}
+    for tag, col in (("as published: 2**20, arithmetic mean", 3),
+                     ("same records: 2**20, windowed mean", 4),
+                     ("same records: 2**22, windowed mean", 5)):
+        say(f"  {tag}")
+        say(f"  {'rate':>10}  {'dither':>9}  {'six perturbations':>47}")
+        bad = 0
+        tot = 0
+        for fam, fs_pcm in RATES:
+            for d in (0.0, 0.25):
+                v = [r[col] for r in rows if r[0] == fs_pcm and r[1] == d]
+                med = float(np.median(v))
+                bad += sum(1 for x in v if x < med - 5.0)
+                tot += len(v)
+                lab = "none" if d == 0 else "0.25 LSB"
+                say(f"  {fs_pcm/1000:>9.1f}k  {lab:>9}  " +
+                    " ".join(f"{x:>7.1f}" for x in v))
+        say(f"  -> {bad} of {tot} more than 5 dB below their row median")
+        say()
+        out[tag] = bad
+    say("The count that was read as a loop fault is a count of how often the")
+    say("near-DC residue lands where the window can see it. Corrected, the")
+    say("dither comparison has nothing left to compare: both columns are")
+    say("flat.")
+    return out
+
+
+# ------------------------------------------------------------------ F
+def _job_f_rate(arg):
+    fam, fs_pcm, sigma, n = arg
+    x, f, fse, _ = _chain_record(
+        fam, fs_pcm, n=n, sigma=sigma, coeff_bits=idle.COEFF_BITS,
+        sig_frac=idle.SIG_FRAC if sigma else None,
+        acc_frac=idle.ACC_FRAC if sigma else None, coh_n=N_LEGACY)
+    a20, b20 = _both(x[:N_LEGACY], fse, f)
+    a, b = _both(x, fse, f)
+    return (fs_pcm, sigma, a20.sndr_db, b20.sndr_db, b.sndr_db,
+            a20.snr_db, a20.thd_db)
+
+
+def _job_f_rot(arg):
+    order, sigma, rotate, n = arg
+    ntf = modulator.synthesize_ntf(order)
+    fse = chain.ELEMENT_CLOCK["48k"]
+    u, f = modulator.tone(n, fse, F_TONE, -3.7)
+    r = modulator.simulate(ntf, u, fse, f_sig=f)
+    codes = np.clip(np.asarray(r.codes, dtype=np.int64), 0, chain.N_ELEMENTS)
+    pos, neg = dwa.differential(codes, rotate=rotate)
+    wp, wn = (None, None) if sigma == 0.0 else dwa.mismatch(sigma, seed=7)
+    x = dwa.normalise(dwa.analog(pos, neg, wp, wn))
+    a, b = _both(x, fse, f)
+    return order, sigma, rotate, a.sndr_db, b.sndr_db, a.thd_db, b.thd_db
+
+
+def _job_f_vol(arg):
+    where, gain_db, n = arg
+    x, f, fse, _ = _chain_record("48k", 96000.0, n=n, gain_at=where,
+                                 gain_db=gain_db, coeff_bits=idle.COEFF_BITS,
+                                 coh_n=N_LEGACY)
+    a20, b20 = _both(x[:N_LEGACY], fse, f)
+    _, b = _both(x, fse, f)
+    return where, gain_db, a20.sndr_db, b20.sndr_db, b.sndr_db
+
+
+def _job_f_cap(arg):
+    """run_analog.py:623 -- the capacitor-tolerance sweep, both ways.
+
+    Same record, same pole, same tolerance draws (seed 4242), same order of
+    operations. The pole sits three decades above the band, so it cannot
+    change the near-DC term; this measures that rather than assuming it.
+    """
+    tol, n = arg
+    from scipy.signal import lfilter
+    x, f, fse, _, pos, neg = _chain_record(
+        "48k", 48000.0, n=n, sigma=0.01, coeff_bits=idle.COEFF_BITS,
+        sig_frac=idle.SIG_FRAC, acc_frac=idle.ACC_FRAC, coh_n=N_LEGACY,
+        want_elements=True)
+    wp, wn = dwa.mismatch(0.01, seed=7)
+    rng = np.random.default_rng(4242)
+    acc = np.zeros(pos.shape[0])
+    for side, w, sign in ((pos, wp, 1.0), (neg, wn, -1.0)):
+        for j in range(chain.N_ELEMENTS):
+            fj = 1.0e6 / (1.0 + tol * rng.standard_normal()) if tol else 1.0e6
+            a = np.exp(-2.0 * np.pi * fj / fse)
+            acc += sign * w[j] * lfilter([1.0 - a], [1.0, -a],
+                                         side[:, j].astype(np.float64))
+    y = dwa.normalise(acc)
+    a20, b20 = _both(y[:N_LEGACY], fse, f)
+    _, b = _both(y, fse, f)
+    return tol, a20.sndr_db, b20.sndr_db, b.sndr_db
+
+
+def _job_f_order(arg):
+    order, n = arg
+    ntf = modulator.synthesize_ntf(order)
+    fse = chain.ELEMENT_CLOCK["48k"]
+    u, f = modulator.tone(n, fse, F_TONE, -3.7)
+    r = modulator.simulate(ntf, u, fse, f_sig=f)
+    a, b = _both(r.out, fse, f)
+    return order, a.sndr_db, b.sndr_db
+
+
+def section_f() -> dict:
+    head("F.  BLAST RADIUS: WHICH PUBLISHED FIGURES MOVE")
+    say("x - x.mean() is used at five measurement sites that produced")
+    say("published figures:")
+    say("    lyrebird_model/endtoend.py:232   every end-to-end table")
+    say("    run_experiments.py:210           rotation and mismatch")
+    say("    run_analog.py:113 and :623       the analog section")
+    say("    run_endtoend.py:443              the limit-cycle count")
+    say()
+    say("The term only shows when the near-DC residue is large, which is a")
+    say("lottery per record, so the only way to know which published numbers")
+    say("carry it is to measure them both ways. Each row below is one record")
+    say("measured twice, not two runs.")
+    say()
+    n = 1 << 22
+    res = {}
+
+    t0 = time.time()
+    args = [(fam, fs, sg, n) for fam, fs in RATES for sg in (0.0, 0.01)]
+    with ProcessPoolExecutor(max_workers=WORKERS) as ex:
+        rows = list(ex.map(_job_f_rate, args))
+    say("F1. End to end per rate, and the chain as it will be built.")
+    say(f"    (README 'The chain end to end' and 'as it will actually be "
+        f"built')")
+    say()
+    say(f"    {'rate':>10}  {'elements':>10}  {'as published':>13}  "
+        f"{'2**20 windowed':>15}  {'2**22 windowed':>15}  {'moved by':>9}")
+    for fs_pcm, sigma, a20, b20, b22, snr, thd in rows:
+        lab = "matched" if sigma == 0 else f"{sigma*100:.0f}%"
+        say(f"    {fs_pcm/1000:>9.1f}k  {lab:>10}  {a20:>13.2f}  "
+            f"{b20:>15.2f}  {b22:>15.2f}  {b20-a20:>+9.2f}")
+    res["rate"] = rows
     say()
 
-    fs = chain.ELEMENT_CLOCK["48k"]
-    n_sens = 1 << 21
-    say("E1. Sensitivity. A known component is put at the modulator input at")
-    say("    47 Hz, which is where a block of 2**18 samples is half a period,")
-    say("    and the detector is read against it.")
-    say()
-    args = [(47.0, a, b, n_sens)
-            for a in (-60.0, -80.0, -100.0, -110.0, -120.0, -140.0, -300.0)
-            for b in DET_BLOCKS]
+    args = [(o, sg, rot, 1 << 21) for o in (2, 3)
+            for sg, rot in ((0.0, True), (0.001, True), (0.001, False),
+                            (0.01, True), (0.01, False))]
     with ProcessPoolExecutor(max_workers=WORKERS) as ex:
-        rows = list(ex.map(_job_e_sens, args))
-    say(f"    {'47 Hz at':>10}  {'20-100 Hz out':>14}  " +
-        "  ".join(f"{'2**' + str(int(np.log2(b))):>9}" for b in DET_BLOCKS))
-    sens = {}
-    for a in (-60.0, -80.0, -100.0, -110.0, -120.0, -140.0, -300.0):
-        v = {b: s for f_, aa, b, s, lo in rows if aa == a for f_, aa2, b, s, lo
-             in [(f_, aa, b, s, lo)]}
-        lo = [lo for f_, aa, b, s, lo in rows if aa == a][0]
-        sens[a] = v
-        lab = "silence" if a < -200 else f"{a:.0f} dBFS"
-        say(f"    {lab:>10}  {lo:>14.1f}  " +
-            "  ".join(f"{v[b]:>9.2e}" for b in DET_BLOCKS))
-    say()
-    floor = max(sens[-300.0].values())
-    say(f"    Digital silence reads {floor:.2e} at worst over every block")
-    say("    length, which is the noise floor of the statistic. A threshold")
-    say("    ten times that is still far below any level that matters.")
+        rows_rot = list(ex.map(_job_f_rot, args))
+    say("F2. Element mismatch and rotation (run_experiments.py:210), 2**21.")
+    say(f"    {'order':>6}  {'mismatch':>9}  {'rotation':>9}  "
+        f"{'as published':>13}  {'corrected':>10}  {'moved by':>9}")
+    for order, sigma, rot, a, b, athd, bthd in rows_rot:
+        say(f"    {order:>6}  {sigma*100:>8.1f}%  {'on' if rot else 'off':>9}  "
+            f"{a:>13.2f}  {b:>10.2f}  {b-a:>+9.2f}")
+    res["rotation"] = rows_rot
     say()
 
-    say("E2. False positives on real material. The detector cannot tell a")
-    say("    40 Hz limit cycle from a 40 Hz bass note and must not try; the")
-    say("    FPGA knows its own input, so the gate is a comparator on |u|.")
-    say()
-    block = 1 << 18
-    args = [(name, dbfs, s, block, True, N_WIN)
-            for name, dbfs in (("sustained 41 Hz bass", -6.0),
-                               ("sustained 41 Hz bass", -60.0),
-                               ("programme-like", -6.0),
-                               ("near silence -100 dBFS", -100.0),
-                               ("digital silence", None))
-            for s in range(2)]
+    args = [(w, g, n) for w in ("input", "modulator")
+            for g in (-6.0, -20.0, -40.0, -60.0)]
     with ProcessPoolExecutor(max_workers=WORKERS) as ex:
-        rows2 = list(ex.map(_job_e_mat, args))
-    say(f"    block 2**{int(np.log2(block))} samples "
-        f"({block/fs*1e3:.1f} ms)")
-    say(f"    {'material':>24}  {'level':>8}  {'input RMS':>10}  "
-        f"{'worst stat':>11}  {'median stat':>12}  {'20-100 Hz out':>14}")
-    for name, dbfs, seed, mx, md, urms, lo, tot in rows2:
-        lab = "-" if dbfs is None else f"{dbfs:.0f} dB"
-        say(f"    {name:>24}  {lab:>8}  {urms:>10.2e}  {mx:>11.2e}  "
-            f"{md:>12.2e}  {lo:>14.1f}")
+        rows_vol = list(ex.map(_job_f_vol, args))
+    say("F3. Where the volume control goes, 96 kHz.")
+    say(f"    {'gain at':>12}  {'attenuation':>12}  {'as published':>13}  "
+        f"{'corrected':>10}  {'moved by':>9}")
+    for where, g, a, b, b22 in rows_vol:
+        say(f"    {where:>12}  {g:>11.0f} dB  {a:>13.2f}  {b:>10.2f}  "
+            f"{b-a:>+9.2f}")
+    res["volume"] = rows_vol
     say()
-    return {"sens": sens, "material": rows2, "floor": floor}
+
+    with ProcessPoolExecutor(max_workers=WORKERS) as ex:
+        rows_ord = list(ex.map(_job_f_order, [(o, 1 << 20) for o in
+                                              (2, 3, 4, 5)]))
+    say("F4. Modulator order sweep, tone at the element clock, 2**20.")
+    say(f"    {'order':>6}  {'as published':>13}  {'corrected':>10}  "
+        f"{'moved by':>9}")
+    for order, a, b in rows_ord:
+        say(f"    {order:>6}  {a:>13.2f}  {b:>10.2f}  {b-a:>+9.2f}")
+    res["order"] = rows_ord
+    say()
+
+    with ProcessPoolExecutor(max_workers=WORKERS) as ex:
+        rows_cap = list(ex.map(_job_f_cap,
+                               [(t, 1 << 21) for t in
+                                (0.0, 0.02, 0.05, 0.10, 0.20)]))
+    say("F5. The analog section's own site (run_analog.py:623): the same")
+    say("    element sum behind a 1 MHz pole per element, 48 kHz, 1%")
+    say("    elements, capacitor tolerance swept. This is the table printed")
+    say("    in results/analog.txt as Q2e.")
+    say()
+    say(f"    {'C tolerance':>13}  {'as published':>13}  {'2**20 windowed':>15}"
+        f"  {'2**21 windowed':>15}  {'moved by':>9}")
+    for tol, a20, b20, b21 in rows_cap:
+        lab = "matched" if tol == 0 else f"{tol*100:.0f}%"
+        say(f"    {lab:>13}  {a20:>13.2f}  {b20:>15.2f}  {b21:>15.2f}  "
+            f"{b20-a20:>+9.2f}")
+    say()
+    base_pub = rows_cap[0][1]
+    base_cor = rows_cap[0][2]
+    say(f"    {'C tolerance':>13}  {'cost as published':>18}  "
+        f"{'cost corrected':>15}")
+    for tol, a20, b20, b21 in rows_cap:
+        lab = "matched" if tol == 0 else f"{tol*100:.0f}%"
+        say(f"    {lab:>13}  {base_pub-a20:>+18.2f}  {base_cor-b20:>+15.2f}")
+    say()
+    res["cap"] = rows_cap
+    say()
+    say(f"    (F1-F4: {time.time()-t0:.0f} s)")
+    return res
+
+
+# ------------------------------------------------------------------ G
+def section_g() -> dict:
+    head("G.  FIGURES")
+    fs_lab = []
+    out, u, f, fs, m = _tripped_record(N_WIN)
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
+    half = spectra.main_lobe_bins()
+    for lg, style, lab, dedc in ((20, "-", "2**20, arithmetic mean", False),
+                                 (20, "--", "2**20, windowed mean", True),
+                                 (23, "-", "2**23, windowed mean", True)):
+        n = 1 << lg
+        o = out[:n]
+        x = idle.remove_dc(o) if dedc else o - o.mean()
+        w = idle.window(n)
+        p = spectra.power_spectrum(x, w)
+        ff = spectra.bin_freqs(n, fs)
+        sel = (ff > 0.5) & (ff < 2000)
+        ax[0].semilogx(ff[sel], spectra.dbfs(p[sel]), style, lw=1.2, label=lab)
+    ax[0].axvspan(20.0, 100.0, alpha=.15, color="tab:red")
+    ax[0].axvline(half * fs / N_LEGACY, color="k", ls=":", lw=1)
+    ax[0].text(half * fs / N_LEGACY * 1.05, -200,
+               f"DC main lobe at 2**20\nreaches {half*fs/N_LEGACY:.0f} Hz",
+               fontsize=7.5)
+    ax[0].set(title="The tripped run: one record, three transforms\n"
+                    "shaded band is 20-100 Hz, where the excess was reported",
+              xlabel="Hz", ylabel="dBFS", xlim=(0.5, 2000), ylim=(-260, -100))
+    ax[0].legend(fontsize=8, loc="upper right")
+    ax[0].grid(alpha=.3, which="both")
+
+    lens, plain, wmean = [], [], []
+    for lg in (20, 21, 22, 23):
+        n = 1 << lg
+        o = out[:n]
+        lens.append(lg)
+        plain.append(spectra.Measurement.of(o - o.mean(), fs, f, idle.BAND,
+                                            n_harmonics=10).sndr_db)
+        wmean.append(spectra.Measurement.of(idle.remove_dc(o), fs, f,
+                                            idle.BAND,
+                                            n_harmonics=10).sndr_db)
+    ax[1].plot(lens, plain, "o-", label="x - x.mean()")
+    ax[1].plot(lens, wmean, "s--", label="windowed mean removed")
+    ax[1].axhline(143.31, color="k", ls=":", lw=1,
+                  label="the neighbouring row in the table, 143.31 dB")
+    ax[1].set(title="The same record's reported SNDR against transform length",
+              xlabel="transform length, 2**n", ylabel="SNDR, dB",
+              xticks=lens)
+    ax[1].legend(fontsize=8, loc="lower right")
+    ax[1].grid(alpha=.3)
+    fig.savefig(FIG / "idle_window.png", dpi=130)
+    plt.close(fig)
+    say(f"  figures/idle_window.png")
+
+    # blast radius
+    claims = []
+    for fam, fs_pcm, sg, lab in (("44k1", 176400.0, 0.0,
+                                  "176.4 kHz reference row"),
+                                 ("48k", 48000.0, 0.0, "48 kHz end to end"),
+                                 ("48k", 96000.0, 0.0, "96 kHz end to end"),
+                                 ("48k", 48000.0, 0.01, "48 kHz, 1% elements")):
+        r = _job_f_rate((fam, fs_pcm, sg, 1 << 22))
+        claims.append((lab, r[2], r[3]))
+    t = _job_ties(("44k1", 44100.0, "half_up", 1 << 22))
+    claims.append(("44.1 kHz, round half up", t[3], t[4]))
+    t = _job_ties(("48k", 48000.0, "half_up", 1 << 22))
+    claims.append(("48 kHz, round half up", t[3], t[4]))
+    c = _job_f_cap((0.0, 1 << 21))
+    claims.append(("analog Q2e, matched C", c[1], c[2]))
+    c = _job_f_cap((0.20, 1 << 21))
+    claims.append(("analog Q2e, 20% C", c[1], c[2]))
+    r = _job_f_rot((3, 0.01, True, 1 << 21))
+    claims.append(("order 3, 1% mismatch", r[3], r[4]))
+    r = _job_f_order((3, 1 << 20))
+    claims.append(("order sweep, order 3", r[1], r[2]))
+
+    fig, ax = plt.subplots(figsize=(9.5, 5.2), constrained_layout=True)
+    claims.sort(key=lambda c: c[2] - c[1])
+    labels = [c[0] for c in claims]
+    moved = [c[2] - c[1] for c in claims]
+    colours = ["tab:red" if v > 1 else "0.55" for v in moved]
+    y = np.arange(len(claims))
+    ax.barh(y, moved, color=colours)
+    for yi, (lab, a, b) in zip(y, claims):
+        ax.text(max(b - a, 0) + 0.3, yi, f"{a:.2f} -> {b:.2f} dB",
+                va="center", fontsize=7.5)
+    ax.set(yticks=y, yticklabels=labels, xlabel="dB moved by removing the "
+           "windowed mean instead of the arithmetic mean",
+           title="Blast radius: published figures measured both ways\n"
+                 "same record each time, only the mean removal differs",
+           xlim=(-1, max(moved) * 1.45))
+    ax.axvline(0, color="k", lw=.8)
+    ax.grid(alpha=.3, axis="x")
+    fig.savefig(FIG / "idle_blast.png", dpi=130)
+    plt.close(fig)
+    say(f"  figures/idle_blast.png")
+    say()
+    say(f"  {'claim':>26}  {'as published':>13}  {'corrected':>10}  "
+        f"{'moved by':>9}")
+    for lab, a, b in sorted(claims, key=lambda c: -(c[2] - c[1])):
+        say(f"  {lab:>26}  {a:>13.2f}  {b:>10.2f}  {b-a:>+9.2f}")
+    return {"claims": claims}
 
 
 # ---------------------------------------------------------------------------
@@ -747,6 +986,8 @@ SECTIONS["B"] = section_b
 SECTIONS["C"] = section_c
 SECTIONS["D"] = section_d
 SECTIONS["E"] = section_e
+SECTIONS["F"] = section_f
+SECTIONS["G"] = section_g
 
 
 if __name__ == "__main__":
