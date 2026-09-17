@@ -96,10 +96,11 @@ RTL reads the same numbers rather than deriving its own.
   expensive.
 - **Real material.** Every figure comes from a tone or the inter-sample probe.
   The noise floor's shape under music has never been looked at.
-- **The low-frequency limit cycle.** One run in 36 lands 15 to 19 dB low with
-  all the excess below 100 Hz, and dither moves which run trips rather than
-  removing it. It changes no design parameter. It means a single in-band figure
-  cannot be trusted without the shape behind it.
+- ~~**The low-frequency limit cycle.**~~ **Closed.** There was no limit cycle:
+  the 15 to 19 dB was an analysis-window artifact, and the same records measure
+  correctly once the windowed mean is removed instead of the arithmetic one
+  (1 of 72 runs low as published, 0 of 72 corrected). Fixed at source in
+  `spectra.remove_dc`. See [model/notes-idle.md](../model/notes-idle.md).
 
 ## Blocking HDL
 

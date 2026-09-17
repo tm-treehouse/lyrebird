@@ -1,7 +1,11 @@
 # Idle-channel behaviour: the low-frequency limit cycle
 
 Run: `./.venv/bin/python model/run_idle.py`. Log in `results/idle.txt`,
-figures in `figures/idle*.png`.
+figures `figures/idle_window.png` and `figures/idle_blast.png`.
+
+`notes-programme.md` reached the same conclusion independently and from a
+different reproduction, at 96 kHz with one percent elements rather than the
+176.4 kHz reference row. Two unrelated routes to the same 12-bin main lobe.
 
 ## The headline
 
@@ -89,6 +93,59 @@ Plain mean removal throughout, i.e. the original method:
 
 **The loss is gone by 2^21 and does not come back.** It was never in the loop.
 
+## B. The trip rate on near-idle material
+
+180 trials: `material.py`'s idle catalogue, six rates, six preambles each, so
+the state the loop is in when the signal goes quiet differs from trial to
+trial. Window 2^23 (341 ms, 2.93 Hz bins), preamble 2^19 element samples
+discarded — longer than the cascade's settling, because a window that starts
+inside the cascade's ring on the transition to silence reads -50 dBFS of
+low-frequency energy and looks exactly like the fault being hunted.
+
+20 Hz to 100 Hz of the element sum, over all 180 trials:
+
+| Idle material | Corrected | Measured as before |
+| --- | --- | --- |
+| digital silence | -324 to -346 dBFS | -130 to -341 dBFS |
+| small DC offset, -60 dBFS | -321 to -331 dBFS | -129 to -145 dBFS |
+| after a fade to silence | -147 to -153 dBFS | -37 to -45 dBFS |
+| digital silence, dithered source | -162 to -175 dBFS | -130 to -176 dBFS |
+| near silence, -100 dBFS | -126 to -140 dBFS | -126 to -148 dBFS |
+
+Counting a trial as tripped when its 20-100 Hz figure is more than 10 dB above
+its own cell's median: **22 of 180 (12%) as before, against the 1-in-36 (3%)
+reported for tones. Corrected, 6 of 180** — and those six are spreads between
+-324 and -344 dBFS inside the digital-silence cells, which is numerical dust
+190 dB below anything audible. At any threshold set in physical units rather
+than relative to a median, the corrected rate is **0 of 180**.
+
+The fade rows are the interesting ones for the old method: -37 to -45 dBFS
+where the truth is -147 to -153 dBFS, a 110 dB error, because a fade leaves
+exactly the slow drift across the window that plain mean removal cannot
+remove.
+
+## C. Conditions
+
+No condition brings it on, because there is nothing to bring on.
+
+* **DC at the modulator input**, swept 0 and -160 to -60 dBFS including a
+  linear sweep through the -133 to -119 dBFS range where a first-order loop's
+  correction rate would land in 20-100 Hz: in-band stays -173 to -181 dBFS and
+  all of it is the shaped floor above 2 kHz; the 20-100 Hz band runs -318 to
+  -344 dBFS. **A third-order loop with an eight-level quantizer does not lock
+  to a constant.**
+* **Input level**, near silence swept -60 to -140 dBFS: the output tracks the
+  input's own noise and nothing else appears.
+* **Where a fade ends**, fades from -3 to -80 dBFS: no effect.
+* **The state and the pointer entering the window**: integrator states span
+  roughly ±0.2 and the rotation pointer takes all seven values; correlation of
+  either with the 20-100 Hz result is within ±0.2, i.e. nothing.
+* **The rotation pointer is genuinely periodic at idle** — codes alternate 3
+  and 4, so the pointer advances by 7 every two samples and returns to where it
+  started, and every code lights the same elements every time. With 1% elements
+  that shows up as a static output offset, not as noise: the in-band figure
+  does not move.
+
 ## D. The 15.7 dB attributed to round-half-up is the same artifact
 
 `run_endtoend.rounding_rule` rerun today reproduces the shape of the published
@@ -128,6 +185,29 @@ The sentence in README.md that needs to go is "a delta-sigma loop turns a
 static input offset into idle tones at the bottom of the audio band", together
 with the table that appears to demonstrate it. At -169 dBFS it does not,
 measurably.
+
+## E. The 1-in-36 count, recounted
+
+`run_endtoend.limit_cycles` rerun unchanged — six rates, six input
+perturbations, with and without 0.25 LSB of dither at the quantizer — with the
+same records measured both ways:
+
+| Measurement | Runs more than 5 dB below their row median |
+| --- | --- |
+| as published: 2^20, arithmetic mean | **1 of 72** |
+| same records: 2^20, windowed mean | **0 of 72** |
+| same records: 2^22, windowed mean | **0 of 72** |
+
+The published rate reproduces exactly and disappears exactly. The one that
+trips as published is 176.4 kHz with 0.25 LSB of dither, reading 124.9 dB
+against its row's 143.3 dB; corrected it reads 143.3 dB like the rest.
+
+**Dither was never moving the fault around.** Every remedy changes the record,
+every record leaves a different residue on the (2/7)/N grid, and the short
+window reports the residue. Nothing was being done to the loop in either
+direction. A second remedy that "only moves it" would have meant the same
+thing, which is the argument for fixing the measurement rather than trying a
+third.
 
 ## F. Blast radius
 

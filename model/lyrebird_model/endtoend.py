@@ -229,7 +229,10 @@ def run(cascade: halfband.Cascade, ntf: modulator.NTF, mode: chain.Mode, *,
     pos, neg = dwa.differential(codes, rotate=rotate)
     wp, wn = (None, None) if sigma == 0.0 else dwa.mismatch(sigma, seed=seed)
     x = dwa.normalise(dwa.analog(pos, neg, wp, wn))
-    x = x - x.mean()                    # the mismatch offset is not audio-band noise
+    # Remove DC the way the transform sees it, not arithmetically: the
+    # mismatch offset is not audio-band noise, and neither is the loop's
+    # own one-sample-per-window residue. spectra.remove_dc says why.
+    x = spectra.remove_dc(x)
     m = spectra.Measurement.of(x, fs, f_sig, band, n_harmonics=n_harmonics,
                                keep_psd=keep_psd)
     return Result(mode=mode, order=ntf.order, f_sig=f_sig, amp_dbfs=amp_dbfs,

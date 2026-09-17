@@ -440,7 +440,7 @@ def limit_cycles(cs, ntf, sig_frac: int, acc: dict) -> dict:
                          modulator.dither_sequence(N_MEAS, dfrac, seed=200 + k))
                     r = modulator.simulate(ntf, u, m.element_clock, f_sig=f,
                                            dither=d)
-                    mm = spectra.Measurement.of(r.out - r.out.mean(),
+                    mm = spectra.Measurement.of(spectra.remove_dc(r.out),
                                                 m.element_clock, f, BAND,
                                                 n_harmonics=10)
                     vals.append(mm.sndr_db)

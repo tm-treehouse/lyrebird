@@ -300,6 +300,26 @@ def render(cascade: halfband.Cascade, ntf: modulator.NTF, mode: chain.Mode,
 # The error instrument
 # ---------------------------------------------------------------------------
 
+def centre(x: np.ndarray, w: np.ndarray | None = None) -> np.ndarray:
+    """Remove the mean the *analysis window* sees, not the record's own mean.
+
+    ``x - x.mean()`` nulls the unwindowed average, which is not what a
+    Kaiser-windowed transform integrates. What lands in bin 0 is
+    ``sum(w*x)/sum(w)``, and with a Kaiser at beta 26 the main lobe is twelve
+    bins wide, so whatever is left over leaks to 280 Hz -- straight through the
+    20 to 100 Hz band, and straight through the band the gain is fitted over.
+
+    The two means differ by very little and the little matters: the residual is
+    a DC term smeared across exactly the bins where a low-frequency anomaly
+    would be looked for, so removing the wrong one manufactures the anomaly it
+    is looking for.
+    """
+    a = np.asarray(x, dtype=np.float64)
+    if w is None:
+        w = spectra.analysis_window(len(a))
+    return a - float((w * a).sum() / w.sum())
+
+
 def band_gain_terms(x: np.ndarray, ref: np.ndarray, fs: float,
                     band: tuple[float, float] = BAND) -> tuple[float, float]:
     """Cross and auto terms of an in-band least-squares gain fit.
@@ -321,8 +341,8 @@ def band_gain_terms(x: np.ndarray, ref: np.ndarray, fs: float,
     # when the music is loud and everything when it is quiet: measured, it put
     # the fitted gain at 1.207 instead of 0.9988 on a -70 dBFS record and
     # invented an error at -88 dBFS that did not move when the level did.
-    X = np.fft.rfft((a - a.mean()) * w)
-    U = np.fft.rfft((b - b.mean()) * w)
+    X = np.fft.rfft(centre(a, w) * w)
+    U = np.fft.rfft(centre(b, w) * w)
     f = spectra.bin_freqs(n, fs)
     sel = (f >= band[0]) & (f <= band[1])
     cross = float(np.real(np.vdot(U[sel], X[sel])))
@@ -364,22 +384,21 @@ def alignment_margin(x: np.ndarray, ref: np.ndarray, fs: float,
         return float("nan"), float("nan")
     c = int(np.argmax(np.abs(ref)))
     lo = min(max(c - n // 2, shift), min(len(ref), len(x)) - n - shift)
-    b = ref[lo:lo + n]
     w = spectra.analysis_window(n)
+    b = centre(ref[lo:lo + n], w)
     f = spectra.bin_freqs(n, fs)
     sel = (f >= band[0]) & (f <= band[1])
-    U = np.fft.rfft((b - b.mean()) * w)
-    p_ref = spectra.power_spectrum(b - b.mean(), w)
+    U = np.fft.rfft(b * w)
+    p_ref = spectra.power_spectrum(b, w)
     if float(spectra.dbfs(float(p_ref[sel].sum()))) < floor_dbfs:
         return float("nan"), float("nan")
 
     def err_db(k: int) -> float:
-        a = x[lo + k:lo + k + n]
-        X = np.fft.rfft((a - a.mean()) * w)
+        a = centre(x[lo + k:lo + k + n], w)
+        X = np.fft.rfft(a * w)
         g = (float(np.real(np.vdot(U[sel], X[sel])))
              / float(np.real(np.vdot(U[sel], U[sel]))))
-        e = (a - a.mean()) - g * (b - b.mean())
-        pe = spectra.power_spectrum(e - e.mean(), w)
+        pe = spectra.power_spectrum(centre(a - g * b, w), w)
         return float(spectra.dbfs(float(pe[sel].sum())))
 
     e0 = err_db(0)
@@ -430,13 +449,14 @@ def measure(r: Render, *, window: int | None = None, t_offset: float = 0.0,
 
     f = spectra.bin_freqs(window, fs)
     inb = (f >= band[0]) & (f <= band[1])
+    aw = spectra.analysis_window(window)
 
     cross = auto = 0.0
     per: list[tuple[float, float, float]] = []
     for i in range(k):
         s = slice(i * window, (i + 1) * window)
         ref = r.u_ref[s]
-        sig = spectra.power_spectrum(ref - ref.mean())
+        sig = spectra.power_spectrum(centre(ref, aw), aw)
         sig_dbfs = float(spectra.dbfs(float(sig[inb].sum())))
         cr, au = band_gain_terms(r.x[s], ref, fs, band)
         per.append((cr, au, sig_dbfs))
@@ -449,19 +469,15 @@ def measure(r: Render, *, window: int | None = None, t_offset: float = 0.0,
     for i in range(k):
         s = slice(i * window, (i + 1) * window)
         ref = r.u_ref[s]
-        e = r.x[s] - g * ref
-        e = e - e.mean()
+        e = centre(r.x[s] - g * ref, aw)
         bs = material.band_shape(e, fs)
         cr, au, sig_dbfs = per[i]
         err_dbfs = _to_dbfs(bs["total_db"])
-        d = r.loop_error[s]
-        d = d - d.mean()
-        dbs = material.band_shape(d, fs)
+        dbs = material.band_shape(centre(r.loop_error[s], aw), fs)
         src_dbfs = float("nan")
         if r.u_src is not None:
-            es = r.u_src[s] - ref
-            es = es - es.mean()
-            src_dbfs = _to_dbfs(material.band_shape(es, fs)["total_db"])
+            src_dbfs = _to_dbfs(material.band_shape(
+                centre(r.u_src[s] - ref, aw), fs)["total_db"])
         codes = r.codes[s]
         out.append(WindowStat(
             index=i, t0=t_offset + i * window / fs,

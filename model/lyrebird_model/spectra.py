@@ -11,6 +11,9 @@ here, so the conventions matter:
 * The analysis window is a Kaiser. Its sidelobe floor is measured by
   :func:`window_leakage_floor` and reported alongside the results, because a
   -150 dB noise floor cannot be read through a window that leaks at -120 dB.
+* **DC is removed with the window, not with the arithmetic mean.**
+  :func:`remove_dc` explains why and :class:`Measurement` does it for every
+  measurement so that no caller has to remember.
 """
 
 from __future__ import annotations
@@ -48,6 +51,39 @@ def power_spectrum(x: np.ndarray, window: np.ndarray | None = None) -> np.ndarra
 
 def bin_freqs(n: int, fs: float) -> np.ndarray:
     return np.fft.rfftfreq(n, d=1.0 / fs)
+
+
+def remove_dc(x: np.ndarray, window: np.ndarray | None = None,
+              beta: float = KAISER_BETA) -> np.ndarray:
+    """Subtract the mean the *transform* sees, not the arithmetic mean.
+
+    This is not a refinement. It is the difference between a right answer and
+    an 18 dB wrong one, and getting it wrong produced three published figures
+    that were not real. See ``notes-idle.md``.
+
+    ``x - x.mean()`` zeroes the flat average of the record. The transform does
+    not take a flat average: it weights by the window, and a Kaiser at
+    beta = 26 weights the centre of the record enormously more than its ends.
+    A record whose offset drifts across the window therefore still has a DC
+    bin after plain mean removal, and that bin is not confined to bin 0 --
+    the Kaiser main lobe is ``main_lobe_bins()`` = 12 bins wide, which at
+    2**20 samples of the 24.576 MHz element clock is +/-281 Hz. So the
+    leftover DC lands squarely inside a band that starts at 20 Hz and is
+    counted as audio.
+
+    Every delta-sigma record has such an offset and cannot not have one. The
+    output alphabet is eight levels spaced ``2/7`` apart, so the mean of an
+    N-sample record lives on a grid of ``(2/7)/N``: one unbalanced sample in
+    the whole window is -128 dBFS at 2**20, which is 18 dB above the floor
+    being measured. Which side of the grid a record lands on is a lottery,
+    which is what made this look like an intermittent fault in the loop.
+
+    Subtracting ``sum(w*x)/sum(w)`` makes the windowed DC bin exactly zero and
+    costs one pass over the record.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    w = analysis_window(len(x), beta) if window is None else window
+    return x - float((w * x).sum() / w.sum())
 
 
 def dbfs(power: float | np.ndarray) -> np.ndarray:
@@ -101,9 +137,16 @@ class Measurement:
     def of(cls, x: np.ndarray, fs: float, f_sig: float,
            band: tuple[float, float] = (20.0, 20_000.0),
            n_harmonics: int = 20, beta: float = KAISER_BETA,
-           keep_psd: bool = False) -> "Measurement":
+           keep_psd: bool = False, dedc: bool = True) -> "Measurement":
+        """Measure ``x``. DC is removed with the window unless told not to.
+
+        ``dedc=False`` reproduces the older, wrong behaviour and exists only
+        so ``run_idle.py`` can show the two side by side on one record.
+        """
         n = len(x)
         w = analysis_window(n, beta)
+        if dedc:
+            x = remove_dc(x, w)
         p = power_spectrum(x, w)
         f = bin_freqs(n, fs)
         half = main_lobe_bins(beta)

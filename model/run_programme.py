@@ -201,7 +201,7 @@ def validate(cs, ntf) -> dict:
             r = P.render(c, ntf, m, pcm, n_out=WINDOW, sigma=SIGMA,
                          keep_source_term=True)
             w = P.measure(r)[0]
-            xx = r.x - r.x.mean()
+            xx = P.centre(r.x)
             mm = spectra.Measurement.of(xx, m.element_clock, f, BAND,
                                         n_harmonics=10)
             _, margin = P.alignment_margin(r.x, r.u_ref, m.element_clock)
@@ -575,19 +575,19 @@ def level_sweep(cs, ntf, real) -> dict:
 # ---------------------------------------------------------------------------
 
 def question3(cs, ntf) -> dict:
-    head("Q3: CAN GENUINE BASS AND THE LOW-FREQUENCY FAULT BE TOLD APART?")
-    say("README.md: a tripped run puts every bit of its excess in the 20 to")
-    say("100 Hz bins. Sustained bass puts its signal in the same bins. If the")
-    say("only thing available is how much energy comes out down there, the")
-    say("two are indistinguishable and the hardware cannot flag one without")
-    say("flagging the other.")
+    head("Q3: CAN GENUINE BASS AND A LOW-FREQUENCY ANOMALY BE TOLD APART?")
+    say("The question was posed against the limit cycle README.md leaves")
+    say("open. That fault turns out not to exist -- it was the mean")
+    say("subtraction, measured in the section above -- so what is left is the")
+    say("general version, and it is still the one the hardware has to answer:")
+    say("if something ever does put energy between 20 and 100 Hz that is not")
+    say("music, can a monitor tell, given that music puts energy there too?")
     say()
-    say("The wander is not a switch. It is a state the loop falls into, and")
-    say("README.md says a perturbation of 2^-40 decides which. So each case")
-    say("is run four ways that differ only in things that cannot change the")
-    say("audio -- how many samples the loop ran before the window opened, and")
-    say("which way the datapath rounds ties -- and the runs that wander are")
-    say("identified from the result rather than arranged in advance.")
+    say("Each case is run four ways that differ only in things that cannot")
+    say("change the audio: how many samples the loop ran before the window")
+    say("opened, and which way the datapath rounds ties. Nothing here is")
+    say("expected to trip any more; the point is what the three detectors")
+    say("read when the signal is 41 Hz bass at -6 dBFS.")
     say()
     say("Three detectors, all 20-100 Hz power.")
     say("  output    : the element sum itself. What a monitor on the output")
@@ -627,8 +627,7 @@ def question3(cs, ntf) -> dict:
                     say(f"{label:>24}  {vname:>22}  unbounded")
                     continue
                 w = P.measure(r, window=WINDOW)[0]
-                xw = r.x - r.x.mean()
-                ob = material.band_shape(xw, m.element_clock)
+                ob = material.band_shape(P.centre(r.x), m.element_clock)
                 out[(m.name, label, vname)] = (w, ob)
                 say(f"{label:>24}  {vname:>22}  "
                     f"{P._to_dbfs(ob['low_db']):>9.1f}  {w.low_db:>9.1f}  "
@@ -657,19 +656,27 @@ def question3(cs, ntf) -> dict:
 
 
 def wander(cs, ntf) -> dict:
-    head("Q3: THE WANDER, SWITCHED BY WHERE THE LOOP STARTS")
-    say("This was not planned. The instrument check above reads 9.4 dB low at")
-    say("96 kHz, on a 1 kHz tone, at the recommended widths, with ties to")
-    say("even -- a configuration run_endtoend.py measures at 133.7 dB. The one")
-    say("difference is that this script runs the modulator for 2^18 samples")
-    say("of warm-up before the measured window, so the loop enters the window")
-    say("in a different state. README.md says 2^-40 at the modulator input")
-    say("switches the wander on or off. A quarter-second of warm-up does too.")
+    head("THE LOW-FREQUENCY FAULT WAS THE TRANSFORM, NOT THE LOOP")
+    say("README.md carries an open item: the loop occasionally settles into a")
+    say("very-low-frequency wander, one run in thirty-six comes back 15 to")
+    say("19 dB low, and every bit of the excess sits between 20 and 100 Hz.")
+    say("This run reproduced it on demand and then found it was not there.")
     say()
-    say(f"{'rate':>9}  {'warm-up':>9}  {'error dBFS':>11}  {'20-100':>8}  "
-        f"{'0.1-2k':>8}  {'2-20k':>8}  {'low share':>10}  {'loop v-u low':>13}")
+    say("The reproduction: a 1 kHz tone at -3.7 dBFS, one percent elements,")
+    say("the recommended widths, ties to even -- a configuration")
+    say("run_endtoend.py measures at 133.7 dB -- run twice, differing only in")
+    say("how many samples the modulator ran before the measured window opened.")
+    say("Nothing that can change the audio.")
+    say()
+    say("The two columns are the same spectrum with the mean removed two ways.")
+    say("'plain' is x - x.mean(). 'windowed' is x - sum(w*x)/sum(w), which is")
+    say("the mean the Kaiser transform actually integrates.")
+    say()
+    say(f"{'rate':>9}  {'warm-up':>9}  {'plain: error':>13}  {'20-100':>8}  "
+        f"{'share':>7}   {'windowed: error':>16}  {'20-100':>8}  {'share':>7}")
     out = {}
     c = cs["48k"]
+    aw = spectra.analysis_window(WINDOW)
     for mult in (1, 2, 4):
         m = [x for x in chain.modes("48k") if x.multiplier == mult][0]
         for wu in (0, WARMUP):
@@ -677,249 +684,47 @@ def wander(cs, ntf) -> dict:
             f = endtoend.coherent_tone_freq(m, WINDOW, 1000.0)[1]
             pcm = endtoend.source_tone(n_in, m.fs, f, TONE_DBFS)
             r = P.render(c, ntf, m, pcm, n_out=WINDOW, warmup=wu, sigma=SIGMA)
-            w = P.measure(r, window=WINDOW)[0]
-            out[(m.name, wu)] = (r, w)
-            say(f"{m.name:>9}  {wu:>9}  {w.err_dbfs:>11.2f}  {w.low_db:>8.1f}  "
-                f"{w.mid_db:>8.1f}  {w.high_db:>8.1f}  "
-                f"{w.low_share*100:>9.2f}%  {w.loop_low_dbfs:>13.1f}")
+            cr, au = P.band_gain_terms(r.x, r.u_ref, m.element_clock)
+            raw = r.x - (cr / au) * r.u_ref
+            bp = material.band_shape(raw - raw.mean(), m.element_clock)
+            bw = material.band_shape(P.centre(raw, aw), m.element_clock)
+            out[(m.name, wu)] = (bp, bw)
+            say(f"{m.name:>9}  {wu:>9}  {P._to_dbfs(bp['total_db']):>13.2f}  "
+                f"{P._to_dbfs(bp['low_db']):>8.1f}  "
+                f"{bp['low_share']*100:>6.2f}%   "
+                f"{P._to_dbfs(bw['total_db']):>16.2f}  "
+                f"{P._to_dbfs(bw['low_db']):>8.1f}  "
+                f"{bw['low_share']*100:>6.2f}%")
             flush()
+    bp, bw = out[("96 kHz", WARMUP)]
     say()
-    say("Same record, same widths, same seeds, same everything except how")
-    say("many samples the loop ran before the window opened.")
+    say(f"**The 96 kHz run with warm-up reads {P._to_dbfs(bp['total_db']):.2f} "
+        f"dBFS with the plain mean removed,")
+    say(f"{bp['low_share']*100:.0f} percent of it below 100 Hz, and "
+        f"{P._to_dbfs(bw['total_db']):.2f} dBFS with the windowed mean")
+    say(f"removed, {bw['low_share']*100:.2f} percent of it below 100 Hz.** The "
+        f"low band moves by")
+    say(f"{P._to_dbfs(bw['low_db']) - P._to_dbfs(bp['low_db']):.0f} dB and the "
+        f"in-band figure by "
+        f"{P._to_dbfs(bw['total_db']) - P._to_dbfs(bp['total_db']):.1f} dB. "
+        f"Same record, same chain, same")
+    say("samples -- only the arithmetic of the mean subtraction differs.")
     say()
-    say("Where in the band, bin by bin. Bins are 23.4 Hz; the mean has been")
-    say("removed, so bin 0 is gone and bin 1 is 23.4 Hz.")
+    say("x - x.mean() nulls the record's unwindowed average. A Kaiser-windowed")
+    say("transform integrates sum(w*x)/sum(w) instead, so the wrong")
+    say("subtraction leaves a DC residue, and at beta 26 the main lobe is")
+    say("twelve bins wide -- 280 Hz at this transform length. The residue")
+    say("lands spread across exactly the 20 to 100 Hz bins the fault was")
+    say("diagnosed from. **The measurement was manufacturing the signature it")
+    say("was looking for.**")
     say()
-    say(f"{'case':>28}  " + "  ".join(f"{i*chain.ELEMENT_CLOCK['48k']/WINDOW:>7.0f}"
-                                      for i in range(1, 9)) + "  Hz")
-    for key, label in (((("96 kHz"), 0), "96 kHz, no warm-up"),
-                       ((("96 kHz"), WARMUP), "96 kHz, 2^18 warm-up"),
-                       ((("48 kHz"), WARMUP), "48 kHz, 2^18 warm-up")):
-        r, w = out[key]
-        # rebuild the fitted error the same way measure() does
-        cr, au = P.band_gain_terms(r.x[:WINDOW], r.u_ref[:WINDOW],
-                                   r.mode.element_clock)
-        e = r.x[:WINDOW] - (cr / au) * r.u_ref[:WINDOW]
-        e = e - e.mean()
-        pw = spectra.power_spectrum(e)
-        say(f"{label:>28}  " + "  ".join(f"{float(spectra.dbfs(pw[i])):>7.1f}"
-                                         for i in range(1, 9)))
-    say()
-    say("A tripped window is not a raised floor and it is not a DC offset")
-    say("either: the energy is spread across the lowest bins rather than")
-    say("piled on bin 1, which is what a static offset would leave behind.")
-    flush()
+    say("Two things follow. The open item in README.md -- the low-frequency")
+    say("limit cycle, one run in thirty-six, dither does not remove it -- is")
+    say("this, and there is no limit cycle to fix. And the rule in the trap")
+    say("list is not strong enough as written: 'remove the mean' has to say")
+    say("*which* mean, because the difference between the two is invisible in")
+    say("the time domain and 8.5 dB in the answer.")
     return out
-
-
-
-# ---------------------------------------------------------------------------
-# The thing tones could not show
-# ---------------------------------------------------------------------------
-
-def coherent(m, f_target: float) -> float:
-    return endtoend.coherent_tone_freq(m, WINDOW, f_target)[1]
-
-
-def to_inband(x: np.ndarray, fs: float, target_dbfs: float) -> np.ndarray:
-    """Scale so the record carries ``target_dbfs`` of power in 20 Hz-20 kHz.
-
-    Matching on peak level would compare a sine against material with 20 dB
-    more crest factor and call the difference a result. What has to be held
-    equal is how hard the converter is being driven in the band the answer is
-    reported in.
-    """
-    x = np.asarray(x, dtype=np.float64)
-    p = spectra.power_spectrum(x - x.mean())
-    f = spectra.bin_freqs(len(x), fs)
-    sel = (f >= BAND[0]) & (f <= BAND[1])
-    cur = float(spectra.dbfs(float(p[sel].sum())))
-    return x * 10.0 ** ((target_dbfs - cur) / 20.0)
-
-
-def mismatch_and_material(cs, ntf, real) -> dict:
-    head("WHAT A TONE CANNOT SHOW: MISMATCH AGAINST BROADBAND CONTENT")
-    say("Every material figure above is worse than the tone figure, and all of")
-    say("the excess is in the 100 Hz to 2 kHz band, where the music is. That")
-    say("is the signature of distortion, not of a noise floor. This section")
-    say("finds where it comes from and whether a tone could ever have seen it.")
-    say()
-    say("Sources are matched on in-band signal power, not on peak level, so")
-    say("what differs between the rows is the content and nothing else.")
-    say()
-    c = cs["48k"]
-    m = [x for x in chain.modes("48k") if x.multiplier == 1][0]
-    fs = m.element_clock
-    need = P.pcm_for(c, m, WINDOW)
-    t = np.arange(need) / m.fs
-
-    def tones(freqs):
-        return sum(np.sin(2 * np.pi * coherent(m, f) * t + 0.7 * i)
-                   for i, f in enumerate(freqs))
-
-    rng = np.random.default_rng(12)
-    srcs = [
-        ("1 kHz sine", tones([1000.0])),
-        ("two tones, 1.0 + 1.1 kHz", tones([1000.0, 1100.0])),
-        ("8-tone multitone", tones([110.0, 220.0, 437.0, 881.0, 1753.0,
-                                    3499.0, 7001.0, 13999.0])),
-        ("white noise to 20 kHz", rng.standard_normal(need)),
-        ("sustained 41 Hz bass", material.sustained_bass(need, m.fs)),
-        ("programme, synthetic", material.programme(need, m.fs)),
-    ]
-    if real is not None:
-        srcs.append(("real audio", real[:need]))
-    target = -16.0
-    say(f"In-band signal power held at {target:.0f} dBFS. 48 kHz, order 3, "
-        f"2^{int(np.log2(WINDOW))} samples.")
-    say()
-    say(f"{'source':>26}  {'crest':>6}  {'matched':>8}  {'0.1%':>8}  "
-        f"{'1%':>8}  {'1%, no rot':>10}  {'1% cost':>8}  {'mod only':>9}")
-    out = {}
-    for label, x in srcs:
-        xx = to_inband(x, m.fs, target)
-        row = {}
-        for key, kw in (("matched", dict(sigma=0.0)),
-                        ("0.1%", dict(sigma=0.001)),
-                        ("1%", dict(sigma=0.01)),
-                        ("norot", dict(sigma=0.01, rotate=False))):
-            r = P.render(c, ntf, m, xx, n_out=WINDOW, **kw)
-            w = P.measure(r, window=WINDOW)[0]
-            row[key] = w.err_dbfs
-            if key == "matched":
-                # the same comparison taken before the elements: v against the
-                # ideal reconstruction, so cascade + datapath + modulator only
-                cr, au = P.band_gain_terms(r.v, r.u_ref, fs)
-                e = r.v - (cr / au) * r.u_ref
-                row["mod"] = P._to_dbfs(
-                    material.band_shape(e - e.mean(), fs)["total_db"])
-                row["bands"] = (w.low_db, w.mid_db, w.high_db)
-        out[label] = row
-        say(f"{label:>26}  {P.crest_db(xx):>6.1f}  {row['matched']:>8.1f}  "
-            f"{row['0.1%']:>8.1f}  {row['1%']:>8.1f}  {row['norot']:>10.1f}  "
-            f"{row['matched'] - row['1%']:>8.1f}  {row['mod']:>9.1f}")
-        flush()
-    say()
-    say("Read the last column first. 'mod only' is the same error measured")
-    say("before the elements -- cascade, datapath and modulator, against the")
-    say("ideal reconstruction. It is within a decibel of the matched-element")
-    say("column on every row, so **the cascade and the modulator do not care")
-    say("what the material is**. Everything that changes between these rows")
-    say("happens in the weighted element sum.")
-    say()
-    say("Then read the '1% cost' column. A single sine pays nothing for one")
-    say("percent elements. Every other source pays, and the price rises with")
-    say("how many components the signal has.")
-    say()
-
-    head("THE SAME THING, SEEN BY THE OLD INSTRUMENT")
-    say("The result above would be worthless if it were a property of the new")
-    say("measurement. It is not. Two tones, 1.000 and 1.100 kHz, -3.7 dBFS")
-    say("total, measured on the element sum with spectra.power_spectrum and")
-    say("both fundamentals excised -- nothing here that run_endtoend.py could")
-    say("not have done.")
-    say()
-    two = P.normalise_peak(tones([1000.0, 1100.0]), TONE_DBFS)
-    f1, f2 = coherent(m, 1000.0), coherent(m, 1100.0)
-    say(f"{'elements':>12}  {'in-band noise, both lobes out':>30}  "
-        f"{'worst remaining bin':>20}")
-    imd = {}
-    for sigma, lab in ((0.0, "matched"), (0.001, "0.1%"), (0.01, "1%")):
-        r = P.render(c, ntf, m, two, n_out=WINDOW, sigma=sigma)
-        x = r.x - r.x.mean()
-        pw = spectra.power_spectrum(x)
-        f = spectra.bin_freqs(WINDOW, fs)
-        half = spectra.main_lobe_bins()
-        df = fs / WINDOW
-        mask = (f >= BAND[0]) & (f <= BAND[1])
-        n_full = int(mask.sum())
-        for fc in (f1, f2):
-            k = int(round(fc / df))
-            mask[max(k - half, 0):k + half + 1] = False
-        noise = float(pw[mask].sum()) * n_full / int(mask.sum())
-        j = int(np.argmax(np.where(mask, pw, 0.0)))
-        imd[lab] = (float(spectra.dbfs(noise)), float(spectra.dbfs(pw[j])),
-                    float(f[j]))
-        say(f"{lab:>12}  {imd[lab][0]:>24.1f} dBFS  "
-            f"{imd[lab][1]:>12.1f} dBFS at {imd[lab][2]:>7.0f} Hz")
-        flush()
-    say()
-    say("Two tones already show it, by "
-        f"{imd['matched'][0] - imd['1%'][0]:.1f} dB. One tone shows nothing, "
-        "because with")
-    say("one tone the error has nowhere to land except the fundamental, which")
-    say("the measurement excises as signal, and its harmonics, which the")
-    say("measurement excises as distortion. Add a second tone and the same")
-    say("error lands on intermodulation products that neither excision")
-    say("removes. Real material has thousands of components and the products")
-    say("fill the band.")
-    say()
-
-    head("HOW MUCH THE PARTICULAR ELEMENTS MATTER")
-    say("One percent is a tolerance, not a value. These rows are the same")
-    say("chain and the same record with different draws from the same")
-    say("tolerance, plus two constructed cases that isolate what the")
-    say("differential pair does.")
-    say()
-    if real is None:
-        say("(needs real material; skipped)")
-        return out
-    seg = P.normalise_peak(real[:need], PLAY_DBFS)
-    say(f"{'elements':>44}  {'error':>8}  {'20-100':>8}  {'0.1-2k':>8}  "
-        f"{'2-20k':>8}")
-
-    def with_weights(wp, wn, label):
-        settle = c.settle_samples(m)
-        import lyrebird_model.datapath as D
-        ref, _ = D.interpolate(c, seg, m, coeff_bits=P.COEFF_BITS)
-        q = endtoend.quantize_pcm(seg)
-        got, _ = D.interpolate(c, q, m, coeff_bits=P.COEFF_BITS,
-                               sig_frac=P.SIG_FRAC, acc_frac=P.ACC_FRAC)
-        drive = got[settle:settle + WARMUP + WINDOW]
-        rr = modulator.simulate(ntf, drive, fs)
-        codes = np.clip(np.asarray(rr.codes, np.int64), 0, chain.N_ELEMENTS)
-        x = P.element_sum(codes, rotate=True, w_pos=wp, w_neg=wn)[WARMUP:]
-        uref = ref[settle + WARMUP:settle + WARMUP + WINDOW]
-        cr, au = P.band_gain_terms(x, uref, fs)
-        e = x - (cr / au) * uref
-        bs = material.band_shape(e - e.mean(), fs)
-        say(f"{label:>44}  {P._to_dbfs(bs['total_db']):>8.1f}  "
-            f"{P._to_dbfs(bs['low_db']):>8.1f}  "
-            f"{P._to_dbfs(bs['mid_db']):>8.1f}  "
-            f"{P._to_dbfs(bs['high_db']):>8.1f}")
-        flush()
-        return P._to_dbfs(bs["total_db"])
-
-    seeds = {}
-    for seed in (7, 1, 2, 3, 4):
-        wp, wn = dwa.mismatch(0.01, seed=seed)
-        seeds[seed] = with_weights(wp, wn, f"1% elements, draw {seed}")
-    wp, wn = dwa.mismatch(0.01, seed=P.MISMATCH_SEED)
-    trimmed = with_weights(wp - wp.mean() + 1.0, wn - wn.mean() + 1.0,
-                           "same draw, each bank's sum trimmed to exact")
-    same = with_weights(wp, wp, "same draw, the two banks made identical")
-    say()
-    say("Three things to take from this.")
-    say()
-    say("The error is in the 2-20 kHz band, 13 dB above the 100 Hz-2 kHz")
-    say("band and 24 dB above 20-100 Hz. That is the shape 0008 promises:")
-    say("rotation turns mismatch into an error the loop pushes up out of the")
-    say("way, and it is still doing that against real material.")
-    say()
-    say(f"The draw matters by {max(seeds.values()) - min(seeds.values()):.1f} "
-        f"dB across five of them, all at the same one percent")
-    say("specification. A single mismatch seed is one board, not the answer.")
-    say()
-    say(f"Trimming each bank's total to exactly seven is worth "
-        f"{seeds[P.MISMATCH_SEED] - trimmed:+.1f} dB, which is nothing: the")
-    say("rotation already handles the bank total. Making the two banks")
-    say(f"identical is worth {seeds[P.MISMATCH_SEED] - same:+.1f} dB, which "
-        f"says the two sides' errors are")
-    say("independent and add in power, as they should. Neither is buildable;")
-    say("both are here to show which property of the elements the number")
-    say("actually depends on, and the answer is the spread, not the sum.")
-    return out
-
 
 
 def traps(cs, ntf, real) -> None:
@@ -933,7 +738,17 @@ def traps(cs, ntf, real) -> None:
     need = P.pcm_for(c, m, WINDOW)
     src = (P.peak_slice(real, need) if real is not None
            else material.programme(need, m.fs))
-    say("1. THE GAIN FIT HAS TO HAVE THE MEAN REMOVED FROM IT TOO.")
+    say("1. 'REMOVE THE MEAN' HAS TO SAY WHICH MEAN.")
+    say("   x - x.mean() nulls the record's unwindowed average. A Kaiser-")
+    say("   windowed transform integrates sum(w*x)/sum(w). The difference is")
+    say("   invisible in the time domain and it lands as a DC residue smeared")
+    say("   across twelve bins, which is 280 Hz here -- on top of the 20 to")
+    say("   100 Hz band. Measured above: 8.5 dB on an in-band figure and")
+    say("   53 dB on the low band, and it is the whole of the low-frequency")
+    say("   limit cycle README.md leaves open. Every mean removed in this")
+    say("   module is the windowed one.")
+    say()
+    say("2. THE GAIN FIT HAS TO HAVE THE MEAN REMOVED FROM IT TOO.")
     say("   Element mismatch leaves a static offset on the element sum. The")
     say("   error has its mean removed, which is the rule README.md already")
     say("   states -- but the *scalar gain* fitted before that subtraction")
@@ -950,15 +765,15 @@ def traps(cs, ntf, real) -> None:
         f = spectra.bin_freqs(WINDOW, fs)
         sel = (f >= BAND[0]) & (f <= BAND[1])
 
-        def fit(centre: bool) -> tuple[float, float]:
-            a = r.x - (r.x.mean() if centre else 0.0)
-            b = r.u_ref - (r.u_ref.mean() if centre else 0.0)
+        def fit(centred: bool) -> tuple[float, float]:
+            a = P.centre(r.x, w) if centred else r.x
+            b = P.centre(r.u_ref, w) if centred else r.u_ref
             X = np.fft.rfft(a * w)
             U = np.fft.rfft(b * w)
             g = (float(np.real(np.vdot(U[sel], X[sel])))
                  / float(np.real(np.vdot(U[sel], U[sel]))))
             e = r.x - g * r.u_ref
-            return g, P._to_dbfs(material.band_shape(e - e.mean(),
+            return g, P._to_dbfs(material.band_shape(P.centre(e, w),
                                                      fs)["total_db"])
         g_bad, e_bad = fit(False)
         g_ok, e_ok = fit(True)
@@ -969,7 +784,7 @@ def traps(cs, ntf, real) -> None:
     say("   tell: it is no longer measuring the chain. It cost this run one")
     say("   complete pass and a finding that turned out not to exist.")
     say()
-    say("2. THE GAIN FIT HAS TO BE RESTRICTED TO THE BAND.")
+    say("3. THE GAIN FIT HAS TO BE RESTRICTED TO THE BAND.")
     say("   Fitted over the whole record it is dominated by the modulator's")
     say("   out-of-band noise, which is 90 dB above the in-band error. That")
     say("   noise is uncorrelated with the signal but its inner product with")
@@ -978,16 +793,16 @@ def traps(cs, ntf, real) -> None:
     say()
     pcm = P.normalise_peak(src, TONE_DBFS)
     r = P.render(c, ntf, m, pcm, n_out=WINDOW, sigma=SIGMA)
-    g_bb = float(np.dot(r.x - r.x.mean(), r.u_ref - r.u_ref.mean())
-                 / np.dot(r.u_ref - r.u_ref.mean(), r.u_ref - r.u_ref.mean()))
-    e_bb = r.x - g_bb * r.u_ref
-    bb = P._to_dbfs(material.band_shape(e_bb - e_bb.mean(), fs)["total_db"])
+    cx, cu = P.centre(r.x), P.centre(r.u_ref)
+    g_bb = float(np.dot(cx, cu) / np.dot(cu, cu))
+    bb = P._to_dbfs(material.band_shape(
+        P.centre(r.x - g_bb * r.u_ref), fs)["total_db"])
     w0 = P.measure(r, window=WINDOW)[0]
     say(f"   broadband fit: gain {g_bb:.6f}, in-band error {bb:.1f} dBFS")
     say(f"   in-band  fit: gain {w0.gain:.6f}, in-band error "
         f"{w0.err_dbfs:.1f} dBFS")
     say()
-    say("3. A HEADROOM WINDOW HAS TO BE CENTRED ON THE RECONSTRUCTED PEAK,")
+    say("4. A HEADROOM WINDOW HAS TO BE CENTRED ON THE RECONSTRUCTED PEAK,")
     say("   NOT ON THE LOUDEST SAMPLE. The two are the same event in")
     say("   unprocessed material and 1.5 seconds apart in clipped material,")
     say("   because clipping makes the reconstruction overshoot wherever a")
@@ -1006,7 +821,7 @@ def traps(cs, ntf, real) -> None:
             f"quantizer {d['peak_dbfs']:+.2f} dBFS")
         flush()
     say()
-    say("4. A LAG CHECK OVER A FEW SAMPLES CANNOT CHECK ANYTHING.")
+    say("5. A LAG CHECK OVER A FEW SAMPLES CANNOT CHECK ANYTHING.")
     say("   The signal is band-limited to 20 kHz and sampled at 24.576 MHz,")
     say("   so its autocorrelation is flat over plus or minus eight samples")
     say("   and an argmax there reports where the out-of-band noise fell. It")
@@ -1212,9 +1027,9 @@ def main() -> int:
         flush()
         mm = mismatch_and_material(cs, ntf, real)
         flush()
-        q3 = question3(cs, ntf)
-        flush()
         wander(cs, ntf)
+        flush()
+        q3 = question3(cs, ntf)
         flush()
         traps(cs, ntf, real)
         flush()

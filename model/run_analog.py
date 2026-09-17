@@ -110,7 +110,7 @@ def element_sum(cas, ntf, mode, *, sigma=SIGMA, amp_dbfs=TEST_DBFS,
     pos, neg = dwa.differential(codes, rotate=True)
     wp, wn = (None, None) if sigma == 0.0 else dwa.mismatch(sigma, seed=7)
     x = dwa.normalise(dwa.analog(pos, neg, wp, wn))
-    x = x - x.mean()            # the mismatch offset is not audio-band noise
+    x = spectra.remove_dc(x)    # the mismatch offset is not audio-band noise
     out = {"x": x, "f_sig": f_sig, "clipped": run.clipped, "mode": mode}
     if per_element:
         out["pos"] = pos
@@ -620,7 +620,7 @@ def capacitor_mismatch(rec, floor_db):
                 acc += sign * w[j] * lfilter([1.0 - a], [1.0, -a],
                                              side[:, j].astype(np.float64))
         y = dwa.normalise(acc)
-        y = y - y.mean()
+        y = spectra.remove_dc(y)
         m = spectra.Measurement.of(y, fs, rec["f_sig"], BAND, n_harmonics=10)
         if base is None:
             base = m.sndr_db

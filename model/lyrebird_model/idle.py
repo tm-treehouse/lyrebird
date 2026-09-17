@@ -102,18 +102,14 @@ def dc_grid_dbfs(n: int) -> float:
 
 
 def remove_dc(x: np.ndarray, window: np.ndarray | None = None) -> np.ndarray:
-    """Subtract the *windowed* mean, which is the one the transform sees.
+    """:func:`spectra.remove_dc`, with this module's cached window.
 
-    ``x - x.mean()`` zeroes the arithmetic mean and leaves the DC bin of the
-    windowed transform wherever the record's slow structure puts it. The
-    Kaiser weights the centre of the record far above its ends, so a record
-    whose offset drifts across the window keeps a DC bin after plain mean
-    removal, and that bin's main lobe then lands in the lowest audio bins.
-    Measured on a tripped record, the two differ by 42.7 dB.
+    The implementation lives in :mod:`spectra` so that every measurement in
+    the model gets it, not only this one.
     """
     x = np.asarray(x, dtype=np.float64)
-    w = globals()["window"](len(x)) if window is None else window
-    return x - float((w * x).sum() / w.sum())
+    return spectra.remove_dc(x, globals()["window"](len(x))
+                             if window is None else window)
 
 
 @dataclass

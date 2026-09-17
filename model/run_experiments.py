@@ -206,8 +206,9 @@ def mismatch_study(order, ntf, amp_dbfs):
             # Element mismatch produces a DC offset as well as noise. The
             # lowest FFT bins sit inside a band starting at 20 Hz, so leaving
             # it in counts a static output offset as audio-band noise. Real
-            # hardware trims or AC-couples it.
-            x = x - x.mean()
+            # hardware trims or AC-couples it. It has to come out the way the
+            # transform sees it; see spectra.remove_dc.
+            x = spectra.remove_dc(x)
             m = spectra.Measurement.of(x, FS, f_sig, BAND,
                                        n_harmonics=N_HARM, keep_psd=True)
             say(f"{sigma*100:>6.1f}%  {label:>9}  {m.snr_db:>8.1f}  "

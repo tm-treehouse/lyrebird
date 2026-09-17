@@ -6,10 +6,16 @@ repository left open with numbers rather than adjectives. Run it:
 ```
 ./.venv/bin/python model/run_experiments.py   # order, cascade, coefficients, rotation
 ./.venv/bin/python model/run_endtoend.py      # the chain connected, and datapath width
+./.venv/bin/python model/run_idle.py          # idle channel, and what the window was doing
 ```
 
-Figures land in `figures/`, the logs in `results/measurements.txt` and
-`results/endtoend.txt`.
+Figures land in `figures/`, the logs in `results/measurements.txt`,
+`results/endtoend.txt` and `results/idle.txt`.
+
+**If you read an earlier version of this file, two of its numbers were wrong.**
+The low-frequency limit cycle it reported does not exist and the 15.7 dB it
+attributed to round-half-up was the same measurement error. Both are corrected
+below, with what actually caused them.
 
 ## Recommendations
 
@@ -379,21 +385,38 @@ up, so each rounding leaves about a quarter of an LSB of offset and nine stages
 of them add. Measured at the modulator input that offset is -160.4 dBFS, which
 is half an LSB of a 26-bit word and looks like nothing.
 
-It is not nothing. A delta-sigma loop turns a static input offset into idle
-tones at the bottom of the audio band:
+It is also very nearly nothing, and an earlier version of this section said
+otherwise. **The 15.7 dB this table used to report was a measurement error, not
+a property of the rounding.** The corrected figures, from `run_idle.py`
+section D:
 
-| Rate | Ties up | Ties to even |
-| --- | --- | --- |
-| 48 kHz | 137.45 dB | 137.56 dB |
-| 96 kHz | **124.58 dB** | **140.25 dB** |
-| 192 kHz | 143.43 dB | 143.80 dB |
-| 176.4 kHz | 142.79 dB | 143.37 dB |
+| Rate | Ties up | Ties to even | Ties up, as published |
+| --- | --- | --- | --- |
+| 48 kHz | 138.41 dB | 138.41 dB | 137.45 dB |
+| 96 kHz | 141.39 dB | 141.41 dB | **124.58 dB** |
+| 192 kHz | 144.35 dB | 144.35 dB | 143.43 dB |
+| 44.1 kHz | 137.98 dB | 137.99 dB | 124.73 dB |
+| 88.2 kHz | 140.88 dB | 140.88 dB | -- |
+| 176.4 kHz | 144.10 dB | 144.07 dB | 142.79 dB |
 
-**Worst case costs 15.7 dB.** The broadband rounding noise is identical either
-way, so convergent rounding buys this for logic alone. Note that half-up does
-not fail at every rate: it leaves the same offset everywhere and the loop only
-sometimes lands on a bad pattern, which makes it a latent fault rather than a
-visible one.
+**Worst case costs 0.02 dB.** The old numbers came from subtracting the
+arithmetic mean rather than the windowed mean before a 2^20 transform, which
+counts a sub-20 Hz residue as audio-band noise; `spectra.remove_dc` now does
+it correctly for every measurement in the model and explains why. The full
+account is in [notes-idle.md](notes-idle.md).
+
+The giveaway, had anyone looked: re-running the old code today puts the 124 dB
+row at **44.1 kHz**, not 96 kHz. Half-up leaves the same offset at every rate,
+so a fault caused by that offset cannot move between rates from one run to the
+next.
+
+**Round ties to even anyway.** It costs one adder's difference and it removes a
+real static offset: measured at the modulator input, half-up leaves -169 to
+-170 dBFS where ties-to-even leaves -187 to -210 dBFS. That offset reaches the
+output as DC, where it is the output coupling capacitor's problem rather than
+the FPGA's, and an unbiased rounding is the cheaper place to deal with it. What
+is no longer claimed is that it costs audio-band performance. It does not,
+measurably.
 
 ### What the recommended datapath measures
 
@@ -407,42 +430,117 @@ to even. `SNDR exact` is the same chain with an infinite-precision datapath.
 | 192 kHz | -172.7 dBFS | 143.83 dB | 143.83 dB | 0.00 dB |
 | 44.1 kHz | -165.6 dBFS | 137.56 dB | 137.55 dB | 0.01 dB |
 | 88.2 kHz | -168.6 dBFS | 140.18 dB | 140.15 dB | 0.03 dB |
-| 176.4 kHz | -171.7 dBFS | 125.06 dB* | 143.31 dB | -- |
+| 176.4 kHz | -171.7 dBFS | 143.40 dB* | 143.31 dB | 0.09 dB |
 
-**The whole sized datapath costs at most 0.04 dB.**
+**The whole sized datapath costs at most 0.09 dB.**
 
-\* The 176.4 kHz reference run tripped the limit cycle described below, so
-that row has no meaningful comparison. Its sized result, 143.31 dB, agrees
-with the per-rate table to 0.06 dB. A reference that measures 18 dB worse than
-the quantized path is the clearest possible statement that this fault has
-nothing to do with word width.
+\* This row used to read 125.06 dB and carried a footnote blaming a limit
+cycle. **That was a measurement error.** The same record, with the windowed
+mean removed instead of the arithmetic mean, measures 143.40 dB; measured over
+2^21 with nothing else changed it measures 143.69 dB. The conclusion the
+footnote drew -- that the discrepancy had nothing to do with word width -- was
+right, for the wrong reason. See below and [notes-idle.md](notes-idle.md).
 
-## Low-frequency limit cycles, measured and not fixed
+## There is no low-frequency limit cycle. That was a measurement error.
 
-The loop occasionally settles into a very-low-frequency wander that lands at
-the bottom of the audio band. When it does, every bit of the excess sits in the
-20 Hz to 100 Hz bins and the in-band figure comes back 15 to 19 dB low. The
-worst case measured is 125.1 against 143.3 dB at 176.4 kHz.
+This section used to report one, and several figures elsewhere in this file
+were adjusted for it. **All of it was the analysis window.** Anyone who read
+the earlier text should discard it: there is no intermittent fault in the loop,
+dither was never failing to fix anything, and the 1-in-36 rate was a count of
+how often a rounding residue landed where a too-short transform could see it.
+`run_idle.py` establishes this and [notes-idle.md](notes-idle.md) gives the
+full account.
 
-It is a property of the loop, not of the datapath, and the model being exact is
-what makes it visible. Adding 2^-40 at the modulator input switches it on or
-off. Adding 1e-18, which float64 discards, does not.
+### What was measured
 
-Across 36 runs at the recommended widths -- six rates, six input variations
-each -- one tripped, at 176.4 kHz. Adding 0.25 LSB of dither at the quantizer,
-inside the loop, which is the textbook remedy for idle tones, also left exactly
-one run tripping, a different one, at 192 kHz. Dither at the modulator input
-behaves the same way. **Dither does not remove this; it moves which run
-trips.**
+The claim was that one run in 36 came back 15 to 19 dB low with every bit of
+the excess in the 20 Hz to 100 Hz bins, worst case 125.1 against 143.3 dB. That
+run reproduces exactly, so it could be taken apart:
 
-It is worth being clear about the size of the problem. A tripped run still
-measures 125 dB, which clears the 110 dB target by 15 dB, and the energy is
-under 100 Hz where the analog section's coupling is least able to pass it. It
-is not a reason to change the order or the widths. It is a reason not to
-believe a single in-band figure without looking at where in the band it came
-from, and it wants a testbench against real material over a longer record
-rather than against one tone. Every number quoted above comes from a run that
-was checked for it.
+| The same 2^20 record | SNDR | 20-100 Hz |
+| --- | --- | --- |
+| DC removed arithmetically, `x - x.mean()` | 125.06 dB | -130.2 dBFS |
+| DC removed with the window | **143.40 dB** | **-172.9 dBFS** |
+
+and the same trajectory, with nothing corrected, simply measured for longer:
+
+| Window | Bin width | DC main lobe reaches | SNDR |
+| --- | --- | --- | --- |
+| 2^20 | 21.5 Hz | 258 Hz | 125.06 dB |
+| 2^21 | 10.8 Hz | 129 Hz | 143.69 dB |
+| 2^22 | 5.4 Hz | 65 Hz | 143.94 dB |
+| 2^23 | 2.7 Hz | 32 Hz | 144.11 dB |
+
+The Kaiser at beta 26 has a main lobe 12 bins wide, which at 2^20 samples of a
+22.6 MHz element clock is ±258 Hz. **At that record length, near-DC energy and
+20-100 Hz energy are the same bins.** Subtracting the arithmetic mean does not
+remove the DC the transform sees, because the window weights the centre of the
+record far above its ends, so whatever residue is left lands in the lowest
+audio bins at nearly full strength.
+
+Rerunning the whole limit-cycle experiment -- six rates, six perturbations,
+with and without 0.25 LSB of quantizer dither -- gives **1 run of 72 more than
+5 dB below its row median as published, and 0 of 72 on the same records
+measured correctly.** Dither was not moving the fault around; every remedy
+changes the record, every record leaves a different residue, and the short
+window reported the residue.
+
+### What is really there, and why it does not matter
+
+A residue is unavoidable and it is not a limit cycle. The output takes eight
+levels spaced 2/7 apart, so **the mean of an N-sample record can only sit on a
+grid of (2/7)/N**: a finite record of this alphabet cannot express its own mean
+exactly. One unbalanced sample per window is
+
+| Window | |
+| --- | --- |
+| 2^20 | -128.3 dBFS |
+| 2^22 | -140.3 dBFS |
+| 2^24 | -152.4 dBFS |
+
+and that is what the tripped record had -- measured per 2^20 block, an
+imbalance of `+1 -1 +1 -1 0 0 0 0` samples. A -128 dBFS component at about
+10 Hz. It is **below the audio band**, it is at the smallest level the output
+alphabet can express over that window so nothing in the digital design can
+reduce it, and it is DC at the output, which is what the coupling capacitor is
+already there for.
+
+Measured directly at idle it is not even that large. Over 180 trials of
+`material.py`'s idle catalogue -- fades into silence, digital silence, near
+silence at -100 dBFS, small DC offsets, six rates, six preambles each -- the
+20 Hz to 100 Hz band of the element sum measures:
+
+| Idle material | 20-100 Hz, over 180 trials |
+| --- | --- |
+| digital silence | -324 to -346 dBFS |
+| small DC offset, -60 dBFS | -321 to -331 dBFS |
+| after a fade to silence | -147 to -153 dBFS |
+| digital silence, dithered 24-bit source | -162 to -175 dBFS |
+| near silence, -100 dBFS | -126 to -140 dBFS |
+
+The last two rows are the source's own noise arriving at the output, which is
+what should happen. The first two are nothing at all. Measured the old way the
+same trials put 22 of 180 more than 10 dB above their own median, with digital
+silence reading -130 dBFS where it is really -340.
+
+A constant at the modulator input does not produce an idle tone either. Swept
+from -160 to -60 dBFS, including the -133 to -119 dBFS range where a
+first-order loop's correction rate would land between 20 and 100 Hz, the
+in-band figure stays at -179 dBFS and all of it is the shaped floor above
+2 kHz. A third-order loop with an eight-level quantizer does not lock to a
+constant.
+
+### What this cost, and what stops it recurring
+
+Three published results were wrong: this section, the ties table above, and the
+capacitor-tolerance table in `results/analog.txt`. Everything else checked --
+every per-rate figure, the 132.8 dB worst case, the rotation table, the order
+sweep, the volume placement, the datapath widths -- is unaffected to 0.01 dB,
+because the term only shows when the residue happens to be large.
+
+The fix is in one place. `spectra.remove_dc` removes the windowed mean and
+documents why; `spectra.Measurement` now calls it for every measurement, so a
+new measurement site cannot get this wrong by forgetting.
 
 ## Measurement traps found while building this
 
@@ -461,6 +559,22 @@ dominates the in-band figure and makes the rotation look ineffective. It showed
 up as in-band power 55 dB above a band nine times wider, which is the signature
 of concentrated rather than broadband energy.
 
+**Removing the mean means removing the mean the transform sees, and this one
+cost three published results.** `x - x.mean()` zeroes the flat average of the
+record. The transform does not take a flat average: it weights by the window,
+and a Kaiser at beta 26 weights the record's centre enormously more than its
+ends, so a record whose offset drifts across the window still has a DC bin
+afterwards. That bin is not confined to bin 0 either -- the main lobe is 12
+bins, ±281 Hz at 2^20 of the element clock -- so the leftover lands inside a
+band starting at 20 Hz and is counted as audio. Every delta-sigma record has
+such an offset and cannot not have one: the output alphabet is eight levels
+2/7 apart, so the record mean lives on a grid of (2/7)/N and one unbalanced
+sample per 2^20 window is already -128 dBFS. Which side of that grid a record
+falls on is a lottery, which is exactly what made this look like an
+intermittent fault in the loop for as long as it did. Use
+`spectra.remove_dc`, which subtracts `sum(w*x)/sum(w)`;
+`spectra.Measurement` now does it for every measurement.
+
 **A DC offset is not only a mismatch problem, and removing the mean is not
 optional anywhere.** The interpolator's own rounding leaves one too. Measured
 on the nine-stage chain it was -143.1 dBFS against a rounding noise of
@@ -468,7 +582,12 @@ on the nine-stage chain it was -143.1 dBFS against a rounding noise of
 18 dB worse than it is. Worse, the same offset at the modulator input is not a
 measurement problem at all but a real 15.7 dB fault, which is why ties round to
 even above. Any time a figure comes back bad, look at the 20 Hz to 100 Hz bins
-first: if the excess is all there, it is an offset or a wander, not noise.
+first: if the excess is all there, it is an offset, not noise. Note what that
+check cannot tell you, since it took two independent investigations to notice:
+excess confined to those bins is equally the signature of a DC residue the
+window is spreading into them, which is what the "limit cycle" turned out to
+be. Confirm by re-measuring the same record over a longer window before
+believing the loop did it.
 
 **The FFT has to be long enough for the tone's harmonics to clear its own main
 lobe, which is a stricter rule than having enough noise bins.** At 2^18 the
@@ -493,19 +612,16 @@ measurement can see it. Measure the whole chain before believing a schedule.
 
 ## What this model does not include
 
-Two gaps listed here previously are now closed and their results are above.
+Three gaps listed here previously are now closed and their results are above.
 **The interpolator and the modulator are connected**, measured with real
 24-bit PCM at all six rates, and the cascade costs 0.2 dB against the
 modulator measured alone. **The datapath is sized**: 28-bit signal word flat
-across the nine stages, 35/33/31-bit accumulators, ties to even.
+across the nine stages, 35/33/31-bit accumulators, ties to even. **The
+low-frequency limit cycle did not exist**: it was the analysis window, the
+loop is clean at idle down to -324 dBFS in the 20-100 Hz band, and the
+measurement is fixed in `spectra.remove_dc` so it cannot recur.
 
 What is still missing, in the order it is likely to matter:
-
-**The low-frequency limit cycle is characterised but not solved.** One run in
-36 comes back 15 to 19 dB low with all the excess between 20 and 100 Hz, and
-neither input dither nor quantizer dither removes it. Section above. This is
-the only open item here that could change a number in the tables rather than
-add to them.
 
 **Only tones have been run.** Every figure above comes from a single sine, or
 from the inter-sample probe. Multitone, real programme material, and the

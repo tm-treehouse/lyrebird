@@ -72,7 +72,7 @@ ring on the transition is not in the window. Getting that wrong
 reads as -50 dBFS of low-frequency energy and looks exactly like the
 fault.
 
-180 trials of 2**23 samples, 608 s.
+180 trials of 2**23 samples, 558 s.
 
 20 Hz to 100 Hz, dBFS, per trial. 'corrected' is a 2**23 window with
 the windowed mean removed; 'as before' is the 2**20 window with the
@@ -289,7 +289,7 @@ is already the giveaway. Half-up leaves the same offset at every
 rate, so a fault caused by the offset cannot move from one rate to
 another between runs. A lottery over records can.
 
-Same records, measured four ways. (12 runs, 33 s)
+Same records, measured four ways. (12 runs, 20 s)
 
       rate    rounding   DC at mod in   2**20 plain   2**20 windowed   2**22 plain   2**22 windowed
      48.0k     half_up         -168.7        137.56           137.57        138.41           138.41
@@ -343,7 +343,7 @@ ways. The published count is 1 of 36 without dither and 1 of 36
 with, a different one, which is what 'dither moves which run trips'
 was based on.
 
-(72 runs, 134 s)
+(72 runs, 121 s)
 
   as published: 2**20, arithmetic mean
         rate     dither                                six perturbations
@@ -481,6 +481,24 @@ F5. The analog section's own site (run_analog.py:623): the same
               20%               +3.72            +0.52
 
 
-    (F1-F4: 77 s)
+    (F1-F4: 46 s)
 
-total 1098 s
+==============================================================================
+G.  FIGURES
+==============================================================================
+  figures/idle_window.png
+  figures/idle_blast.png
+
+                       claim   as published   corrected   moved by
+     176.4 kHz reference row         125.06      143.40     +18.34
+           analog Q2e, 20% C         116.70      132.41     +15.70
+     44.1 kHz, round half up         124.73      137.53     +12.80
+       analog Q2e, matched C         120.43      132.93     +12.50
+       48 kHz, round half up         137.56      137.57      +0.02
+           96 kHz end to end         140.27      140.29      +0.01
+        order 3, 1% mismatch         134.96      134.96      +0.00
+        order sweep, order 3         168.10      168.10      +0.00
+         48 kHz, 1% elements         132.92      132.92      -0.00
+           48 kHz end to end         137.57      137.57      -0.00
+
+total 1208 s

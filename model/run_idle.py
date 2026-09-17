@@ -164,7 +164,8 @@ def section_a() -> dict:
     say(f"  {'mean removed':>16}  {'SNDR':>8}  {'20-100':>9}  {'0.1-2k':>9}  "
         f"{'2k-20k':>9}  {'<20 Hz':>9}")
     for lab, x in (("arithmetic", plain), ("windowed", wmean)):
-        mm = spectra.Measurement.of(x, fs, f, idle.BAND, n_harmonics=10)
+        mm = spectra.Measurement.of(x, fs, f, idle.BAND, n_harmonics=10,
+                                    dedc=False)
         b = idle.bands(x, fs, dedc=False)
         say(f"  {lab:>16}  {mm.sndr_db:>8.2f}  {b.low_db:>9.1f}  "
             f"{b.mid_db:>9.1f}  {b.high_db:>9.1f}  {b.wander_db:>9.1f}")
@@ -187,7 +188,8 @@ def section_a() -> dict:
         n = 1 << lg
         o = out[:n]
         x = o - o.mean()
-        mm = spectra.Measurement.of(x, fs, f, idle.BAND, n_harmonics=10)
+        mm = spectra.Measurement.of(x, fs, f, idle.BAND, n_harmonics=10,
+                                    dedc=False)
         b = idle.bands(x, fs, dedc=False)
         say(f"  {'2**' + str(lg):>8}  {fs/n:>7.2f}  "
             f"{spectra.main_lobe_bins()*fs/n:>8.0f}  {mm.sndr_db:>8.2f}  "
@@ -476,10 +478,15 @@ def section_c() -> dict:
 
 # ------------------------------------------------------------------ D
 def _both(x: np.ndarray, fs: float, f: float, n_harmonics: int = 10):
-    """The same record measured the published way and the corrected way."""
+    """The same record measured the published way and the corrected way.
+
+    ``dedc=False`` is what the published figures did: subtract the arithmetic
+    mean and transform. ``spectra.Measurement`` now removes the windowed mean
+    for every caller, so reproducing the old number needs asking for it.
+    """
     a = spectra.Measurement.of(x - x.mean(), fs, f, idle.BAND,
-                               n_harmonics=n_harmonics)
-    b = spectra.Measurement.of(idle.remove_dc(x), fs, f, idle.BAND,
+                               n_harmonics=n_harmonics, dedc=False)
+    b = spectra.Measurement.of(x, fs, f, idle.BAND,
                                n_harmonics=n_harmonics)
     return a, b
 
@@ -890,9 +897,9 @@ def section_g() -> dict:
         o = out[:n]
         lens.append(lg)
         plain.append(spectra.Measurement.of(o - o.mean(), fs, f, idle.BAND,
-                                            n_harmonics=10).sndr_db)
-        wmean.append(spectra.Measurement.of(idle.remove_dc(o), fs, f,
-                                            idle.BAND,
+                                            n_harmonics=10,
+                                            dedc=False).sndr_db)
+        wmean.append(spectra.Measurement.of(o, fs, f, idle.BAND,
                                             n_harmonics=10).sndr_db)
     ax[1].plot(lens, plain, "o-", label="x - x.mean()")
     ax[1].plot(lens, wmean, "s--", label="windowed mean removed")
