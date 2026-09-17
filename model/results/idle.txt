@@ -1,0 +1,107 @@
+Idle-channel behaviour of the order-3 loop.
+window 2**23 at the element clock (341 ms, 2.93 Hz bins), preamble 2**18 discarded, datapath at the recommended widths.
+
+==============================================================================
+B.  HOW OFTEN DOES IT TRIP ON NEAR-IDLE MATERIAL?
+==============================================================================
+Every figure behind the 1-in-36 came from a 1 kHz tone at -3.7 dBFS.
+This is material.py's idle catalogue instead, six rates, six
+preambles, so the state the loop is in when the signal goes quiet
+differs from trial to trial. The preamble is discarded; 2**19
+element samples of it sit between the last of it and the first
+measured sample, which is longer than the cascade's settling, so the
+ring on the transition is not in the window. Getting that wrong
+reads as -50 dBFS of low-frequency energy and looks exactly like the
+fault.
+
+180 trials of 2**23 samples, 558 s.
+
+20 Hz to 100 Hz, dBFS, per trial. 'corrected' is a 2**23 window with
+the windowed mean removed; 'as before' is the 2**20 window with the
+arithmetic mean removed, which is how the 1-in-36 was counted.
+
+      rate                  material                 corrected 20-100 Hz   spread
+     48.0k           digital silence    -324   -325   -339   -325   -341   -344     19.5
+     48.0k  silence, dithered source    -166   -166   -165   -162   -166   -170      7.9
+     48.0k    near silence -100 dBFS    -132   -135   -131   -131   -135   -131      4.7
+     48.0k        DC offset -60 dBFS    -331   -331   -331   -330   -330   -330      1.0
+     48.0k           fade to silence    -150   -150   -150   -150   -150   -150      0.0
+
+     96.0k           digital silence    -339   -325   -337   -341   -325   -342     17.6
+     96.0k  silence, dithered source    -169   -170   -169   -172   -169   -172      3.3
+     96.0k    near silence -100 dBFS    -135   -135   -133   -135   -135   -135      2.5
+     96.0k        DC offset -60 dBFS    -331   -330   -331   -330   -331   -321      9.4
+     96.0k           fade to silence    -152   -152   -152   -152   -152   -152      0.0
+
+    192.0k           digital silence    -325   -341   -343   -342   -346   -346     21.8
+    192.0k  silence, dithered source    -169   -172   -175   -171   -173   -175      5.6
+    192.0k    near silence -100 dBFS    -138   -140   -137   -139   -140   -139      2.8
+    192.0k        DC offset -60 dBFS    -330   -330   -331   -331   -331   -331      0.5
+    192.0k           fade to silence    -150   -150   -150   -150   -150   -150      0.0
+
+     44.1k           digital silence    -339   -337   -330   -324   -343   -342     18.5
+     44.1k  silence, dithered source    -166   -166   -165   -162   -166   -168      6.0
+     44.1k    near silence -100 dBFS    -132   -134   -131   -130   -135   -131      5.1
+     44.1k        DC offset -60 dBFS    -330   -330   -329   -330   -330   -330      1.1
+     44.1k           fade to silence    -151   -151   -151   -151   -151   -151      0.0
+
+     88.2k           digital silence    -345   -331   -333   -325   -343   -342     20.3
+     88.2k  silence, dithered source    -169   -169   -169   -171   -169   -172      3.5
+     88.2k    near silence -100 dBFS    -135   -135   -133   -135   -135   -135      2.7
+     88.2k        DC offset -60 dBFS    -330   -330   -330   -331   -330   -321      9.5
+     88.2k           fade to silence    -147   -147   -147   -147   -147   -147      0.0
+
+    176.4k           digital silence    -344   -332   -344   -325   -334   -346     21.3
+    176.4k  silence, dithered source    -169   -172   -174   -171   -172   -174      5.1
+    176.4k    near silence -100 dBFS    -138   -139   -137   -139   -140   -138      3.0
+    176.4k        DC offset -60 dBFS    -330   -330   -330   -330   -330   -330      0.2
+    176.4k           fade to silence    -153   -153   -153   -153   -153   -153      0.0
+
+      rate                  material         as before, 2**20 plain mean   spread
+     48.0k           digital silence    -130   -336   -340   -334   -330   -339    209.7
+     48.0k  silence, dithered source    -167   -164   -162   -163   -170   -164      7.4
+     48.0k    near silence -100 dBFS    -129   -132   -131   -134   -132   -136      7.2
+     48.0k        DC offset -60 dBFS    -145   -145   -145   -145   -145   -145      0.0
+     48.0k           fade to silence     -39    -39    -39    -39    -39    -39      0.0
+
+     96.0k           digital silence    -334   -340   -130   -130   -341   -341    211.1
+     96.0k  silence, dithered source    -172   -130   -166   -168   -176   -171     45.9
+     96.0k    near silence -100 dBFS    -139   -148   -132   -130   -143   -137     18.0
+     96.0k        DC offset -60 dBFS    -145   -145   -145   -129   -145   -129     16.0
+     96.0k           fade to silence     -43    -43    -43    -43    -43    -43      0.0
+
+    192.0k           digital silence    -349   -337   -339   -130   -338   -336    218.5
+    192.0k  silence, dithered source    -175   -130   -175   -175   -174   -169     45.3
+    192.0k    near silence -100 dBFS    -141   -134   -146   -139   -142   -140     11.2
+    192.0k        DC offset -60 dBFS    -129   -129   -145   -145   -145   -145     16.0
+    192.0k           fade to silence     -37    -37    -37    -37    -37    -37      0.0
+
+     44.1k           digital silence    -336   -336   -339   -130   -338   -339    208.6
+     44.1k  silence, dithered source    -167   -164   -162   -130   -130   -164     36.8
+     44.1k    near silence -100 dBFS    -129   -132   -131   -132   -126   -136      9.6
+     44.1k        DC offset -60 dBFS    -132   -132   -132   -145   -145   -145     12.7
+     44.1k           fade to silence     -40    -40    -40    -40    -40    -40      0.0
+
+     88.2k           digital silence    -130   -339   -130   -130   -340   -341    210.9
+     88.2k  silence, dithered source    -172   -130   -166   -130   -176   -171     45.9
+     88.2k    near silence -100 dBFS    -131   -148   -128   -130   -143   -137     20.7
+     88.2k        DC offset -60 dBFS    -145   -145   -145   -132   -145   -129     16.0
+     88.2k           fade to silence     -45    -45    -45    -45    -45    -45      0.0
+
+    176.4k           digital silence    -336   -339   -337   -130   -334   -336    208.6
+    176.4k  silence, dithered source    -175   -174   -175   -175   -174   -169      6.2
+    176.4k    near silence -100 dBFS    -141   -135   -146   -130   -142   -140     15.1
+    176.4k        DC offset -60 dBFS    -132   -132   -145   -132   -145   -145     12.7
+    176.4k           fade to silence     -39    -39    -39    -39    -39    -39      0.0
+
+Trials more than 10 dB above their cell's median in the 20-100 Hz band, of 180:
+   measured as before, 2**20 and the arithmetic mean :  22  (12%)
+   measured at 2**23 with the windowed mean removed  :   6  (3%)
+
+   worst excess as before : 207.5 dB, 192.0 kHz, digital silence, at -130 dBFS
+   worst excess corrected : 17.9 dB, 192.0 kHz, digital silence, at -325 dBFS
+
+The two methods disagree by 71.1 dB on average and 214.7 dB at worst,
+always in the same direction: the short window reports more.
+
+total 558 s

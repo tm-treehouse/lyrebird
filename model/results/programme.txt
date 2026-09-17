@@ -1,0 +1,356 @@
+run_programme.py -- the chain against material with a real crest
+factor, measured window by window.
+
+order 3, window 2^20 element samples (42.7 ms, 23.4 Hz bins), 1% elements,
+coefficients and datapath at their settled widths, rotation on, material peak at -3.7 dBFS.
+
+==========================================================================
+MATERIAL   [1 s]
+==========================================================================
+Real audio, 48 kHz 24-bit, from /System/Library/Sounds. Converted
+with afconvert (format only, no resampling) and read through
+material.read_wav, which refuses anything not already at a supported
+rate.
+
+        file   samples   seconds   peak dBFS   crest dB
+       Basso     36887      0.77      -11.22      20.54
+        Blow     67288      1.40      -11.52      15.31
+      Bottle     37115      0.77      -12.20      17.02
+        Frog     34498      0.72      -15.26      21.34
+        Funk    103846      2.16      -10.71      19.28
+       Glass     79204      1.65      -15.12      16.64
+        Hero     50715      1.06       -5.46      19.02
+       Morse     33774      0.70      -11.99      19.33
+        Ping     72073      1.50      -10.56      24.11
+         Pop     78118      1.63      -11.06      26.49
+        Purr     36370      0.76      -11.58      23.70
+      Sosumi     73883      1.54      -13.76      19.41
+   Submarine     71638      1.49      -11.84      19.36
+        Tink     27077      0.56       -8.77      19.94
+
+joined: 802486 samples, 16.72 s, crest 24.81 dB
+that is 392 windows of 2^20 element samples
+
+Synthetic stand-ins from material.py, for the rates real audio does
+not exist at here:
+
+                material   crest dB
+            real, joined      24.81
+          programme-like      11.58
+  percussive, high crest      21.81
+    sustained 41 Hz bass       4.97
+              1 kHz sine       3.01
+
+The synthetic percussive record has a higher crest factor than the
+real one; the synthetic programme record has a much lower one. Both
+are reported below rather than either being taken as the answer.
+
+==========================================================================
+THE INSTRUMENT, CHECKED AGAINST THE TONE MEASUREMENT   [1 s]
+==========================================================================
+Signal-to-noise against a tone excises the signal lobe. Broadband
+material has no lobe to excise, so what is measured instead is the
+error against the ideal reconstruction of the same PCM, with a
+scalar gain fitted in band and removed -- the broadband equivalent
+of excising the fundamental. Before trusting it on material, it is
+run on the one signal where the old instrument also works.
+
+Same record, same chain, two instruments. 1 kHz at -3.7 dBFS, one
+percent elements, the datapath at its settled widths.
+
+      rate   classic SNR   classic SNDR   error SNR   error dBFS        gain   lag
+    48 kHz        133.49         132.94      134.21      -137.91    0.998570     0
+    96 kHz        124.29         124.23      125.72      -129.42    0.998570     0
+   192 kHz        134.07         133.74      135.11      -138.81    0.998570     0
+  44.1 kHz        132.96         132.49      133.65      -137.35    0.998570     0
+  88.2 kHz        134.06         133.53      134.69      -138.39    0.998570     0
+ 176.4 kHz        134.12         133.69      134.88      -138.58    0.998570     0
+
+The error instrument reads +1.27 dB against classic SNDR on average, spread +1.16 to +1.49 dB.
+The offset is expected and its two causes are known. The classic
+figure rescales the surviving noise bins to cover the ones it
+excised -- ten harmonic lobes and the signal lobe out of about 850
+in-band bins, which is +1.1 dB of noise it did not measure. The error
+figure counts harmonics as error, which pushes the other way. Every
+material number below is on the error instrument, so the comparison
+against 132.8 dB carries this offset and it is stated rather than
+hidden.
+
+The alignment lag is zero at every rate, which is the check that
+matters most: the STF of this topology is exactly 1 with zero delay,
+so a wrong settling offset would show up here rather than as a
+confidently wrong noise figure.
+
+Decomposition of that error, at 48 kHz, one percent elements:
+   total error in band           -137.91 dBFS
+   24-bit source alone           -142.45 dBFS
+   everything else (mismatch)    -139.79 dBFS
+
+==========================================================================
+Q1: DOES 132.8 dB HOLD UNDER MATERIAL WITH A REAL CREST FACTOR?   [35 s]
+==========================================================================
+Each window is 2^20 element samples, 42.7 ms, 23.4 Hz bins. The
+figure reported per window is the in-band power of the error, in
+dBFS, which does not depend on how loud the material happens to be
+in that window. 'as SNDR' converts it to the convention the README
+tables use, which is a -3.7 dBFS signal against that error.
+
+One percent elements, 24-bit TPDF source, coefficients and datapath
+at their settled widths, order 3, rotation on.
+
+                  material   wins      best    median     worst    as SNDR
+                                       dBFS      dBFS      dBFS   worst dB
+        1 kHz tone, 48 kHz     12    -138.2    -133.4    -129.2      125.5
+   !! real 48k: 34 of 90 segments did not align at lag 0
+        real audio, 48 kHz    360    -142.9    -124.8     -73.0       69.3
+   !! real 48k matched: 13 of 24 segments did not align at lag 0
+ real audio, matched elem.     96    -142.8    -137.7    -126.3      122.6
+
+
+Synthetic material, every rate. Real audio exists here only at
+48 kHz, and material.read_wav refuses to resample, which is right.
+
+              material       rate   wins      best    median     worst    as SNDR
+   !! programme 48 kHz: 1 of 4 segments did not align at lag 0
+             programme     48 kHz     16     -75.7     -64.5     -61.0       57.3
+   !! programme 96 kHz: 2 of 4 segments did not align at lag 0
+             programme     96 kHz     16     -63.8     -60.0     -58.9       55.2
+             programme    192 kHz     16     -99.2     -62.1     -59.2       55.5
+   !! programme 44.1 kHz: 1 of 3 segments did not align at lag 0
+             programme   44.1 kHz     12     -84.8     -78.5     -75.8       72.1
+   !! programme 88.2 kHz: 4 of 4 segments did not align at lag 0
+             programme   88.2 kHz     16     -91.5     -77.0     -70.9       67.2
+   !! programme 176.4 kHz: 2 of 4 segments did not align at lag 0
+             programme  176.4 kHz     16    -105.7     -78.3     -71.2       67.5
+
+   !! percussive 48 kHz: 2 of 4 segments did not align at lag 0
+            percussive     48 kHz     16    -142.8    -136.3     -87.7       84.0
+   !! percussive 96 kHz: 2 of 4 segments did not align at lag 0
+            percussive     96 kHz     16    -145.8    -120.5     -87.4       83.7
+            percussive    192 kHz     16    -148.5    -123.4    -103.5       99.8
+            percussive   44.1 kHz     12    -141.3    -120.5     -90.3       86.6
+   !! percussive 88.2 kHz: 1 of 4 segments did not align at lag 0
+            percussive   88.2 kHz     16    -145.4    -129.1     -89.0       85.3
+   !! percussive 176.4 kHz: 1 of 4 segments did not align at lag 0
+            percussive  176.4 kHz     16    -148.2    -138.6     -99.4       95.7
+
+                  bass     48 kHz     16    -105.2     -88.8     -80.3       76.6
+   !! bass 96 kHz: 1 of 4 segments did not align at lag 0
+                  bass     96 kHz     16    -100.9     -88.3     -80.1       76.4
+   !! bass 192 kHz: 2 of 4 segments did not align at lag 0
+                  bass    192 kHz     16    -105.0     -93.5     -82.4       78.7
+                  bass   44.1 kHz     12     -76.6     -70.6     -55.0       51.3
+                  bass   88.2 kHz     16     -72.4     -62.1     -55.5       51.8
+   !! bass 176.4 kHz: 1 of 4 segments did not align at lag 0
+                  bass  176.4 kHz     16     -64.4     -61.3     -54.7       51.0
+
+
+==========================================================================
+Q4: THE SHAPE OF THE FLOOR, WINDOW BY WINDOW   [602 s]
+==========================================================================
+A single in-band number cannot tell an evenly raised floor from a
+wander concentrated under 100 Hz, which is the fault README.md
+leaves open. material.band_shape splits every window three ways.
+Shares are of in-band error power.
+
+White noise, for reference, would put 0.44 percent of its in-band
+power in 20-100 Hz, 10.1 percent in 100 Hz-2 kHz and 89.5 percent in
+2-20 kHz, because those bands are 80, 1900 and 18000 Hz wide.
+
+                  material   wins            low share, percent           low band dBFS
+                                        p10    median       p90      median      worst
+        1 kHz tone, 48 kHz     12      0.04     42.07     86.59      -146.5     -129.9
+        real audio, 48 kHz    360      0.08      1.28     49.05      -140.4      -84.2
+ real audio, matched elem.     96      1.49     65.55     92.66      -139.6     -126.4
+          programme 48 kHz     16     76.87     83.66     85.55       -65.4      -62.0
+          programme 96 kHz     16     60.65     74.00     82.92       -61.1      -60.2
+         programme 192 kHz     16     46.35     66.98     80.46       -64.3      -60.2
+        programme 44.1 kHz     12     49.28     64.25     77.61       -80.8      -76.9
+        programme 88.2 kHz     16     51.81     67.04     77.52       -79.0      -71.8
+       programme 176.4 kHz     16     45.17     68.22     80.33       -80.2      -72.7
+         percussive 48 kHz     16      0.09      0.60     67.46      -139.8     -119.5
+         percussive 96 kHz     16      0.07      0.74     92.72      -132.6     -115.4
+        percussive 192 kHz     16      0.08      0.79     31.25      -139.7     -133.3
+       percussive 44.1 kHz     12      0.04      0.37     74.20      -141.7     -124.0
+       percussive 88.2 kHz     16      0.03      0.24     95.36      -134.0     -123.3
+      percussive 176.4 kHz     16      0.05      0.35     19.73      -156.2     -120.6
+               bass 48 kHz     16     79.23     94.27     99.09       -89.2      -81.4
+               bass 96 kHz     16     78.20     95.12     99.11       -88.5      -81.2
+              bass 192 kHz     16     80.40     94.32     99.17       -94.0      -83.4
+             bass 44.1 kHz     12     77.87     90.45     98.90       -71.7      -56.0
+             bass 88.2 kHz     16     76.28     92.06     98.98       -62.3      -56.0
+            bass 176.4 kHz     16     79.34     94.81     99.07       -62.2      -55.5
+
+==========================================================================
+Q2: IS 3 dB THE RIGHT HEADROOM BUDGET?   [602 s]
+==========================================================================
+The 3 dB recommendation comes from one probe: a tone at Fs/4 sampled
+at 45 degrees, whose reconstructed waveform peaks exactly 3.01 dB
+above every one of its samples. The question is what real material
+does, so the first table is the peak the cascade actually presents
+to the quantizer against the peak the PCM contains. Records are
+faded at both ends and scanned in blocks; an un-faded record's edge
+reads as 1 dB of headroom that is not there.
+
+                  material   crest dB   samples at FS   true peak   overshoot dB
+        real audio, 16.7 s      24.81               1      1.0000         +0.000
+        real, clipped 3 dB      21.86             190      1.0029         +0.025
+        real, clipped 6 dB      19.06             998      1.0083         +0.072
+       real, clipped 12 dB      14.45           10343      1.0781         +0.653
+     percussive, synthetic      21.81               1      1.0033         +0.029
+  percussive, clipped 6 dB      16.09             542      1.3139         +2.371
+ percussive, clipped 12 dB      12.13            3915      1.7532         +4.876
+      programme, synthetic      11.58               1      1.0010         +0.009
+  programme, clipped 12 dB       3.98           35345      1.0399         +0.340
+      sustained 41 Hz bass       4.97             368      1.0000         +0.000
+                1 kHz tone       3.01            5461      1.0000         +0.000
+   Fs/4 inter-sample probe       0.00          131072      1.4142         +3.010
+
+Read the first column with the last. The probe is 3.010 dB of
+overshoot because every one of its samples sits at full scale by
+construction. Unprocessed material never does that, and its
+overshoot is correspondingly small. Clipping is what creates flat
+runs at full scale, and clipping is what creates the overshoot.
+
+
+==========================================================================
+Q2: WHERE MATERIAL ACTUALLY OVERLOADS THE QUANTIZER   [624 s]
+==========================================================================
+Bisection on the PCM level, same bound as
+modulator.max_stable_amplitude and endtoend.max_stable_pcm -- no
+integrator past 50 quantizer LSBs -- so these numbers sit directly
+beside the README headroom table. The window is centred on the
+loudest moment in the record, because that is the moment that
+decides it; a bisection on an arbitrary slice measures whatever
+happened to be in the slice.
+
+                  material       rate   MSA at PCM   peak at quantizer   headroom needed
+                real audio     48 kHz        -0.80               -0.80              0.80
+       real, clipped 12 dB     48 kHz        -0.89               -0.81              0.89
+     percussive, synthetic     48 kHz        -0.66               -0.63              0.66
+ percussive, clipped 12 dB     48 kHz        -3.75               -0.39              3.75
+      programme, synthetic     48 kHz        -0.75               -0.74              0.75
+                1 kHz tone     48 kHz        -0.84               -0.84              0.84
+   Fs/4 inter-sample probe     48 kHz        -3.84               -0.83              3.84
+
+                real audio    192 kHz        -0.66               -0.66              0.66
+       real, clipped 12 dB    192 kHz        -0.89               -0.81              0.89
+     percussive, synthetic    192 kHz        -0.42               -0.39              0.42
+ percussive, clipped 12 dB    192 kHz        -3.66               -0.30              3.66
+      programme, synthetic    192 kHz        -0.56               -0.55              0.56
+                1 kHz tone    192 kHz        -0.84               -0.84              0.84
+   Fs/4 inter-sample probe    192 kHz        -3.61               -0.60              3.61
+
+'headroom needed' is how far below full scale the PCM has to sit for
+this material to stay inside the loop's bound.
+
+
+==========================================================================
+Q2: WHAT HAPPENS ON THE WAY THERE   [664 s]
+==========================================================================
+A stability bound is a cliff. This is the approach to it: the same
+record at rising level, one window each, one percent elements.
+'rail' is the fraction of samples sitting on the top or bottom
+quantizer code, which is a thing the FPGA can count for free.
+
+real audio
+  PCM dBFS   peak at quantizer      rail   clipped   max state   error dBFS   as SNDR
+     -12.0              -12.00    0.0000         0       0.339        -88.4      84.7
+      -9.0               -9.00    0.0000         0       0.341        -88.4      84.7
+      -6.0               -6.00    0.0000         0       0.339        -88.4      84.7
+      -4.5               -4.50    0.0000         0       0.345        -88.4      84.7
+      -3.0               -3.00    0.0017         0       0.345        -88.4      84.7
+      -2.0               -2.00    0.0056         0       0.339        -88.4      84.7
+      -1.0               -1.00    0.0158        18       0.553        -88.4      84.7
+      +0.0                                           unbounded
+
+real, clipped 12 dB
+  PCM dBFS   peak at quantizer      rail   clipped   max state   error dBFS   as SNDR
+     -12.0              -11.94    0.0000         0       0.348        -87.3      83.6
+      -9.0               -8.94    0.0000         0       0.351        -87.3      83.6
+      -6.0               -5.94    0.0000         0       0.343        -87.3      83.6
+      -4.5               -4.44    0.0001         0       0.340        -87.3      83.6
+      -3.0               -2.94    0.0240         0       0.353        -87.3      83.6
+      -2.0               -1.94    0.0558         0       0.340        -87.3      83.6
+      -1.0               -0.94    0.1240       843       0.616        -87.3      83.6
+      +0.0                                           unbounded
+
+percussive
+  PCM dBFS   peak at quantizer      rail   clipped   max state   error dBFS   as SNDR
+     -12.0              -11.97    0.0000         0       0.340       -100.3      96.6
+      -9.0               -8.97    0.0000         0       0.334       -100.3      96.6
+      -6.0               -5.97    0.0000         0       0.354       -100.3      96.6
+      -4.5               -4.47    0.0000         0       0.338       -100.3      96.6
+      -3.0               -2.97    0.0000         0       0.349       -100.3      96.6
+      -2.0               -1.97    0.0001         0       0.350       -100.3      96.6
+      -1.0               -0.97    0.0004         0       0.331       -100.3      96.6
+      +0.0                                           unbounded
+
+percussive, clipped 12 dB
+  PCM dBFS   peak at quantizer      rail   clipped   max state   error dBFS   as SNDR
+     -12.0              -11.58    0.0000         0       0.344       -104.2     100.5
+      -9.0               -8.58    0.0000         0       0.352       -104.2     100.5
+      -6.0               -5.58    0.0000         0       0.349       -104.2     100.5
+      -4.5               -4.08    0.0000         0       0.348       -104.2     100.5
+      -3.0                                           unbounded
+      -2.0                                           unbounded
+      -1.0                                           unbounded
+      +0.0                                           unbounded
+
+
+==========================================================================
+Q3: CAN GENUINE BASS AND THE LOW-FREQUENCY FAULT BE TOLD APART?   [692 s]
+==========================================================================
+README.md: a tripped run puts every bit of its excess in the 20 to
+100 Hz bins. Sustained bass puts its signal in the same bins. If the
+only thing available is how much energy comes out down there, the
+two are indistinguishable and the hardware cannot flag one without
+flagging the other.
+
+The fault is provoked rather than waited for. README.md measures
+that round-half-up in the datapath leaves a static offset at the
+modulator input and that the loop turns it into idle tones, costing
+15.7 dB at 96 kHz. That is a switch, so it is used as one.
+
+Three detectors are compared. All are 20-100 Hz power.
+  output    : the element sum itself. What a monitor on the output
+              sees, and all it sees.
+  error     : output against the ideal reconstruction. Correct, and
+              not available in hardware -- it needs a reference DAC.
+  loop, v-u : the modulator's output code minus its own input. The
+              STF of this topology is exactly 1 with zero delay, so
+              this cancels the music exactly and leaves the shaped
+              error. It is the d the integrators are already driven
+              by, so the FPGA has it for free.
+
+--- 96 kHz ---
+                material        ties    out low    err low    v-u low   err total   low share
+    sustained 41 Hz bass   half_even      -14.4      -55.2     -154.0       -54.9      92.72%
+    sustained 41 Hz bass     half_up      -14.4      -55.2     -156.7       -54.9      92.72%
+              1 kHz tone   half_even      -47.5     -134.0     -133.9      -132.5      70.94%
+              1 kHz tone     half_up      -47.5     -139.5     -139.5      -135.5      40.14%
+ near silence, -100 dBFS   half_even     -135.8     -138.6     -138.6      -137.5      78.48%
+ near silence, -100 dBFS     half_up     -135.6     -131.5     -131.6      -131.4      95.59%
+
+--- 48 kHz ---
+                material        ties    out low    err low    v-u low   err total   low share
+    sustained 41 Hz bass   half_even      -14.8      -56.3     -140.9       -56.1      94.73%
+    sustained 41 Hz bass     half_up      -14.8      -56.3     -141.5       -56.1      94.73%
+              1 kHz tone   half_even      -63.7     -130.7     -130.5      -130.0      84.23%
+              1 kHz tone     half_up      -63.7     -141.2     -141.2      -136.5      33.78%
+ near silence, -100 dBFS   half_even     -132.1     -138.0     -137.9      -136.5      72.15%
+ near silence, -100 dBFS     half_up     -131.9     -138.5     -138.4      -136.9      70.00%
+
+--- 176.4 kHz ---
+                material        ties    out low    err low    v-u low   err total   low share
+    sustained 41 Hz bass   half_even      -13.5      -74.9     -141.0       -74.9      99.00%
+    sustained 41 Hz bass     half_up      -13.5      -74.9     -133.2       -74.9      99.00%
+              1 kHz tone   half_even      -51.3     -140.9     -141.0      -135.9      31.73%
+              1 kHz tone     half_up      -51.3     -132.6     -132.5      -131.5      76.61%
+ near silence, -100 dBFS   half_even     -143.5     -143.2     -142.9      -141.5      68.40%
+ near silence, -100 dBFS     half_up     -144.1     -130.8     -130.8      -130.7      97.46%
+
+
+figures -> /Users/torsten/lyrebird/model/figures
+log     -> /Users/torsten/lyrebird/model/results/programme.txt
+total   -> 728 s
