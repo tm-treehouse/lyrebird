@@ -219,12 +219,23 @@ Verified against the Crystek spec sheet rev N:
 in addition to its output buffer being placed in Tri-State". The idle part
 neither drives the net nor radiates.
 
-**The footprint still has to be drawn.** `Footprint` names
-`lyrebird:Oscillator_SMD_Crystek_CCHD-957_9x14mm`, which does not exist yet,
-the same situation as the LTM4622 on the main board. The datasheet's suggested
-pad layout is four pads of 0.090 × 0.070 in (2.28 × 1.77 mm) on a 0.280 in
-(7.11 mm) by 0.200 in (5.08 mm) centre grid, so the numbers are available to
-whoever draws it.
+**The footprint is drawn**, at
+`../footprints/lyrebird.pretty/Oscillator_SMD_Crystek_CCHD-957_9x14mm.kicad_mod`,
+from the datasheet's SUGGESTED PAD LAYOUT: four pads of 0.050 × 0.090 in
+(1.27 × 2.28 mm) on a 0.280 in (7.11 mm) by 0.200 in (5.08 mm) centre grid,
+against package pad metal of 0.040 × 0.070 in (1.01 × 1.77 mm) in the bottom
+view. Two things about it are read rather than stated, and both should be
+checked against the vendor drawing before a board is fabricated:
+
+- **Which axis the 0.090 in dimension lies along.** The text carries the four
+  numbers without saying which belongs to which axis. It is drawn with the
+  longer land along the 7.11 mm axis. If that is backwards the joint still
+  forms — the land is larger than the pad metal either way, 2.28 against 1.77
+  and 1.27 against 1.01 — but the fillet is smaller than intended.
+- **Which corner is pad 1.** The pad *functions* are the datasheet's own Pad
+  Connection table. Their geometric arrangement follows the universal four-pad
+  oscillator convention, the same one KiCad's SG-8002CA footprint uses: pad 1
+  lower left in top view, then 2, 3, 4 anticlockwise.
 
 ## Element resistors and the reconstruction filter
 
@@ -271,6 +282,243 @@ and the 0.1 dB droop budget it is set by.
 differential pair, which is a mono mixer. Each channel now has its own pair
 and its own amplifiers.
 
+## Charge pump — LTC3265EDHC#TRPBF (U13)
+
+Analog Devices LTC3265: a boost charge pump, an inverting charge pump and a
+50 mA LDO on each, in one 18-lead 5 × 3 mm DFN. Verified against datasheet
+3265fa. A custom symbol was needed; its pinout is the datasheet's own
+PIN FUNCTIONS list, and the DHC package's 1.65 × 4.40 mm exposed pad matches
+the stock `DFN-18-1EP_3x5mm_P0.5mm_EP1.66x4.4mm` footprint exactly.
+
+**Why a doubler is unavoidable.** A 5 V input cannot produce a regulated +5 V:
+the module sees 4.43 V worst case at the header (power.md), and an LT3045 needs
+its dropout above that. So the positive rail has to come from a pump that
+doubles, and the negative one has to come from a pump that inverts something
+bigger than 5 V.
+
+**VIN_N is tied to VOUT+, not to VIN_P**, which is the datasheet's own
+instruction for this case:
+
+> If VIN_N is tied to VOUT+, the output at VOUT– will be –VOUT+ or –2 • VIN_P.
+> This configuration is suitable for symmetric outputs at LDO+ and LDO– pins.
+> If VIN_N is tied to VIN_P, the output at VOUT– will be –VIN_P.
+
+Tying it to VIN_P would cap the negative raw rail at −4.43 V worst case, which
+cannot feed a −5 V regulator at all.
+
+Headroom, at the 4.43 V worst case and with the pump's specified 32 Ω output
+impedance:
+
+| Node | Worst case | Needs |
+| --- | --- | --- |
+| VOUT+ | 2 × 4.43 − 45 mA × 32 Ω = 7.4 V | ≥ 6.3 V |
+| LDO+ | 6.03 V, set by 49.9 k over 12.4 k on ADJ+ | ≥ 5.3 V |
+| VOUT− | −7.4 + 22 mA × 32 Ω = −6.7 V | ≤ −6.3 V |
+| LDO− | −6.03 V | ≤ −5.3 V |
+| LT3045, LT3094 | ±4.99 V, 49.9 k on SET | — |
+
+**One specification is not met at the worst case, and it is stated rather
+than glossed.** The LTC3265's `VIN_P` range is given as **4.5 V to 16 V**, and
+power.md's worst case at the module is **4.43 V**, 70 mV below it. The part
+does not stop there — its undervoltage lockout is 3.6 V typical and 3.8 V
+maximum rising — so it runs, but it runs just outside the range the datasheet
+guarantees its numbers over. Two things make this tolerable rather than
+disqualifying: the 4.43 V is itself a worst case built from a guaranteed USB
+minimum plus estimated ferrite and contact drops, and the headroom table above
+already carries more than a volt of margin at that voltage. It should be
+measured on the first board rather than assumed.
+
+**What it injects, and at what frequency.** This is the part of the choice that
+matters, not efficiency.
+
+- **MODE is tied low: constant frequency, not Burst Mode.** This is the
+  decisive setting. In Burst Mode the part regulates hysteretically and the
+  **burst repetition rate moves with load** — it is not a fixed frequency at
+  all, and a load-dependent repetition rate is exactly the kind of thing that
+  can land in the audio band or wander through it. Constant-frequency mode
+  puts everything at one known line. The cost is quiescent current, 3 mA
+  typical on each input pin against 135 µA in Burst Mode, and it is worth
+  paying.
+- **RT is tied to ground, which selects the 500 kHz default** — the highest
+  frequency the part offers and the furthest from the band. 500 kHz is 4.6
+  octaves above 20 kHz, and its harmonics only climb away from the band. No
+  subharmonic of it lands in band, because a charge pump has no subharmonics
+  to give: the switching is a fixed divide of one oscillator with no feedback
+  loop that could period-double.
+- **Three stages sit between that ripple and the signal.** The pump's own
+  ripple is roughly I/(f·C) = 22 mA / (500 kHz × 10 µF) = 4.4 mV at VOUT; the
+  internal LDO takes a first bite, the LT3045 or LT3094 rejects around 76 dB
+  more at these frequencies, and the OPA1612's own supply rejection follows.
+  What reaches the output as a 500 kHz tone is far below anything this design
+  measures.
+- **The residual risk is not the tone, it is the ground return.** The flying
+  capacitors dump their charge through GND at 500 kHz, and that current shares
+  a plane with the summing nodes, whose signal *is* a return current (0008).
+  This is a layout constraint rather than a part choice: keep the pump's
+  flying-capacitor loops tight and their return away from the element and
+  summing-node ground. It is recorded here because a netlist cannot express
+  it.
+
+**Enable: the pump is gated on MUTE_N.** `EN+` and `EN−` both go to the
+header's `MUTE_N`, with a 100 kΩ pull-down on the module so the net is defined
+while the FPGA is unconfigured and its pin is high impedance. Three things make
+this right rather than clever:
+
+- analog.txt Q1b says in as many words that the op amp stage and charge pump
+  "does not fit inside one unit load at any element value and has to be held
+  off". Something had to gate it, and this is the only signal that crosses the
+  header for the purpose.
+- The polarity already matches: `MUTE_N` is asserted low to mute, and low or
+  undriven means both pumps and both LDOs are off. The thresholds are 2 V
+  rising maximum and 0.4 V falling minimum, so the header's 2.5 V logic clears
+  them.
+- Each enable pin has a 0.7 µA internal **pull-down**, so this part can never
+  push the mezzanine net above its own level — it is an input in the checker's
+  eyes and a pull-down in the physics.
+
+The consequence to know: **a board whose FPGA never asserts `MUTE_N` has no
+analog rails and makes no sound.** That is the failure mode this buys, against
+drawing 90 mA before the host has allowed it.
+
+**What it costs.** A doubler moves charge, so its input current is about twice
+its output current whatever the voltage; the negative side is inverted from the
+already-doubled rail, so it costs twice again. At 21.6 mA on each of ±5 V:
+
+```
+VOUT+ load  = 21.6 mA (positive chain) + 21.6 mA (into VIN_N) = 43 mA
+input       = 2 x 43 mA                                       = 86 mA
++ quiescent, constant frequency mode, both pumps               ~ 4 mA
+                                                              = 90 mA from 5 V
+```
+
+against power.md's 51 mA, which assumed four amplifiers and an 85 % pump.
+Six amplifiers and the physics of doubling account for the difference. The
+module lands near 182 mA and the board near 416 mA: inside the 900 mA declared
+at enumeration, and inside a USB 2.0 host's 500 mA, which is the case 0009
+says the line module has to fit. It is no longer comfortable there, and a
+headphone module — already excluded by 0009 — is further out of reach than
+that page's arithmetic suggests.
+
+## Positive and negative post-regulators — LT3045 (U14) and LT3094 (U8)
+
+The LT3045 was already the part on this board; U14 is a fourth one, on the
++6 V raw rail, programmed to +4.99 V by 49.9 kΩ on SET. Its housekeeping is
+the same shared helper the other three use.
+
+The **LT3094** at U8 was in the netlist with only OUT and GND connected — the
+netlist README lists its input as one of two genuinely open things on the
+module. It is now wired against its own datasheet rather than by analogy:
+
+- `SET`: 49.9 kΩ to ground. "The regulator's output voltage is determined by
+  VSET = ISET • RSET" with a precision 100 µA reference, and 49.9 kΩ is the
+  value its own Table 1 lists for −5 V. 4.7 µF of SET bypass, which is what
+  the quoted noise figure is measured with.
+- `EN/UV`: tied to IN. "If unused, tie EN/UV to IN. Do not float the EN/UV
+  pin." The enable thresholds are ±1.2 V nominal **of either polarity**, so on
+  a negative regulator tying the pin to the negative input is an enable, not a
+  shutdown — worth stating, because it reads like a shutdown.
+- `PGFB`: tied to IN. "If power good and fast start-up functionality are not
+  needed, tie PGFB to IN."
+- `ILIM`: **programmed, not tied.** The LT3045's datasheet says to tie ILIM to
+  ground when the feature is unused; the LT3094's pin description gives no such
+  sentence, and its scale factor is 3.75 A·kΩ, so grounding the pin is not
+  obviously the same instruction. 24.9 kΩ programs about 150 mA, comfortably
+  above the 22 mA this rail carries and below what the pump's LDO can deliver
+  into a fault.
+- `VIOC`: left open. "If unused, float the VIOC pin."
+- `PG`: left open, an open-collector flag, as on the LT3045s.
+
+## Analog output connector — SJ1-3523N (J2)
+
+Same Sky (formerly CUI Devices) SJ1-3523N: 3.5 mm, stereo, right angle,
+through hole, **three conductors and no internal switches**, rated 12 VDC.
+Stock KiCad symbol and footprint both exist and agree with it — the footprint
+has exactly three pads, T, R and S, which is what a switchless jack has.
+
+Tip is left, ring is right, sleeve is ground.
+
+**No switch, because this variant has nothing to switch.** A switched jack
+earns its place on a combined module, where 0007 gates the headphone amplifier
+from the jack's switch contact.
+
+**No output coupling capacitor.** The differential arrangement puts both
+transimpedance outputs at the same DC, so the difference amplifier's output
+sits at zero by construction and what is left is offset: a 0.1 % mismatch
+between the two 402 Ω feedback resistors on 1.4 V of common mode is about
+1.4 mV. A series capacitor large enough not to intrude in band would be an
+electrolytic or a film part in the signal path, which is a worse trade than
+1.4 mV.
+
+**100 pF C0G from each output to ground**, at the jack. The jack is the only
+port on the board and therefore its antenna; against the 100 Ω build-out
+resistor this is a 16 MHz corner, which is nothing in band and something
+against radio frequency arriving from outside.
+
+## What is left open on purpose
+
+| Pin | Why |
+| --- | --- |
+| U3, U4 `1Q8`, `2Q8` | Spare bit of each register bank; 14 elements in a 16-bit package |
+| U12 `Y3` | Spare buffer output. "Unused outputs can be left floating" |
+| U8 `VIOC` | "If unused, float the VIOC pin" |
+| U5, U6, U8, U9, U14 `PG` | Open-collector flag, unused |
+| U2 `1A2` | Output side of the translator's spare channel; its input is tied |
+| `ELEM28`–`ELEM31` | Reserved element lines, driven low by the main board (interface.md) |
+
+## What changes for a headphone module
+
+This is the **line-only** variant: `ID0`/`ID1` strapped 0b01, one 3.5 mm jack,
+no volume and no headphone amplifier (brief.md). What a headphone or combined
+module would have to change, in the order the changes bite:
+
+**The output stage splits after the difference amplifier.** 0007 shares the
+current-to-voltage and filter stage and then splits to a fixed-gain line buffer
+and a volume-controlled headphone amplifier. Everything up to and including
+U11 is that shared stage, and all three filter poles are already behind it, so
+a headphone path inherits the filtered signal rather than needing its own.
+
+**The OPA1612 cannot be the headphone driver.** It is specified into 2 kΩ and
+600 Ω and its output current is ±30 mA; 2 V RMS into 32 Ω is 88 mA peak. A
+headphone module needs a dedicated driver with the current to match. No part
+is named here because none was evaluated for it.
+
+**The charge pump does not scale.** The LTC3265's LDOs are 50 mA each, and its
+input current is about twice its output current on the positive side and twice
+again through the inverting pump. A stage drawing tens of milliamps more per
+rail leaves this architecture behind entirely, which is the concrete form of
+0009's conclusion that a headphone module exceeds a USB 2.0 host's budget:
+this board already reaches about 416 mA at the USB input, and 0009 puts a
+hard-driven headphone stage at roughly 200 mA more. That is comfortable on
+USB 3.0's 900 mA and over a USB 2.0 host's 500 mA, so such a module should
+carry its own input jack (0007).
+
+**The jack gains a switch contact.** 0007 gates the headphone amplifier from
+the jack's switch so an unplugged module costs line-out current. The SJ1-3523N
+fitted here has no switch, and the switched members of the same family have
+more than three pads, so both the footprint and the symbol change. No specific
+switched part number is given here because none was checked against a
+datasheet.
+
+**The identity straps change.** `ID0`/`ID1` are 0b10 for headphone only and
+0b11 for combined (interface.md). They are two resistors: 1 kΩ to the module's
+2.5 V rail for a one, 10 kΩ to ground for a zero. Never to the 3.3 V reference
+rail — that mistake has already been made once on this board.
+
+**`MUTE_N` earns its keep.** On a line module, gating the analog rails from it
+is mostly a power-budget device. With headphones on the end of the cable, the
+same gate is what keeps a power-up or power-down transient out of somebody's
+ears.
+
+## The build
+
+As generated, the module is 125 components and 635 pins with **12 unconnected
+pins**, all of them in the table above. Before this work it was 42 components,
+344 pins and 35 unconnected, of which the op amp's six signal pins, the
+LT3094's nine and the registers' clocks were the parts that had no part.
+
+`lp.assert_below_abs_max` passes, and it was checked by tampering rather than
+by assumption: putting `+3V3_REF` on a header pin still fails the build.
+
 ## Status
 
 | Item | State |
@@ -278,8 +526,8 @@ and its own amplifiers.
 | Output op amp | **done** — OPA1612AID, U7/U10/U11 |
 | 16-bit registers | **done** — SN74ALVCH16374DGGR, U3/U4, new symbol |
 | Clock divider and fanout | **done** — SN74LVC1G74DCUR U1 + LMK1C1104PWR U12, new symbols |
-| Oscillator symbols | **done** — CCHD-957, Y1/Y2, new symbol; footprint still to draw |
+| Oscillator symbols | **done** — CCHD-957, Y1/Y2, new symbol and new footprint |
 | Element resistor and filter | **done** — 3.34 kΩ split, 180 pF per element, 402 Ω feedback |
-| Charge pump | not yet wired |
-| Positive rail post-regulator | not yet wired |
-| Analog output connector | not yet wired |
+| Charge pump | **done** — LTC3265EDHC#TRPBF, U13, new symbol |
+| Positive rail post-regulator | **done** — LT3045, U14; LT3094 at U8 now fully wired |
+| Analog output connector | **done** — SJ1-3523N, J2 |

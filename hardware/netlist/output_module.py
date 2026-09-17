@@ -6,10 +6,12 @@
 There is no DAC chip. The FPGA drives element lines; this board reclocks them,
 sums them through matched resistors, and filters the result (0008, 0012).
 
-PLACEHOLDER SYMBOLS are marked below. The part-selection work for the fanout
-divider, the 16-bit register and the op amp never completed, so those carry
-stock symbols with the intended part in the value field. Connectivity is
-right; the symbols are not the final parts.
+Every part is now a real one. The four that were placeholders - the oscillator,
+the divider and fanout, the 16-bit register and the op amp - were selected
+against their datasheets, and the parts the stock libraries do not carry have
+symbols in ../symbols/lyrebird.kicad_sym with pinouts taken from those
+datasheets. See ../lyrebird-dac-reva/parts-notes.md for why each one, and for
+what could not be verified.
 """
 
 from __future__ import annotations
@@ -557,6 +559,27 @@ def build():
     # VIOC: "If unused, float the VIOC pin." PG is an open-collector flag and
     # is unused, as on the LT3045s.
     _cap(vneg, gnd, "10uF")
+
+    # ---- Analog output. LINE OUT only on this variant, so one 3.5 mm stereo
+    # jack: Same Sky (formerly CUI Devices) SJ1-3523N, 3.5 mm, stereo, right
+    # angle, through hole, three conductors and no internal switches, which
+    # is what the stock footprint's three pads are. A switched jack would
+    # earn its place on a combined module, where the switch contact gates the
+    # headphone amplifier (0007); here there is nothing to gate.
+    #
+    # Tip is left, ring is right, sleeve is ground, which is the TRS
+    # convention the symbol's pin numbering follows.
+    jack = Part("Connector_Audio", "AudioJack3", ref="J2", value="SJ1-3523N",
+                footprint="Connector_Audio:Jack_3.5mm_CUI_SJ1-3523N_Horizontal")
+    jack["T"] += line_out[0]
+    jack["R"] += line_out[1]
+    jack["S"] += gnd
+    # The jack is the only port on the board and therefore the antenna. 100 pF
+    # against the 100 ohm build-out is a 16 MHz corner, which is nothing in
+    # band and something against radio frequency arriving from outside.
+    for ch in range(2):
+        _cap(line_out[ch], gnd, "100pF C0G",
+             "Capacitor_SMD:C_0402_1005Metric")
 
     # ---- Module identity: combined line and headphone is 0b11; line only is
     # 0b01 (hardware/interface.md). Strapped for line only until the module
