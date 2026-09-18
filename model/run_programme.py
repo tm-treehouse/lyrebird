@@ -1071,11 +1071,16 @@ def figure_mismatch(mm) -> None:
     ax[0].legend(fontsize=8, loc="lower left")
     ax[0].grid(alpha=.3, axis="x")
 
-    cost = [mm[k]["matched"] - mm[k]["1%"] for k in labels]
-    ax[1].barh(y, cost, color=["tab:green" if c < 3 else "tab:red"
+    cost = [mm[k]["1%"] - mm[k]["matched"] for k in labels]
+    ax[1].barh(y, cost, color=["tab:green" if c < 6 else "tab:orange"
                                for c in cost])
-    ax[1].set(title="What one percent elements cost, by content",
-              xlabel="dB lost against matched elements", yticks=y)
+    for yi, c in zip(y, cost):
+        ax[1].annotate(f"{c:.1f}", (c, yi), textcoords="offset points",
+                       xytext=(4, -3), fontsize=7.5)
+    ax[1].set(title="What one percent elements cost, by content\n"
+                    "a single tone is the cheapest row and understates the rest",
+              xlabel="dB lost against matched elements", yticks=y,
+              xlim=(0, max(cost) * 1.15))
     ax[1].set_yticklabels(labels, fontsize=8)
     ax[1].invert_yaxis()
     ax[1].grid(alpha=.3, axis="x")

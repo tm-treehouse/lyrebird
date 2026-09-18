@@ -7,8 +7,10 @@ record, against the claims that rested on tones: the 132.8 dB worst case, the
 3 dB headroom budget, the low-frequency limit cycle, and the habit of
 reporting one in-band number per record.
 
-Three of the four answers are that the existing recommendation stands. The
-fourth is that the limit cycle does not exist.
+One claim survives intact, two survive with their numbers changed, and one
+turns out not to describe anything real. Comparisons are against the current
+`results/endtoend.txt`, which still reports 132.8 dB worst case at one percent
+elements after its own re-run.
 
 ## Summary
 
@@ -17,7 +19,7 @@ fourth is that the limit cycle does not exist.
 | 132.8 dB worst case, one percent elements | **Holds on the median, not on the worst window.** Real material: median -132.3 dBFS, worst -115.2 dBFS over 360 windows. |
 | Budget 3 dB of headroom | **Right in kind, 2.4 dB short in size.** Unprocessed material needs 0.8 dB; clipped percussive material needs 5.39 dB against the probe's 3.84 dB. |
 | Low-frequency limit cycle, one run in 36 | **Does not exist.** It is the mean subtraction, 8.5 dB of it. |
-| The floor's shape window to window | **Stable and high-band dominated.** Below 100 Hz never exceeds 0.82 percent of in-band error power in any of 776 windows. |
+| The floor's shape window to window | **Stable and high-band dominated.** The 20-100 Hz band is under 0.82 percent of in-band error power at the 90th percentile, and never louder than -156.7 dBFS, across 776 windows. |
 | Bass against a low-frequency fault | **Separable, for free.** A monitor on `u - v` inside the loop is blind to programme content by construction; one on the output is not. |
 
 ## Q1: the median holds; the worst window is 17 dB below it, and it is the elements
@@ -109,6 +111,14 @@ in things that cannot change the audio:
 | Error vs ideal reconstruction | -171 to -187 | -170 to -185 | -168 to -182 | 19 dB |
 | **Loop error, v - u** | **-303 to -317** | **-329 to -345** | **-314 to -325** | **42 dB** |
 
+Two incidental confirmations fall out of those four variations. Round-half-up
+and round-half-even measure identically on every row — bass at 48 kHz reads
+-135.4 and -135.6 dBFS, within the run-to-run spread — which is the same
+conclusion `notes-idle.md` reaches from the other direction: the 15.7 dB
+attributed to the rounding rule was the same mean-subtraction artefact. And no
+variation trips anything, which is what "there is no limit cycle" looks like
+when you go looking for one on purpose.
+
 **A monitor on the output cannot work.** It reads -6.7 dBFS on bass and
 -179.5 dBFS on a 1 kHz tone: 173 dB of swing caused by nothing but what the
 music happens to contain. Any threshold that flags a low-frequency anomaly
@@ -156,11 +166,18 @@ Share of in-band error power below 100 Hz, over 776 windows:
 | Synthetic percussive, 6 rates | 92 | 0.00 % | 0.06 % | 0.79 % | -161.2 dBFS |
 | Synthetic bass, 6 rates | 92 | 0.01 % | 0.05 % | 0.23 % | -162.2 dBFS |
 
-**No window, in any material, at any rate, puts as much as one percent of its
-in-band error below 100 Hz, and every one is at or under the 0.44 percent a
-white floor would give.** The error is high-band dominated in every window —
-2-20 kHz carries essentially all of it — which is the rotation residual being
-shaped up out of the band exactly as 0008 claims.
+**In nine cases out of ten the 20-100 Hz band carries under half a percent of
+the in-band error, which is what a white floor would give, and the loudest low
+band anywhere in 776 windows is -156.7 dBFS.** The error is high-band dominated
+in every window — 2-20 kHz carries essentially all of it — which is the
+rotation residual being shaped up out of the band exactly as 0008 claims.
+
+A handful of real-audio windows show shares above one percent (the outliers in
+`figures/programme_shape.png`). They are not a low-frequency fault: they are
+windows whose *total* error is near the -142 dBFS source floor, so the same
+absolute low-band power is a larger fraction of a smaller total. The share is
+the right statistic for spotting a concentration and the wrong one for sizing
+it, which is why the absolute low band is tabulated beside it.
 
 This is the distribution that the artefact was hiding. With the plain mean
 removed the same windows showed 40 to 95 percent below 100 Hz and a low band as
@@ -326,15 +343,20 @@ displacement. It reads +93 to +112 dB across the six rates.
 
 ## The mid-band distortion does not exist either
 
+**Verdict: it was a measurement artefact.** This section records the check
+rather than the claim, because the claim was mine and it was wrong.
+
 An earlier pass of this script reported that broadband material provoked
 mid-band error that tracked the signal level and reached 40 dB worse than the
 same chain on a tone — element mismatch apparently costing 0.5 dB against a
 sine and 37 dB against real audio. It would have been the most consequential
 thing here, because every figure in README.md comes from a tone and would have
-missed it. It was not real.
+missed it.
 
 It was the scalar gain fit being taken on un-centred signals, which is the
-second trap in the list below. Two independent checks kill it.
+second trap in the list below. Three independent checks kill it: the error's
+dependence on level, a level-matched tone in the same band, and a transform
+twice as long. All three are below.
 
 **The error does not track the signal.** Real audio at one percent elements,
 the same record at falling level, corrected instrument:
@@ -355,7 +377,7 @@ matched on in-band signal power at -16 dBFS, 48 kHz:
 
 | Source | Matched | 1% | Cost | 1%: 20-100 Hz | 100 Hz-2 kHz | 2-20 kHz |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 kHz sine | -142.5 | -137.6 | 4.9 dB | -167.4 | -151.7 | -137.8 |
+| 1 kHz sine | -142.5 | -137.6 | 4.8 dB | -167.4 | -151.7 | -137.8 |
 | Two tones, 1.0 + 1.1 kHz | -142.4 | -133.5 | **8.9 dB** | -167.1 | -150.6 | -133.6 |
 | 8-tone multitone | -142.2 | -135.6 | 6.6 dB | -174.6 | -150.2 | -135.7 |
 | White noise to 20 kHz | -142.7 | -135.9 | 6.8 dB | -173.8 | -153.9 | -136.0 |
@@ -382,7 +404,7 @@ Nothing moves by more than 1.3 dB and the mid band stays where it was. The
 result is a property of the chain, not of the window.
 
 **What survives is small and still worth having: a tone understates the cost of
-one percent elements by 4.0 dB.** A sine pays 4.9 dB, the worst
+one percent elements by 4.1 dB.** A sine pays 4.8 dB, the worst
 multi-component source pays 8.9 dB, and the whole spread across every source
 measured is 4.3 dB. That is real — two tones show it on the
 old instrument too, with both fundamentals excised, at -142.5 dBFS matched
@@ -392,7 +414,7 @@ on the fundamental, which is excised as signal, or its harmonics, which are
 excised as distortion. Add a second tone and the same error lands on
 intermodulation products that neither excision removes.
 
-It is 4.0 dB, not 37, and it does not change any recommendation.
+It is 4.1 dB, not 37, and it does not change any recommendation.
 
 ## Q2: the 3 dB budget is right about limited material and short of the worst case
 
@@ -552,6 +574,20 @@ wrong; it simply does not have a tail to report, and the chain does.
 
 **Report the distribution.** `figures/programme_windows.png` is what that looks
 like.
+
+### And one claim of this thread's own, which also did not survive
+
+An earlier pass here reported that broadband material provoked mid-band
+distortion that a tone did not, up to 37 dB of it. That was the gain fit taken
+on un-centred signals. What is left after three checks — level dependence, a
+level-matched tone, and a transform twice as long — is that **one percent
+elements cost 4.8 dB against a single sine and 8.9 dB against two tones, so a
+tone understates element cost by 4.1 dB.** Real and small.
+
+Three findings in this thread began as large effects and ended as measurement
+artefacts: this one, the limit cycle, and the 8.5 dB at 96 kHz. All three were
+DC in the lowest bins, arriving by three different routes. That is the pattern
+worth carrying forward more than any individual number.
 
 ## What this did not test
 

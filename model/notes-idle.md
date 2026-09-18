@@ -321,6 +321,56 @@ over a finite record. Over 2^20 samples that is one sample in a million, a
 It is not a limit cycle, it is not periodic, and nothing in the loop is
 locking. The rest of this note's measurements confirm that directly.
 
+## What is now unmeasured, as opposed to corrected
+
+Three published figures turned out to be the ruler rather than the chain. The
+honest consequence is not only that those three numbers change. It is that
+**the low-frequency behaviour of this loop has never been characterised. It has
+only been mis-measured.** Every statement the repository held about it — the
+wander, its 20-100 Hz confinement, its rate, its immunity to dither, its
+sensitivity to 2^-40 — described the transform. Removing those statements
+leaves a gap, not an answer, and the gap should be stated rather than left
+implied by the absence of a section.
+
+What this work does and does not establish below 100 Hz:
+
+**Established.** Over 180 near-idle trials at 2^23 (341 ms, 2.93 Hz bins) the
+20-100 Hz band of the element sum sits at -324 to -346 dBFS on digital silence
+and -321 to -331 dBFS on a -60 dBFS DC input, and tracks the source's own noise
+on everything else. A constant at the modulator input from -160 to -60 dBFS
+produces no in-band tone. Over 72 tone runs at 2^20 and 2^22 nothing reads low.
+That is a real negative result and it is enough to close the open item.
+
+**Not established, and worth saying plainly:**
+
+* **Nothing has been measured below 20 Hz on purpose.** The 20 Hz band edge was
+  inherited from the audio-band convention and every measurement here treats
+  sub-20 Hz energy as something to remove. The residue described above sits
+  there. Its size is bounded by the (2/7)/N argument, which is arithmetic
+  rather than measurement, and by the -167 to -190 dBFS the sub-20 Hz bins read
+  at 2^23 — but that band has never been the subject of a measurement, only the
+  thing being excluded from one.
+* **Nothing longer than 341 ms has been run.** A wander slower than about 3 Hz
+  is outside every record taken here, including the corrected ones. If the loop
+  does something on a timescale of seconds, this work would not have seen it.
+  `min_transform` says a transform whose DC lobe clears 20 Hz needs 2^24 at the
+  element clock, which is 683 ms; the bulk trials ran at half that and lean on
+  the windowed-mean removal to make up the difference.
+* **The trip criterion was relative, not physical.** Trials were counted as
+  tripped at 10 dB above their own cell's median, which is why 6 of 180
+  "tripped" corrected at levels between -324 and -344 dBFS. No threshold in
+  physical units has been set for what would constitute an idle-channel fault
+  worth acting on, because nothing came close enough to need one.
+* **No hardware has confirmed any of it.** All of the above is a float64 model
+  of an exact loop. The idle-channel behaviour that matters is the analog
+  section's, and the residue discussed here is 128 dB below full scale at a
+  frequency the output coupling removes.
+
+The correct summary is therefore: **there is no evidence of a low-frequency
+limit cycle, and the evidence that was thought to exist was an artifact.** That
+is weaker than "the loop is clean below 100 Hz", and it is what the
+measurements support.
+
 ## What was changed in the tree
 
 **The measurement is fixed at source, not per site.** `spectra.remove_dc`

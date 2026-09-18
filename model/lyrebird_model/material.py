@@ -2,15 +2,20 @@
 
 Every figure elsewhere in this model comes from one sine or the inter-sample
 probe. That is the right instrument for measuring a noise floor and the wrong
-one for finding a limit cycle, which lives near idle and appears in roughly one
-run in thirty-six.
+one for reaching the states a tone never visits: near idle, at digital
+silence, and at the bottom of the band.
 
-Two things follow. The material here deliberately includes what a tone never
-does: decays into silence, digital silence itself, content only a few LSBs
-above nothing, and sustained low frequencies in the 20 to 100 Hz band where
-the limit cycle puts its energy. And the measurement is windowed, because a
-single figure over a long record averages the fault away, which is exactly how
-it would be missed.
+This module was written to hunt a low-frequency limit cycle. There is no
+limit cycle -- that was an analysis-window artifact, and ``notes-idle.md``
+records how it was found. The material is still the right material, because
+the low-frequency behaviour of the loop has never actually been characterised,
+only mis-measured, so what is wanted here is a measurement rather than a hunt.
+
+Two things follow. The material deliberately includes what a tone never does:
+decays into silence, digital silence itself, content only a few LSBs above
+nothing, and sustained low frequencies in the 20 to 100 Hz band that a single
+in-band figure cannot resolve. And the measurement is windowed, because one
+number over a long record averages away anything that varies within it.
 
 ``read_wav`` exists so real audio can be substituted for any of it.
 """
@@ -55,7 +60,12 @@ def near_silence(n: int, fs: float, dbfs: float = -100.0,
 
 
 def dc_offset(n: int, fs: float, dbfs: float = -60.0) -> np.ndarray:
-    """A small constant. The limit cycle looks like this, so feed it one."""
+    """A small constant, to check the loop does nothing audible with one.
+
+    A static input offset is what round-half-up leaves at the modulator input,
+    and the loop was once thought to turn it into idle tones. It does not: a
+    constant from -160 to -60 dBFS produces no in-band tone (notes-idle.md).
+    """
     return np.full(n, 10 ** (dbfs / 20))
 
 
@@ -143,9 +153,10 @@ def read_wav(path, fs_expected: float | None = None) -> tuple[np.ndarray, float]
 def band_shape(err: np.ndarray, fs: float) -> dict:
     """Where in the audio band an error sits, not just how big it is.
 
-    The limit cycle puts all of its excess below 100 Hz, so a single in-band
-    number cannot distinguish it from an evenly raised floor. This reports the
-    split that can.
+    A single in-band number cannot distinguish excess confined to the bottom
+    of the band from an evenly raised floor. This reports the split that can,
+    which is what showed the difference between genuine bass and a
+    low-frequency anomaly, and what would show either against a flat floor.
     """
     from . import spectra
     w = spectra.analysis_window(len(err))

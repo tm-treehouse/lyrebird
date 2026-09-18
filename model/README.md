@@ -390,16 +390,21 @@ otherwise. **The 15.7 dB this table used to report was a measurement error, not
 a property of the rounding.** The corrected figures, from `run_idle.py`
 section D:
 
+Measured over 2^22, which is what the corrected columns are; the last column
+is the figure this table used to print, from the same records over 2^20 with
+the arithmetic mean removed.
+
 | Rate | Ties up | Ties to even | Ties up, as published |
 | --- | --- | --- | --- |
 | 48 kHz | 138.41 dB | 138.42 dB | 137.45 dB |
 | 96 kHz | 141.39 dB | 141.41 dB | **124.58 dB** |
 | 192 kHz | 144.35 dB | 144.35 dB | 143.43 dB |
 | 44.1 kHz | 137.98 dB | 137.99 dB | 124.73 dB |
-| 88.2 kHz | 140.88 dB | 140.88 dB | -- |
+| 88.2 kHz | 140.88 dB | 140.88 dB | 140.14 dB |
 | 176.4 kHz | 144.10 dB | 144.07 dB | 142.79 dB |
 
-**Worst case costs 0.02 dB.** The old numbers came from subtracting the
+**Worst case costs 0.02 dB**, and `results/endtoend.txt` now prints the same
+figure from its own table. The old numbers came from subtracting the
 arithmetic mean rather than the windowed mean before a 2^20 transform, which
 counts a sub-20 Hz residue as audio-band noise; `spectra.remove_dc` now does
 it correctly for every measurement in the model and explains why. The full
@@ -412,8 +417,8 @@ next.
 
 **Round ties to even anyway.** It costs one adder's difference and it removes a
 real static offset: measured at the modulator input, half-up leaves -168.7 to
--170.3 dBFS where ties to even leaves -187.3 to -210.3 dBFS. That offset reaches the
-output as DC, where it is the output coupling capacitor's problem rather than
+-170.3 dBFS where ties to even leaves -187.3 to -210.3 dBFS. That offset
+reaches the output as DC, where it is the output coupling capacitor's problem rather than
 the FPGA's, and an unbiased rounding is the cheaper place to deal with it. What
 is no longer claimed is that it costs audio-band performance. It does not,
 measurably.
@@ -542,6 +547,20 @@ The fix is in one place. `spectra.remove_dc` removes the windowed mean and
 documents why; `spectra.Measurement` now calls it for every measurement, so a
 new measurement site cannot get this wrong by forgetting.
 
+### What this leaves unmeasured
+
+Closing this item is a negative result, and it is worth being precise about how
+negative. **The low-frequency behaviour of this loop has not been
+characterised; it was mis-measured, and the mis-measurement has been removed.**
+What is established is that 180 near-idle trials and 72 tone runs show nothing
+in the audio band, and that a constant at the modulator input produces no idle
+tone. What is not established: nothing here was measured *below* 20 Hz on
+purpose, since every measurement treats sub-20 Hz energy as something to
+remove; no record longer than 341 ms was run, so a wander slower than about
+3 Hz would not have been seen; and no threshold in physical units was ever set
+for what an idle-channel fault worth acting on would look like, because nothing
+came close enough to need one. `notes-idle.md` lists these in full.
+
 ## Measurement traps found while building this
 
 Each cost real time and would cost it again.
@@ -602,9 +621,11 @@ in-band fault stays, an artifact of this kind is gone by 2^21.
 optional anywhere.** The interpolator's own rounding leaves one too. Measured
 on the nine-stage chain it was -143.1 dBFS against a rounding noise of
 -159.5 dBFS, so reporting the chain without removing it made the datapath look
-18 dB worse than it is. Worse, the same offset at the modulator input is not a
-measurement problem at all but a real 15.7 dB fault, which is why ties round to
-even above. Any time a figure comes back bad, look at the 20 Hz to 100 Hz bins
+18 dB worse than it is. An earlier version of this paragraph went on to say
+that the same offset at the modulator input was "not a measurement problem at
+all but a real 15.7 dB fault". It was a measurement problem: see the ties
+section above, where it now measures 0.02 dB. Removing the mean correctly is
+what settles both. Any time a figure comes back bad, look at the 20 Hz to 100 Hz bins
 first: if the excess is all there, it is an offset, not noise. Note what that
 check cannot tell you, since it took two independent investigations to notice:
 excess confined to those bins is equally the signature of a DC residue the

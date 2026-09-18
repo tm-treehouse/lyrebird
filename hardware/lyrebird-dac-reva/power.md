@@ -7,10 +7,12 @@ number. The main board's half is
 [../lyrebird-main-reva/power.md](../lyrebird-main-reva/power.md) and the two
 have to agree; the total below appears there as one line.
 
-**Provenance is marked on every figure**: *datasheet typical*, *calculation*,
-or *estimate*. `hardware/datasheets/` is empty, so nothing here was re-read
-from a vendor PDF; the two datasheet figures reach this page through decision
-records that cite them, and are marked as such.
+**Provenance is marked on every figure**: *datasheet*, *calculation*, or
+*estimate*. Every part on the module has now been chosen and its datasheet
+read, so most of what was estimated here is measured from a vendor document;
+[parts-notes.md](parts-notes.md) says which document and what could not be
+verified. `hardware/datasheets/` is still empty, so the PDFs were read rather
+than committed.
 
 ## Where the boundary sits
 
@@ -34,11 +36,18 @@ referenced to that rail and **never to 3.3 V**. The module therefore needs a
 
 | Rail | V | Source | Feeds | At the rail | From 5 V |
 | --- | --- | --- | --- | --- | --- |
-| `+3V3_REF` | 3.3 | LT3045, U5 | 4 register packages, 8x 100 nF | 54 mA | 56 mA |
-| `+3V3_CLK` | 3.3 | LT3045, U6 | Y1, Y2, divider, translator `VCC(B)` | 37.5 mA | 40 mA |
-| `+5V_A` | +5 | none | op amp `V+` | 14.4 mA | 51 mA |
-| `-5V_A` | −5 | LT3094, U8 | op amp `V−` | 14.4 mA | (both rails) |
-| `+2V5` | 2.5 | none | translator `VCC(A)` | <1 mA | — |
+| `+3V3_REF` | 3.32 | LT3045, U5 | 2 register packages, 28 elements, 8x 100 nF | 58 mA | 60 mA |
+| `+3V3_CLK` | 3.3 | LT3045, U6 | Y1, Y2, U1 divider, U12 buffer, translator `VCC(B)` | 33.5 mA | 35.5 mA |
+| `+5V_A` | +5 | LT3045, U14, from the pump's LDO+ | op amp `V+` | 21.6 mA | (see pump) |
+| `-5V_A` | −5 | LT3094, U8, from the pump's `VOUT−` | op amp `V−`, **and all the signal current** | 42.5–44.8 mA | (see pump) |
+| pump | ±5.7 / ±7 | LTC3265, U13 | both analog rails | — | 134–139 mA |
+| `+2V5` | 2.5 | LT3045, U9 | translator `VCC(A)` | <1 mA | 3 mA |
+
+**The two analog rails are not symmetric, and that is the single biggest
+change to this page.** The negative one carries the op amps' quiescent
+current *and* every milliampere of element current, because the summing nodes
+are virtual grounds and what flows into them leaves through the amplifier's
+output pin into `V−`. See the op amp section.
 
 ## The element reference rail
 
@@ -65,46 +74,69 @@ lower and signal-dependent, which is exactly the compression the differential
 drive exists to prevent — so the virtual-ground case is both the one consistent
 with 0008 and the worst case.
 
-`R_elem` **has never been chosen**. The netlist's 1 kΩ is a placeholder
-([../netlist/README.md](../netlist/README.md),
-[open-items.md](../../docs/open-items.md)), and the rail current is inversely
-proportional to it:
+`R_elem` **is chosen**: 3.32 kΩ ([model/notes-analog.md](../../model/notes-analog.md)),
+fitted as 1.69 k + 1.65 k = 3.34 kΩ around the filter capacitor that buys the
+1 MHz pole ([parts-notes.md](parts-notes.md)). The rail is 3.32 V, set by the
+LT3045's 33.2 k:
 
-| `R_elem` | `I_elem` | Rail total | From 5 V |
-| --- | --- | --- | --- |
-| 1 kΩ, netlist placeholder | 46.2 mA | 54 mA | 56 mA |
-| 2 kΩ | 23.1 mA | 31 mA | 33 mA |
-| 3.1 kΩ, what 0009's budget implies | 14.9 mA | 23 mA | 25 mA |
-| 4.7 kΩ | 9.8 mA | 18 mA | 20 mA |
+```
+I_elem = 14 x 3.32 V / 3340 ohm = 13.92 mA, constant       (calculation)
+```
 
-It cannot be settled on power grounds alone. The same value fixes the
-differential current swing into the I/V stage — ±7 x 3.3 V / `R_elem`, so
-±23.1 mA at 1 kΩ (*calculation*) — and therefore the output level and the op
-amp's feedback network. It is one number decided by two constraints, and
-neither has been worked.
+against 46.2 mA at the 1 kΩ placeholder this page used to carry. That is a
+32 mA saving and it is the largest single improvement to the module's budget.
+
+**The filter capacitors add a term the old page could not have.** Each 180 pF
+is charged through the register-side half of its element on every rising edge
+and discharged on every falling one. At the rotation's assumed transition rate
+— half the element clock, this page's own figure — that is about 0.37 mA per
+element averaged over a cycle:
+
+```
+28 x 0.37 mA = 10.4 mA                                     (estimate)
+```
+
+**and unlike the 13.9 mA it is not constant with code**, because it scales with
+how often lines change and the rotation ties that to the signal. The constant
+current property 0008 guarantees covers the DC term only. parts-notes.md
+records this as something to measure with the modulator running rather than to
+settle here.
 
 ### Register current
 
-28 flip-flops plus two package clock trees, `I = C x V x f` (*estimates* on
-both capacitances, *calculation* on the rest):
+The register is now a part — SN74ALVCH16374 — so this is a *datasheet* figure
+rather than a guess at a capacitance. Its power dissipation capacitance is
+**30 pF with outputs enabled at 3.3 V** (SCES021L, operating characteristics),
+and `I = Cpd x V x f` per flip-flop:
 
 ```
-flops:  28 x 5 pF x 3.3 V x 12.29 MHz  = 5.7 mA
-clock:   2 x 15 pF x 3.3 V x 24.576 MHz = 2.4 mA
-                                          -------
-                                          8.1 mA
+28 x 30 pF x 3.32 V x 12.29 MHz = 34.3 mA                  (calculation)
 ```
 
 Element switching is taken at half the element clock, which is what dynamic
 element matching produces on any given line.
 
+**Read `Cpd` as per flip-flop, not per package.** The datasheet does not say
+which, but the same family's single-gate parts quote 37 pF for one flip-flop
+(SN74LVC1G74), and a sixteen-bit register cannot dissipate less than one of
+those. If it were per package the figure would be sixteen times smaller and
+this rail would be 26 mA rather than 58. It is the largest remaining
+uncertainty on this page and it is worth a bench measurement.
+
 ### Rail total
 
 ```
-46.2 mA elements + 8.1 mA registers      = 54.3 mA at the rail
-+ 2 mA LT3045 ground pin (estimate)      = 56.3 mA from 5 V
-P = (5.00 - 3.30) x 0.0543               = 92 mW dissipated   (calculation)
+13.9 mA elements (calculation)
+10.4 mA element filter capacitors (estimate)
+34.3 mA registers (datasheet Cpd)
+                                         = 58.6 mA at the rail
++ 2 mA LT3045 ground pin (estimate)      = 60.6 mA from 5 V
+P = (5.00 - 3.32) x 0.0586               = 98 mW dissipated   (calculation)
 ```
+
+Almost the same total as the old page's 56 mA, arrived at completely
+differently: the elements cost a third of what a 1 kΩ placeholder implied, and
+the registers cost four times what a 5 pF estimate implied.
 
 ### Decoupling is not a budget question, but it is arithmetic
 
@@ -128,11 +160,12 @@ cannot budget.
 
 | Item | mA at 3.3 V | Provenance |
 | --- | --- | --- |
-| CCHD-957, running | 15.5 | datasheet typical via 0012, see below |
-| CCHD-957, standby | 1.5 | datasheet typical via 0012 |
-| Fanout divider | 20 | estimate — part never chosen |
+| CCHD-957, running | 15.5 | datasheet, 15 mA typical and 25 mA maximum |
+| CCHD-957, standby | 1.5 | datasheet maximum |
+| SN74LVC1G74 divider | 6.0 | datasheet Cpd 37 pF x 3.3 V x 49.152 MHz |
+| LMK1C1104 fanout buffer | 10 | datasheet, current against frequency at 24.576 MHz |
 | 74AVC4T245, B side | 0.5 | calculation |
-| **Total** | **37.5** | |
+| **Total** | **33.5** | |
 
 The oscillator figure is arithmetic on 0012, which gives standby as 1.5 mA and
 says both parts fitted cost about 17 mA together:
@@ -144,12 +177,13 @@ I_running = 17 - 1.5 = 15.5 mA                            (calculation)
 Exactly one resonator runs; the other is in standby, which shuts the resonator
 down rather than gating the output.
 
-**The divider is the largest estimate on the module and 0009 never costed it.**
-0009 has a 30 mA line called "Oscillator" against 17 mA of oscillator, which
-leaves 13 mA for a part that has to divide by two and drive two register
-packages and the header with tight skew. A low-additive-jitter LVCMOS clock
-buffer in that class runs 10 to 25 mA at 3.3 V; 20 mA is taken here and it is
-an *estimate* until the part exists.
+**The divider is no longer an estimate, and it came in under budget.** 0009 has
+a 30 mA line called "Oscillator" against 17 mA of oscillator, leaving 13 mA for
+a part that has to divide by two and drive two register packages and the header
+with tight skew. A flip-flop and a small fanout buffer do it for 16 mA together.
+The integrated divider-plus-fanout parts that would have done it in one package
+cost 65 mA of core current, which is why there are two
+([parts-notes.md](parts-notes.md)).
 
 The translator's B side receives `MCLK` and drives nothing, since the direction
 is B to A; its cost is internal switching at 24.576 MHz on a 5 pF node
@@ -157,8 +191,8 @@ is B to A; its cost is internal switching at 24.576 MHz on a 5 pF node
 enable lines are static.
 
 ```
-37.5 mA at the rail + 2 mA LT3045 ground = 39.5 mA from 5 V
-P = (5.00 - 3.30) x 0.0375               = 64 mW dissipated
+33.5 mA at the rail + 2 mA LT3045 ground = 35.5 mA from 5 V
+P = (5.00 - 3.30) x 0.0335               = 57 mW dissipated
 ```
 
 ## The op amp rails

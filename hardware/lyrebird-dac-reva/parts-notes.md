@@ -105,6 +105,25 @@ digital chain's 133.5 dB well clear. It saves 14 mA on the negative rail and
 28 mA at the USB input. Pole 3 moves with it: 1.3 nF across 604 Ω is 203 kHz,
 the same corner analog.txt sets, so the filter is unchanged.
 
+**The op amp choice still stands, at a smaller margin.** The OPA1612 was
+picked against a curve that put the stage at 126.3 dB with its 1.1 nV/√Hz; the
+difference network has since taken the stage to 123.5 dB, so the two numbers in
+this file disagree by design and this is which is which. Recomputed with the
+604 Ω network in the sum:
+
+| Amplifier voltage noise | Stage SNR, 200 Ω network | Stage SNR, 604 Ω network |
+| --- | --- | --- |
+| 1.1 nV/√Hz, OPA1612 | 125.6 dB | **123.5 dB** |
+| 1.3 nV/√Hz, what analog.txt assumed | 125.2 | 123.1 |
+| 2.5 nV/√Hz, an ordinary audio dual | 122.0 | 120.6 |
+
+A 1.3 nV/√Hz part is now within 0.4 dB rather than 0.5, so the case for the
+OPA1612 over that class was always thin and is thinner. A 2.5 nV/√Hz part still
+costs 2.9 dB, which is the comparison that actually decided it, and the
+OPA1612's other numbers — 40 MHz against the 10 MHz the filter was designed
+for, 3.6 mA per channel on a rail a charge pump has to make — are not things a
+cheaper part matches either.
+
 **This is the number to revisit if the supply ever gets easier.** A module with
 its own power input — the one 0007 points a headphone design at — should go
 back to 200 Ω and take the 2.1 dB.
@@ -311,6 +330,30 @@ failure by 15.9 dB. With the 1 MHz pole it is −190.3 dBFS. C0G rather than X7R
 because a voltage coefficient inside one element is a nonlinearity the
 rotation does not fix, and Q2e measured that 10 % capacitor tolerance costs
 only 2 dB, so ordinary parts are fine.
+
+**What the capacitors do to the reference rail, which is worth a model run.**
+Each 180 pF has to be charged through the register-side half of its element
+every time that element goes high, and discharged every time it goes low. At
+the rotation's assumed transition rate — half the element clock, which is
+power.md's own figure — that is about 0.37 mA per element averaged over a
+cycle, or roughly **10 mA across 28 elements**, on top of the 13.9 mA of DC
+element current. Two things follow, and neither is settled here:
+
+- The reference rail's current is no longer only the constant 13.9 mA that
+  0008's differential drive guarantees. **The constant-current property covers
+  the DC term only**; this term and the registers' own dynamic current both
+  scale with how often lines change, which the rotation ties to the code.
+- That makes a signal-correlated current on the rail that sets full scale, and
+  the rail is a multiplier. Against the 10 mΩ in-band source impedance
+  analog.txt assumes, 10 mA of envelope variation is 100 µV on 3.32 V, about
+  −90 dB — well above this design's floor if it were fully correlated, and far
+  below it if the rotation whitens it, which is exactly what the rotation is
+  for.
+
+It is recorded rather than resolved because it needs the modulator running to
+answer: the quantity to measure is the in-band component of the *transition
+rate*, not of the code. The mitigation if it matters is the one 0008 already
+asks for — heavy local decoupling at the register packages, which is fitted.
 
 **Poles two and three** are in the amplifier feedback: 2.0 nF across each
 402 Ω transimpedance resistor (198 kHz) and 3.9 nF across each 200 Ω
