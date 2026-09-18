@@ -40,7 +40,7 @@ referenced to that rail and **never to 3.3 V**. The module therefore needs a
 | `+3V3_CLK` | 3.3 | LT3045, U6 | Y1, Y2, U1 divider, U12 buffer, translator `VCC(B)` | 33.5 mA | 35.5 mA |
 | `+5V_A` | +5 | LT3045, U14, from the pump's LDO+ | op amp `V+` | 21.6 mA | (see pump) |
 | `-5V_A` | −5 | LT3094, U8, from the pump's `VOUT−` | op amp `V−`, **and all the signal current** | 42.5–44.8 mA | (see pump) |
-| pump | ±5.7 / ±7 | LTC3265, U13 | both analog rails | — | 134–139 mA |
+| pump | +5.69 V from LDO+, −5.2 to −7.8 V raw from `VOUT−` | LTC3265, U13 | both analog rails | — | 134–139 mA |
 | `+2V5` | 2.5 | LT3045, U9 | translator `VCC(A)` | <1 mA | 3 mA |
 
 **The two analog rails are not symmetric, and that is the single biggest
@@ -142,16 +142,17 @@ the registers cost four times what a 5 pF estimate implied.
 
 The DC load is constant, so what the local ceramics actually supply is the
 redistribution transient when the rotation swaps which lines are high. A
-worst-case swap of seven elements is a 23.1 mA step, lasting as long as the
-reclock skew between the flip-flops:
+worst-case swap of seven elements is a 6.96 mA step at 3.34 kΩ, lasting as long
+as the reclock skew between the flip-flops:
 
 ```
-dV = dI x t / C = 23.1 mA x 1 ns / 800 nF = 29 uV        (calculation)
+dV = dI x t / C = 6.96 mA x 1 ns / 800 nF = 8.7 uV       (calculation)
 ```
 
-against 8 x 100 nF fitted. That is above the 10 uV audio-band target, but it
-happens at the element clock rate rather than in band and the rotation
-scrambles it. It is still the reason 0008 says decouple heavily and keep return
+against 8 x 100 nF fitted. At the 1 kΩ this page used to carry the same
+arithmetic gave 29 uV, three times the 10 uV audio-band target; at the chosen
+element it is under it. It happens at the element clock rate rather than in
+band and the rotation scrambles it in any case. It is still the reason 0008 says decouple heavily and keep return
 currents tight: at these edge rates the binding term is the loop inductance
 from the package pin to the capacitor, which is a layout problem this page
 cannot budget.
@@ -197,56 +198,104 @@ P = (5.00 - 3.30) x 0.0335               = 57 mW dissipated
 
 ## The op amp rails
 
-**No part on this path has been chosen** — op amp, charge pump, post-regulators
-and reconstruction filter are all open
-([open-items.md](../../docs/open-items.md)) — so everything here is an
-*estimate* structured by 0009 rather than a measurement.
+**Every part on this path is now chosen**: OPA1612AID amplifiers, an LTC3265
+charge pump, an LT3045 on the positive rail and the LT3094 that was already
+here on the negative one ([parts-notes.md](parts-notes.md)). The figures below
+are *datasheet* and *calculation*; only the pump quiescent current is an
+estimate.
 
-Four amplifier channels: differential to single-ended for each of L and R, then
-a fixed-gain line buffer for each. At 3.6 mA per amplifier, the class implied by
-the OPA1612 stand-in in the netlist:
-
-```
-4 x 3.6 mA = 14.4 mA on each of +5 V and -5 V             (estimate)
-```
-
-Signal current is negligible beside it: 2 V RMS into a 10 kΩ line load is
-0.2 mA RMS (*calculation*).
-
-A 5 V input cannot produce +5 V with headroom, so the pump has to make both
-polarities and the regulators drop to the final rails — run it hot, because op
-amp rejection falls off steeply with frequency and at a pump's switching
-frequency it rejects far less than its headline figure (0009). Taking ±7 V into
-LDOs at 85 % pump efficiency (*estimate*):
+**Six amplifier channels, not four.** Two transimpedance stages per channel
+hold the summing nodes at virtual ground, then one difference amplifier per
+channel converts to single ended. The old four-channel figure assumed a
+difference stage plus a line buffer; the line buffer turned out to be the
+difference stage.
 
 ```
-P_in  = (7 + 7) V x 14.4 mA = 202 mW
-      / 0.85                = 237 mW
-I(5V) = 237 mW / 5.0 V      = 47.4 mA
-+ pump and two LDO quiescent, 4 mA (estimate)
-                            = 51 mA from 5 V              (calculation)
+6 x 3.6 mA = 21.6 mA of quiescent current on each rail     (datasheet typical)
 ```
 
-The post-regulators drop `2 x (7 - 5) x 14.4 mA = 58 mW` (*calculation*),
-which is inside that 237 mW.
+### The negative rail carries the signal
+
+This is the term no quiescent figure accounts for, and it is bigger than the
+quiescent one.
+
+The elements push current into nodes held at 0 V. It leaves through the
+transimpedance resistors into the amplifiers' output pins, and the output
+stages sink it to `V−`. **All 13.9 mA of element current lands on the negative
+rail**, constant at every code — the same constant-current property 0008 buys,
+arriving somewhere the earlier arithmetic did not look.
+
+The difference network is a second such load. Both transimpedance outputs sit
+between 0 and −2.8 V and never go positive, so the network's current flows out
+of ground into those outputs and is sunk to `V−` as well. It scales as 1/R, and
+its own thermal noise as √R, which is what fixed the value at 604 Ω rather than
+the 200 Ω the model names:
+
+```
+604 ohm network: 7.0 mA at mid code, 9.3 mA worst case     (calculation)
+```
+
+```
+negative rail = 21.6 quiescent + 13.9 elements + 7.0 network = 42.5 mA
+                at full scale                               = 44.8 mA
+positive rail = 21.6 mA                                                (datasheet + calculation)
+```
+
+Signal current into the load is negligible beside both: 2 V RMS into a 10 kΩ
+line load is 0.2 mA RMS (*calculation*).
+
+### What the pump costs
+
+A 5 V input cannot produce +5 V with headroom, so the LTC3265 doubles for the
+positive rail and inverts the doubled rail for the negative one, and the two
+low-dropout regulators drop to the final rails — op amp rejection falls off
+steeply with frequency, so at a pump's switching frequency it rejects far less
+than its headline figure (0009).
+
+**A charge pump that doubles costs about twice its output current at its
+input**, because it moves charge rather than transforming voltage. Both rails
+are drawn from `VOUT+`, since the inverting pump's input is tied there:
+
+```
+VOUT+ load = 21.6 mA positive chain
+           + 44.8 mA negative chain
+           +  3   mA inverting pump quiescent (datasheet, constant frequency)
+                                     = 69.4 mA
+USB input  = 2 x 69.4 mA             = 139 mA from 5 V       (calculation)
+                                       134 mA at mid code
+```
+
+That is the price of the asymmetry: the 13.9 mA of element current is paid for
+once on the reference rail and twice again here. It is also why the difference
+network is 604 Ω — at the 200 Ω the model names, the negative rail would be
+56 mA and this line would read 161 mA.
+
+The pump's own headroom at the bottom of the USB range, including its 32 Ω
+output impedance and the regulators' dropout, is worked out in
+[parts-notes.md](parts-notes.md). The ±5 V rails hold with 0.6 V and 0.16 V of
+margin at 4.43 V in.
 
 ## Totals at the mezzanine
 
 | Rail | At the rail | From 5 V | Provenance |
 | --- | --- | --- | --- |
-| Element reference, at the placeholder 1 kΩ | 54 mA | 56 mA | calculation on an unchosen resistor |
-| Clock chain | 37.5 mA | 40 mA | datasheet typical + estimate |
-| Op amp stage and charge pump | 14.4 mA each rail | 51 mA | estimate, parts absent |
-| Translator A side | <1 mA | 0 today | no source exists |
-| **Module total** | | **147 mA** | |
+| Element reference, 3.34 kΩ elements | 58.6 mA | 60.6 mA | calculation + datasheet Cpd |
+| Clock chain | 33.5 mA | 35.5 mA | datasheet |
+| Op amp stage and charge pump | 21.6 / 44.8 mA | 139 mA | datasheet + calculation |
+| Translator A side | <1 mA | 3 mA | calculation, LT3045 ground pin |
+| **Module total** | | **238 mA** | |
 
-At a 2 kΩ element the total is 124 mA; at 3.1 kΩ, 116 mA.
+At mid code rather than full scale the module draws 233 mA. The op amp line is
+where the module's current now lives, and two thirds of it is the doubling: the
+stage itself takes 66 mA across both rails.
 
 Headroom is fine at the worst input. USB 3.0 guarantees 4.45 V at the device
-(*via 0009*); a ferrite at 50 mΩ drops 19 mV at the full 381 mA and five
-parallel header contacts at 20 mΩ drop 0.6 mV at 147 mA (*estimates* on the
+(*via 0009*); a ferrite at 50 mΩ drops 24 mV at the full 472 mA and five
+parallel header contacts at 20 mΩ drop 1 mV at 238 mA (*estimates* on the
 resistances), so the module's LT3045s see 4.43 V against a 3.3 V output —
-1.13 V of headroom against a dropout of a few hundred millivolts.
+1.13 V of headroom against a dropout of a few hundred millivolts. The part
+that has to be checked at 4.43 V is the charge pump, whose input range starts
+at 4.5 V; [parts-notes.md](parts-notes.md) works that out and it resolves.
 
 ## Reflected to the USB input, and margin
 
@@ -254,15 +303,25 @@ The module is one line in the main board's budget:
 
 ```
 main board  234 mA
-module      147 mA
+module      238 mA
             -------
-total       381 mA                                        (calculation)
+total       472 mA                                        (calculation)
 ```
 
 | Against | Limit | Drawn | Spare | Utilisation |
 | --- | --- | --- | --- | --- |
-| USB 3.0, configured | 900 mA | 381 mA | 519 mA | 42 % |
-| USB 2.0 host | 500 mA | 381 mA | 119 mA | 76 % |
+| USB 3.0, configured | 900 mA | 472 mA | 428 mA | 52 % |
+| USB 2.0 host | 500 mA | 472 mA | 28 mA | 94 % |
+
+**The USB 2.0 line is no longer comfortable**, and it is the one number on this
+page that should worry a reader. Two things soften it and neither is an
+argument for ignoring it. The 234 mA of main board includes 185 mA of bridge
+in *active SuperSpeed*; a host that only offers 500 mA is a High Speed host,
+where the FT601Q draws substantially less, so the real USB 2.0 figure is lower
+than 472 mA — by how much is not computed here. And 472 mA is full scale on
+both channels at once with maximum quiescent current assumed nowhere; at mid
+code it is 467 mA. If it has to come down, the difference network is the lever:
+every milliampere saved on the negative rail is two at the input.
 
 This is the line-output module. 0009 puts a hard-driven headphone stage at
 roughly 200 mA more, reaching about 580 mA: comfortable on USB 3.0, over the
@@ -276,54 +335,81 @@ renegotiable when a module is swapped.
 ## Before enumeration
 
 A device may draw one unit load before it is configured: 150 mA on USB 3.0,
-100 mA on USB 2.0. **None of the module's rails are gated.** All three LT3045s
-take +5 V straight off the header, and their `EN/UV` pins are unconnected in
-the netlist, so 96 mA of clock chain and element reference is live while the
-FPGA is still loading its bitstream.
+100 mA on USB 2.0. **The analog stage is now gated and the digital rails are
+not**, which is what makes this fit.
 
-0009 gates the FPGA rails with the LTM4622 run pins, which leaves 72 mA of
-bridge and regulator inside the 150 mA. Adding this module's ungated 96 mA
-reaches 168 mA and does not fit; the full table, including what other element
-values do to it, is in
-[../lyrebird-main-reva/power.md](../lyrebird-main-reva/power.md). At power-on
-the flip-flop state is undefined and all 28 elements may be high, which doubles
-the element term.
+`MUTE_N` drives the LTC3265's two enable pins through a 100 kΩ pull-down on the
+module, so until the FPGA asserts it there is no charge pump, no ±5 V and no
+139 mA. That is deliberate: analog.txt says in as many words that the op amp
+stage and charge pump do not fit inside one unit load at any element value and
+have to be held off. It is also an HDL requirement now — see
+[parts-notes.md](parts-notes.md).
+
+What is live before configuration is the clock chain and the element reference,
+and neither is switching yet, because the oscillators are disabled until the
+FPGA enables them:
+
+```
+72 mA bridge and regulator, with the FPGA rails gated by the LTM4622 run pins
+35.5 mA clock chain (oscillator in standby until enabled: less)
+27.8 mA element reference, worst case: no clock, so no dynamic current, but
+       the flip-flop state is undefined and all 28 elements may be high
+                                       --------
+                                       135 mA against a 150 mA unit load
+```
+
+That fits, and it only fits because the element is 3.32 kΩ: at the 1 kΩ this
+page used to carry, 28 elements high is 92 mA and the total is 199 mA. The
+margin is the reason analog.txt would not take any element value below
+3312 Ω.
 
 ## Against 0009's budget
 
 Checked rather than copied. 0009's three module lines sum to 120 mA; this page
-gets 147 mA.
+now gets 238 mA.
 
 | Line | 0009 | Here | Why |
 | --- | --- | --- | --- |
-| Element reference rail | 25 | 56 | 25 mA implies a 3.1 kΩ element; the netlist says 1 kΩ |
-| Oscillator | 30 | 40 | 17 mA of oscillator is right; the fanout divider was never costed |
-| Op amp stage and charge pump | 65 | 51 | four amplifiers at 3.6 mA and an 85 % pump |
-| **Module subtotal** | **120** | **147** | |
+| Element reference rail | 25 | 61 | 3.32 kΩ costs 14 mA of elements, but the registers cost 34 mA and the filter capacitors 10 |
+| Oscillator | 30 | 35.5 | 17 mA of oscillator, 16 mA of divider and buffer |
+| Op amp stage and charge pump | 65 | 139 | six amplifiers, 14 mA of element current on `V−`, and a doubler that pays for all of it twice |
+| **Module subtotal** | **120** | **238** | |
 
-The whole 27 mA difference is two parts nobody has chosen: the element resistor
-and the fanout divider. Neither is a budget error in 0009; both are numbers
-that could not be computed when it was written.
+**The op amp line is where 0009 was wrong, and not by a little.** Its 65 mA
+assumed an amplifier stage that costs what its quiescent current costs. This
+one sinks the whole element current into its negative rail and buys that rail
+from a charge pump at two-for-one, which no estimate written before the
+topology existed could have contained. The element line moved the other way —
+the resistor 0009 implied was about right — but the registers turned out to be
+four times their estimate.
 
-## What has no source today
+## What had no source, and what does now
 
-**`+2V5`, the translator's A-side supply.** One node in the netlist, `U2.VCCA`,
-and no regulator. The header does not carry 2.5 V and 0012 forbids strapping
-the A side to 3.3 V, so this rail has to be generated on the module — or the
-interface has to gain a pin. Its own consumption is under 1 mA (one 24.576 MHz
-clock into about 10 pF of trace, connector and FPGA pad: `10 pF x 2.5 V x
-24.576 MHz = 0.61 mA`), so this is a missing rail rather than an expensive one.
+Every item this section used to list is closed.
 
-**`+5V_A`, the op amp's positive rail.** One node, `U7.V+`, and no regulator.
+**`+2V5`, the translator's A-side supply** — LT3045 at U9, off the header's
+5 V. Its own consumption is under 1 mA (one 24.576 MHz clock into about 10 pF
+of trace, connector and FPGA pad: `10 pF x 2.5 V x 24.576 MHz = 0.61 mA`), so
+the 3 mA in the table above is almost entirely the regulator's ground pin.
 
-**The charge pump.** `-5V_A` is regulated by the LT3094 at U8, but U8's `IN`
-pins are unconnected and no pump exists to feed them, so neither analog rail
-has a source.
+**`+5V_A`, the op amp's positive rail** — LT3045 at U14, from the charge pump's
+positive LDO at 5.69 V.
 
-**The element reference rail leaves the board.** In `lyrebird-dac.net` it is
-merged with the `ID0` strap and appears under that name, which puts 3.3 V on a
-header pin that the main board pulls down through 10 kΩ into a GateMate GPIO
-with a 2.75 V absolute maximum. The 3.3 V divided clock reaches the header
-directly for the same kind of reason. Both are wiring defects rather than power
-budget items, but they sit on the rail boundary this page is about, so they are
-recorded here too.
+**The charge pump** — LTC3265 at U13, boost and inverting pumps with `VIN_N`
+tied to `VOUT+` for symmetric rails. `-5V_A` comes from the LT3094 at U8, whose
+input is now the pump's `VOUT−` rather than nothing.
+
+**The element reference rail no longer leaves the board.** `ID0` straps to the
+2.5 V rail through 1 kΩ, and the divided clock reaches the header only through
+the translator's 2.5 V side. `lp.assert_below_abs_max` fails the build if
+either regresses, and it was tamper-tested rather than assumed.
+
+## What is still uncertain here
+
+| Figure | Why it is not settled |
+| --- | --- |
+| 34.3 mA of register current | `Cpd` read as per flip-flop rather than per package; a bench measurement settles it, and the rail is 26 mA if the other reading is right |
+| 10.4 mA of element filter capacitors | Depends on the rotation's transition rate, which is a model question, and it is the one term on this rail that is not constant with code |
+| 10 mA of fanout buffer | Read off a curve rather than a table; the tabulated figure is 33 mA at 100 MHz with four outputs loaded |
+| 3 mA of pump quiescent | Datasheet gives 3 mA typical and 6 mA maximum on each input pin in constant frequency mode |
+| 4.43 V at the header | Guaranteed USB minimum plus *estimated* ferrite and contact drops; it decides whether the charge pump is inside its input range |

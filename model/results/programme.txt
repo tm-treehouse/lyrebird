@@ -87,3 +87,221 @@ Decomposition of that error, at 48 kHz, one percent elements:
    total error in band           -137.91 dBFS
    24-bit source alone           -142.45 dBFS
    everything else (mismatch)    -139.79 dBFS
+
+==========================================================================
+Q1: DOES 132.8 dB HOLD UNDER MATERIAL WITH A REAL CREST FACTOR?   [13 s]
+==========================================================================
+Each window is 2^20 element samples, 42.7 ms, 23.4 Hz bins. The
+figure reported per window is the in-band power of the error, in
+dBFS, which does not depend on how loud the material happens to be
+in that window. 'as SNDR' converts it to the convention the README
+tables use, which is a -3.7 dBFS signal against that error.
+
+One percent elements, 24-bit TPDF source, coefficients and datapath
+at their settled widths, order 3, rotation on.
+
+                  material   wins      best    median     worst    as SNDR
+                                       dBFS      dBFS      dBFS   worst dB
+        1 kHz tone, 48 kHz     12    -138.3    -137.9    -137.2      133.5
+        real audio, 48 kHz    360    -142.9    -132.3    -115.2      111.5
+ real audio, matched elem.     96    -142.9    -142.3    -141.8      138.1
+
+
+Synthetic material, every rate. Real audio exists here only at
+48 kHz, and material.read_wav refuses to resample, which is right.
+
+              material       rate   wins      best    median     worst    as SNDR
+             programme     48 kHz     16    -137.9    -136.7    -134.7      131.0
+             programme     96 kHz     16    -138.1    -135.5    -132.2      128.5
+             programme    192 kHz     16    -138.7    -135.3    -132.5      128.8
+             programme   44.1 kHz     12    -136.2    -135.0    -132.1      128.4
+             programme   88.2 kHz     16    -136.3    -134.8    -131.1      127.4
+             programme  176.4 kHz     16    -137.2    -134.0    -130.5      126.8
+
+            percussive     48 kHz     16    -142.8    -142.0    -117.5      113.8
+            percussive     96 kHz     16    -145.8    -138.1    -116.9      113.2
+            percussive    192 kHz     16    -148.5    -137.8    -117.1      113.4
+            percussive   44.1 kHz     12    -141.3    -135.8    -120.2      116.5
+            percussive   88.2 kHz     16    -145.5    -142.6    -119.2      115.5
+            percussive  176.4 kHz     16    -148.2    -140.2    -119.0      115.3
+
+                  bass     48 kHz     16    -138.9    -137.0    -135.8      132.1
+                  bass     96 kHz     16    -139.6    -138.2    -136.2      132.5
+                  bass    192 kHz     16    -140.2    -139.0    -136.0      132.3
+                  bass   44.1 kHz     12    -137.6    -136.8    -135.8      132.1
+                  bass   88.2 kHz     16    -138.2    -137.3    -135.6      131.9
+                  bass  176.4 kHz     16    -139.6    -137.3    -134.8      131.1
+
+
+==========================================================================
+Q1: IS THE ERROR THE SAME WHEN THE MUSIC IS QUIET?   [277 s]
+==========================================================================
+Programme material is not on all the time. Sixteen seconds of it
+contains loud passages, decays and gaps, and the loop behaves
+differently near idle -- which is where README.md puts the wander.
+Windows are split by how much in-band signal they carry.
+
+                  material              band   wins   median err   worst err   median low share
+        1 kHz tone, 48 kHz    above -12 dBFS     12       -137.9      -137.2              0.08%
+
+        real audio, 48 kHz    below -60 dBFS    234       -135.8      -115.2              0.04%
+        real audio, 48 kHz        -60 to -30     71       -125.2      -117.3              0.00%
+        real audio, 48 kHz        -30 to -12     50       -135.2      -128.2              0.04%
+        real audio, 48 kHz    above -12 dBFS      5       -137.3      -136.3              0.15%
+
+ real audio, matched elem.    below -60 dBFS     48       -142.3      -141.8              0.27%
+ real audio, matched elem.        -60 to -30     25       -142.3      -141.9              0.17%
+ real audio, matched elem.        -30 to -12     21       -142.3      -141.9              0.23%
+ real audio, matched elem.    above -12 dBFS      2       -142.5      -142.4              0.64%
+
+          programme 48 kHz        -30 to -12      8       -136.1      -134.7              0.05%
+          programme 48 kHz    above -12 dBFS      8       -137.0      -135.7              0.11%
+
+          programme 96 kHz        -30 to -12      8       -133.7      -132.2              0.02%
+          programme 96 kHz    above -12 dBFS      8       -137.1      -134.7              0.03%
+
+         programme 192 kHz        -30 to -12      8       -133.1      -132.5              0.01%
+         programme 192 kHz    above -12 dBFS      8       -137.3      -135.3              0.03%
+
+        programme 44.1 kHz        -30 to -12      6       -133.2      -132.1              0.03%
+        programme 44.1 kHz    above -12 dBFS      6       -135.6      -133.4              0.05%
+
+        programme 88.2 kHz        -30 to -12      9       -133.6      -131.1              0.02%
+        programme 88.2 kHz    above -12 dBFS      7       -135.7      -134.8              0.04%
+
+       programme 176.4 kHz        -30 to -12      9       -133.8      -130.5              0.01%
+       programme 176.4 kHz    above -12 dBFS      7       -136.4      -133.7              0.02%
+
+         percussive 48 kHz    below -60 dBFS     11       -142.2      -117.5              0.21%
+         percussive 48 kHz        -60 to -30      2       -125.3      -117.7              0.00%
+         percussive 48 kHz        -30 to -12      3       -136.8      -133.2              0.04%
+
+         percussive 96 kHz    below -60 dBFS     10       -144.8      -116.9              0.08%
+         percussive 96 kHz        -60 to -30      3       -125.6      -119.7              0.00%
+         percussive 96 kHz        -30 to -12      3       -135.3      -131.8              0.04%
+
+        percussive 192 kHz    below -60 dBFS      8       -148.1      -117.1              0.26%
+        percussive 192 kHz        -60 to -30      5       -128.8      -122.0              0.00%
+        percussive 192 kHz        -30 to -12      2       -135.3      -133.4              0.02%
+        percussive 192 kHz    above -12 dBFS      1       -138.4      -138.4              0.02%
+
+       percussive 44.1 kHz    below -60 dBFS      6       -139.0      -120.2              0.30%
+       percussive 44.1 kHz        -60 to -30      2       -125.9      -121.6              0.00%
+       percussive 44.1 kHz        -30 to -12      2       -133.8      -132.5              0.02%
+       percussive 44.1 kHz    above -12 dBFS      2       -135.8      -135.6              0.04%
+
+       percussive 88.2 kHz    below -60 dBFS     12       -142.9      -119.2              0.08%
+       percussive 88.2 kHz        -60 to -30      4       -129.9      -129.0              0.01%
+
+      percussive 176.4 kHz    below -60 dBFS     12       -142.1      -119.0              0.13%
+      percussive 176.4 kHz        -60 to -30      2       -129.1      -127.7              0.00%
+      percussive 176.4 kHz        -30 to -12      2       -139.9      -133.3              0.21%
+
+               bass 48 kHz        -30 to -12      5       -136.5      -135.8              0.12%
+               bass 48 kHz    above -12 dBFS     11       -137.0      -136.1              0.05%
+
+               bass 96 kHz        -30 to -12      5       -137.7      -136.2              0.03%
+               bass 96 kHz    above -12 dBFS     11       -138.2      -136.9              0.05%
+
+              bass 192 kHz        -30 to -12      6       -139.4      -136.0              0.06%
+              bass 192 kHz    above -12 dBFS     10       -138.7      -137.8              0.02%
+
+             bass 44.1 kHz    above -12 dBFS     12       -136.8      -135.8              0.08%
+
+             bass 88.2 kHz    above -12 dBFS     16       -137.3      -135.6              0.06%
+
+            bass 176.4 kHz    above -12 dBFS     16       -137.3      -134.8              0.03%
+
+
+==========================================================================
+Q4: THE SHAPE OF THE FLOOR, WINDOW BY WINDOW   [277 s]
+==========================================================================
+A single in-band number cannot tell an evenly raised floor from a
+wander concentrated under 100 Hz, which is the fault README.md
+leaves open. material.band_shape splits every window three ways.
+Shares are of in-band error power.
+
+White noise, for reference, would put 0.44 percent of its in-band
+power in 20-100 Hz, 10.1 percent in 100 Hz-2 kHz and 89.5 percent in
+2-20 kHz, because those bands are 80, 1900 and 18000 Hz wide.
+
+                  material   wins            low share, percent           low band dBFS
+                                        p10    median       p90      median      worst
+        1 kHz tone, 48 kHz     12      0.03      0.08      0.31      -168.8     -162.3
+        real audio, 48 kHz    360      0.00      0.02      0.32      -168.1     -156.7
+ real audio, matched elem.     96      0.05      0.24      0.82      -168.6     -162.1
+          programme 48 kHz     16      0.01      0.09      0.31      -167.8     -160.8
+          programme 96 kHz     16      0.01      0.03      0.06      -171.9     -165.1
+         programme 192 kHz     16      0.01      0.02      0.05      -173.2     -167.3
+        programme 44.1 kHz     12      0.01      0.03      0.10      -169.2     -164.6
+        programme 88.2 kHz     16      0.01      0.03      0.06      -169.6     -163.7
+       programme 176.4 kHz     16      0.00      0.02      0.03      -172.4     -167.9
+         percussive 48 kHz     16      0.00      0.14      0.59      -168.6     -164.0
+         percussive 96 kHz     16      0.00      0.06      0.79      -169.7     -161.2
+        percussive 192 kHz     16      0.00      0.03      0.75      -171.0     -166.8
+       percussive 44.1 kHz     12      0.00      0.04      0.36      -168.7     -163.1
+       percussive 88.2 kHz     16      0.00      0.06      0.47      -170.4     -163.2
+      percussive 176.4 kHz     16      0.00      0.11      0.49      -171.0     -167.5
+               bass 48 kHz     16      0.03      0.07      0.15      -169.2     -164.9
+               bass 96 kHz     16      0.01      0.03      0.19      -172.5     -165.0
+              bass 192 kHz     16      0.01      0.02      0.07      -174.4     -167.6
+             bass 44.1 kHz     12      0.01      0.08      0.23      -167.7     -162.2
+             bass 88.2 kHz     16      0.01      0.06      0.12      -169.6     -165.1
+            bass 176.4 kHz     16      0.01      0.03      0.07      -172.0     -168.2
+
+==========================================================================
+Q2: IS 3 dB THE RIGHT HEADROOM BUDGET?   [277 s]
+==========================================================================
+The 3 dB recommendation comes from one probe: a tone at Fs/4 sampled
+at 45 degrees, whose reconstructed waveform peaks exactly 3.01 dB
+above every one of its samples. The question is what real material
+does, so the first table is the peak the cascade actually presents
+to the quantizer against the peak the PCM contains. Records are
+faded at both ends and scanned in blocks; an un-faded record's edge
+reads as 1 dB of headroom that is not there.
+
+                  material   crest dB   samples at FS   true peak   overshoot dB   peaks apart
+        real audio, 16.7 s      24.81               1      1.0000         +0.000        1.5 ms
+        real, clipped 3 dB      21.86             190      1.0029         +0.025        4.3 ms
+        real, clipped 6 dB      19.06             998      1.0083         +0.072        7.2 ms
+       real, clipped 12 dB      14.45           10343      1.0781         +0.653     5886.8 ms
+     percussive, synthetic      21.81               1      1.0033         +0.029        1.5 ms
+  percussive, clipped 6 dB      16.09             542      1.3139         +2.371     1957.6 ms
+ percussive, clipped 12 dB      12.13            3915      1.7532         +4.876     1515.3 ms
+      programme, synthetic      11.58               1      1.0010         +0.009        1.5 ms
+  programme, clipped 12 dB       3.98           35345      1.0399         +0.340     1044.8 ms
+      sustained 41 Hz bass       4.97             368      1.0000         +0.000      848.0 ms
+                1 kHz tone       3.01            5461      1.0000         +0.000        1.5 ms
+   Fs/4 inter-sample probe       0.00          131072      1.4142         +3.010     2718.1 ms
+
+'peaks apart' is how far the largest reconstructed peak sits from
+the largest sample. For unprocessed material they are the same
+event. For clipped material they are not even close, and a headroom
+measurement windowed on the loudest sample measures the wrong
+moment.
+
+Read the first column with the last but one. The probe is 3.010 dB of
+overshoot because every one of its samples sits at full scale by
+construction. Unprocessed material never does that, and its
+overshoot is correspondingly small. Clipping is what creates flat
+runs at full scale, and clipping is what creates the overshoot.
+
+
+==========================================================================
+Q2: WHERE MATERIAL ACTUALLY OVERLOADS THE QUANTIZER   [299 s]
+==========================================================================
+Bisection on the PCM level, same bound as
+modulator.max_stable_amplitude and endtoend.max_stable_pcm -- no
+integrator past 50 quantizer LSBs -- so these numbers sit directly
+beside the README headroom table. The window is centred on the
+largest peak the cascade *reconstructs*, which is not the largest
+sample and for clipped material is nowhere near it -- on the
+percussive record clipped 12 dB the two are 1.5 seconds apart and
+2.5 dB apart. Centring on the loudest sample would miss the moment
+that decides the answer, which is the only reason to window on a
+peak at all.
+
+                  material       rate   MSA at PCM   peak at quantizer   headroom needed
+                real audio     48 kHz        -0.80               -0.80              0.80
+       real, clipped 12 dB     48 kHz        -1.22               -0.57              1.22
+     percussive, synthetic     48 kHz        -0.61               -0.58              0.61

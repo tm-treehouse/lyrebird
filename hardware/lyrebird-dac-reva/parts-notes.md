@@ -678,10 +678,15 @@ ears.
 
 ## The build
 
-As generated, the module is 125 components and 635 pins with **12 unconnected
+As generated, the module is 126 components and 637 pins with **12 unconnected
 pins**, all of them in the table above. Before this work it was 42 components,
 344 pins and 35 unconnected, of which the op amp's six signal pins, the
 LT3094's nine and the registers' clocks were the parts that had no part.
+
+[power.md](power.md) carries the budget that follows from these parts: the
+module draws 238 mA and the board 472 mA, against 147 mA and 381 mA when every
+figure on that page was an estimate. The element resistor took 32 mA out and
+the negative rail's signal current put more back.
 
 `lp.assert_below_abs_max` passes, and it was checked by tampering rather than
 by assumption: putting `+3V3_REF` on a header pin still fails the build.
@@ -698,3 +703,6 @@ by assumption: putting `+3V3_REF` on a header pin still fails the build.
 | Charge pump | **done** — LTC3265EDHC#TRPBF, U13, new symbol |
 | Positive rail post-regulator | **done** — LT3045, U14; LT3094 at U8 now fully wired |
 | Analog output connector | **done** — SJ1-3523N, J2 |
+| Difference network | **604 Ω, not 200** — a supply-current finding, 2.1 dB of noise paid for 28 mA of USB current |
+| `MUTE_N` | **gates the charge pump** — now an HDL requirement, see above |
+| power.md | **updated** — module 238 mA, board 472 mA, provenance marked |
