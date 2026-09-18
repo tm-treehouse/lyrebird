@@ -391,30 +391,39 @@ def rounding_rule(cs, ntf, sig_frac: int, acc: dict) -> dict:
                     f"{r.m.sndr_db:>8.2f}")
                 out[(m.name, rnd)] = (nz, dc, r)
             say()
-    a = out[("96 kHz", "half_up")]
-    b = out[("96 kHz", "half_even")]
-    say(f"Worst case is 96 kHz: an offset of {a[1]:.1f} dBFS costs "
-        f"{b[2].m.sndr_db - a[2].m.sndr_db:.1f} dB of SNDR.")
-    say("The broadband rounding noise is the same either way, so convergent")
-    say("rounding buys this for logic alone. Note that half-up does not fail")
-    say("at every rate: it leaves the same offset everywhere and the loop")
-    say("only sometimes lands on a bad pattern. That makes it a latent fault,")
-    say("not a visible one.")
+    worst = max(out[(m.name, "half_even")][2].m.sndr_db
+                - out[(m.name, "half_up")][2].m.sndr_db
+                for fam, c in cs.items() for m in chain.modes(fam))
+    say(f"Worst case over the six rates: half-up costs {worst:.2f} dB.")
+    say()
+    say("This table used to report 15.7 dB and it was a measurement error --")
+    say("the arithmetic mean was being removed where the windowed mean was")
+    say("needed, so a sub-20 Hz residue was counted as audio-band noise.")
+    say("spectra.remove_dc now removes the right one. See notes-idle.md.")
+    say()
+    say("Round ties to even anyway. The offset column above is real: half-up")
+    say("leaves a static offset at the modulator input some 20 to 40 dB above")
+    say("what convergent rounding leaves, and it reaches the output as DC.")
+    say("An unbiased rounding is a cheaper place to deal with that than the")
+    say("coupling capacitor. What is no longer claimed is that it costs")
+    say("audio-band performance.")
     return out
 
 
 def limit_cycles(cs, ntf, sig_frac: int, acc: dict) -> dict:
-    head("LOW-FREQUENCY LIMIT CYCLES  (measured, not fixed)")
-    say("The loop occasionally settles into a very-low-frequency wander that")
-    say("lands at the bottom of the audio band. When it does, every bit of")
-    say("the excess sits in the 20-100 Hz bins and the in-band figure comes")
-    say("back 15 to 19 dB low. It is a property of the loop, not of the")
-    say("datapath: adding 2**-40 at the modulator input switches it on or")
-    say("off, while adding 1e-18, which float64 discards, does not.")
+    head("LOW-FREQUENCY LIMIT CYCLES  (there are none; kept as a regression)")
+    say("This experiment used to report one run in thirty-six coming back 15")
+    say("to 19 dB low with all the excess in the 20-100 Hz bins, and dither")
+    say("moving which run tripped rather than removing it. All of that was")
+    say("the analysis window: the arithmetic mean is not the mean a windowed")
+    say("transform takes, and the residue landed inside a band starting at")
+    say("20 Hz. spectra.remove_dc now removes the right one everywhere, and")
+    say("the rows below should be flat. See model/notes-idle.md.")
     say()
     say(f"{N_SEEDS} input variations per rate, at the recommended widths. The")
     say("second row of each pair adds 0.25 LSB of dither at the quantizer,")
-    say("inside the loop, which is the textbook remedy for idle tones.")
+    say("inside the loop, which is the textbook remedy for idle tones and")
+    say("which turns out to have had nothing to remedy.")
     say()
     sig = {s: sig_frac for s in range(1, 10)}
     out = {}
@@ -459,11 +468,10 @@ def limit_cycles(cs, ntf, sig_frac: int, acc: dict) -> dict:
     say(f"   no quantizer dither : {bad[0.0]}")
     say(f"   0.25 LSB at the quantizer: {bad[0.25]}")
     say()
-    say("Dither does not remove it. It moves which run trips. Neither does")
-    say("dither at the modulator input, measured separately. This is the")
-    say("largest thing the end-to-end measurement turned up that is still")
-    say("open, and it belongs in a testbench against real material rather")
-    say("than against a single tone.")
+    say("Both counts should now be zero. Measured the old way, with the")
+    say("arithmetic mean, the same records give 1 of 72; run_idle.py section")
+    say("E shows both columns side by side. A non-zero count here means")
+    say("something real has appeared, which is why the experiment is kept.")
     return out
 
 
@@ -653,7 +661,8 @@ def main() -> int:
             f"{v + i} bits total")
     say("Round ties to even everywhere: half-up leaves an offset the modulator")
     say("turns into low-frequency idle tones.")
-    say("One thing is measured and not fixed: see the limit-cycle section.")
+    say("Nothing here is left open: the limit-cycle section is a regression")
+    say("check now, not a finding. See model/notes-idle.md.")
 
     figure_spectrum(results, mism)
     figure_headroom(hr, modulator.max_stable_amplitude(

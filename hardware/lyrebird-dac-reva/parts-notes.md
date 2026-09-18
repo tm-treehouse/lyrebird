@@ -62,13 +62,52 @@ Two details of the wiring are deliberate and worth not undoing:
   ground**, not through a bias-current compensation resistor. 60 nA through
   402 Ω is 24 µV of offset, while the 218 Ω that would cancel it would add
   1.9 nV/√Hz to the one stage whose noise this whole selection is about.
-- **The difference amplifier's four 200 Ω resistors are one array.** They set
-  common-mode rejection, and what they have to reject is the 1.4 V of DC that
-  both transimpedance outputs carry at mid code. Their own thermal noise
-  (about 3.4 nV/√Hz at the output) does not appear in analog.txt's noise
-  breakdown, which accounts for the element resistors, the transimpedance
-  resistors and the amplifiers only; it costs roughly 0.9 dB and is the reason
-  not to scale that network up.
+- **The difference amplifier's four resistors are one array, and they are
+  604 Ω rather than the 200 Ω analog.txt names.** They set common-mode
+  rejection, and what they have to reject is the 1.4 V of DC that both
+  transimpedance outputs carry at mid code, so the array matters. The value
+  is set by a supply-current argument, below.
+
+### The negative rail carries the signal, and that set two values
+
+This is the one thing found here that analog.txt's model does not contain, and
+it changed two component values, so it is written out.
+
+**Every milliampere of element current ends up in the negative supply.** The
+elements push current into a node held at 0 V; it leaves through the
+transimpedance resistor into the amplifier's output pin, and the output stage
+sinks it to `V−`. That is 13.9 mA, constant at every code by construction
+(0008) — a third of what the whole analog stage draws, and it is not
+quiescent current, it is the signal.
+
+**The difference network is a second such load, and its size is a choice.**
+The transimpedance outputs sit between 0 and −2.8 V, never positive, so the
+network's current flows out of ground into those outputs and is sunk to `V−`
+as well. It scales as 1/R while the network's own noise scales as √R:
+
+| Network | Its current, both channels | Negative rail, typical IQ | Stage SNR |
+| --- | --- | --- | --- |
+| 200 Ω | 21.0 mA mid code, 28.0 worst | 56.5–63.5 mA | 125.6 dB |
+| 402 Ω | 10.4 / 14.0 | 46.0–49.4 | 124.3 |
+| **604 Ω** | **7.0 / 9.3** | **42.5–44.8** | **123.5** |
+| 1 kΩ | 4.2 / 5.6 | 39.7–41.1 | 122.4 |
+
+At 200 Ω the negative rail asks for 56 mA at idle and 63 mA at full scale.
+That is past the LTC3265's 50 mA LDO rating, and — because a charge pump that
+doubles costs about twice its output current at the input, and the negative
+rail is inverted from the already-doubled one — it is 161 mA of USB current
+for the analog stage alone, which does not fit the budget at all.
+
+**604 Ω is where the two arguments balance.** It costs 2.1 dB against the
+200 Ω case, taking the stage from 125.6 dB to 123.5 and the system to about
+123.3 dB, which is still 13 dB above 0012's 110 dB target and still leaves the
+digital chain's 133.5 dB well clear. It saves 14 mA on the negative rail and
+28 mA at the USB input. Pole 3 moves with it: 1.3 nF across 604 Ω is 203 kHz,
+the same corner analog.txt sets, so the filter is unchanged.
+
+**This is the number to revisit if the supply ever gets easier.** A module with
+its own power input — the one 0007 points a headphone design at — should go
+back to 200 Ω and take the 2.1 dB.
 
 ## Reclocking registers — SN74ALVCH16374DGGR (U3, U4)
 
@@ -306,27 +345,63 @@ instruction for this case:
 Tying it to VIN_P would cap the negative raw rail at −4.43 V worst case, which
 cannot feed a −5 V regulator at all.
 
-Headroom, at the 4.43 V worst case and with the pump's specified 32 Ω output
-impedance:
+### The 4.43 V question, worked out
 
-| Node | Worst case | Needs |
-| --- | --- | --- |
-| VOUT+ | 2 × 4.43 − 45 mA × 32 Ω = 7.4 V | ≥ 6.3 V |
-| LDO+ | 6.03 V, set by 49.9 k over 12.4 k on ADJ+ | ≥ 5.3 V |
-| VOUT− | −7.4 + 22 mA × 32 Ω = −6.7 V | ≤ −6.3 V |
-| LDO− | −6.03 V | ≤ −5.3 V |
-| LT3045, LT3094 | ±4.99 V, 49.9 k on SET | — |
+The LTC3265's `VIN_P` range is given as **4.5 V to 16 V**, and power.md's worst
+case at the module is **4.43 V** — 70 mV below it. **It resolves, and this
+section is here so nobody has to re-open it.**
 
-**One specification is not met at the worst case, and it is stated rather
-than glossed.** The LTC3265's `VIN_P` range is given as **4.5 V to 16 V**, and
-power.md's worst case at the module is **4.43 V**, 70 mV below it. The part
-does not stop there — its undervoltage lockout is 3.6 V typical and 3.8 V
-maximum rising — so it runs, but it runs just outside the range the datasheet
-guarantees its numbers over. Two things make this tolerable rather than
-disqualifying: the 4.43 V is itself a worst case built from a guaranteed USB
-minimum plus estimated ferrite and contact drops, and the headroom table above
-already carries more than a volt of margin at that voltage. It should be
-measured on the first board rather than assumed.
+The part does not stop at 4.5 V: its undervoltage lockout is 3.6 V typical and
+**3.8 V maximum rising**, so 4.43 V is 0.6 V above the voltage at which it
+switches off, not near it. What is at stake is not the pump's own regulation
+accuracy, which nothing downstream depends on, but whether what comes out of
+it still lets the LT3045 and LT3094 regulate ±5 V. That is arithmetic, with
+these datasheet numbers in it:
+
+- **32 Ω**, the boost and inverting pumps' output impedance, specified at
+  MODE = 0 and RT = GND, which is how they are wired: constant frequency,
+  500 kHz.
+- **LDO+ dropout 800 mV maximum at 50 mA**, scaled to the current drawn.
+- **`VOUT+` carries both chains** — the positive LDO's load *and* the
+  inverting pump's input current — because `VIN_N` is tied to it.
+- **The rails are asymmetric**: 21.6 mA positive against 42–45 mA negative,
+  for the reason set out under the op amp above.
+
+| Bus | Load +/− | VOUT+ | VOUT− | LDO+ | LT3045 margin | LT3094 margin | USB |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 4.43 V | 21.6 / 42.5 mA, mid code | 6.71 V | −5.35 V | regulating | +0.64 V | +0.30 V | 134 mA |
+| 4.43 V | 21.6 / 44.8 mA, full scale | 6.64 V | −5.21 V | regulating | +0.64 V | +0.16 V | 139 mA |
+| 4.43 V | 33 / 56 mA, max IQ over temperature | 5.92 V | −4.12 V | dropout | +0.34 V | −0.93 V | 184 mA |
+| 5.00 V | 21.6 / 42.5 mA | 7.85 V | −6.49 V | regulating | +0.64 V | +1.44 V | 134 mA |
+| 5.00 V | 33 / 56 mA | 7.06 V | −5.26 V | regulating | +0.64 V | +0.21 V | 184 mA |
+
+Margins are against the 5.05 V each final regulator needs to hold 5 V,
+including its own dropout at these currents.
+
+**So: it resolves.** At the realistic load the ±5 V rails hold at the bottom of
+the USB range with 0.6 V and 0.16 V to spare, and at the nominal 5 V with a
+volt or more. The 70 mV of input-range excursion is not what constrains
+anything; the pump's 32 Ω under an asymmetric load is.
+
+**The one case that does not hold is worth naming.** Stack the minimum bus
+voltage, the maximum quiescent current of six amplifiers *over the full
+temperature range* rather than at 25 °C, and a full-scale signal, and the
+negative rail stops regulating and follows the pump down to about −4.1 V. The
+output stage still has 1.3 V of headroom over the 2.83 V peak it has to
+produce, and full scale is set by the element reference rail, not by this one,
+so what is lost in that corner is headroom and supply rejection, not level or
+accuracy. It should be measured rather than assumed, and 4.43 V is itself
+built from a guaranteed USB minimum plus *estimated* ferrite and contact
+drops, so a real board may never go there.
+
+**The LT3094 is fed from `VOUT−` directly, not through LDO−.** The negative
+rail's 42–56 mA is at or past that LDO's 50 mA rating, and putting it in the
+chain would cost another 450 mV of dropout out of a rail that has 0.16 V of
+margin at the bottom of the range. `VOUT−` has the pump's own capability
+behind it — 100 mA of short-circuit current minimum — and the LT3094's
+rejection is the stage the design was relying on in any case. LDO− stays
+enabled with its capacitor and divider, unused, because `EN−` enables the
+inverting pump and that LDO together.
 
 **What it injects, and at what frequency.** This is the part of the choice that
 matters, not efficiency.
@@ -401,9 +476,9 @@ that page's arithmetic suggests.
 
 ## Positive and negative post-regulators — LT3045 (U14) and LT3094 (U8)
 
-The LT3045 was already the part on this board; U14 is a fourth one, on the
-+6 V raw rail, programmed to +4.99 V by 49.9 kΩ on SET. Its housekeeping is
-the same shared helper the other three use.
+The LT3045 was already the part on this board; U14 is a fourth one, sitting on
+the pump's +5.69 V LDO output and programmed to +4.99 V by 49.9 kΩ on SET. Its
+housekeeping is the same shared helper the other three use.
 
 The **LT3094** at U8 was in the netlist with only OUT and GND connected — the
 netlist README lists its input as one of two genuinely open things on the
@@ -453,6 +528,55 @@ electrolytic or a film part in the signal path, which is a worse trade than
 port on the board and therefore its antenna; against the 100 Ω build-out
 resistor this is a 16 MHz corner, which is nothing in band and something
 against radio frequency arriving from outside.
+
+## `MUTE_N` is now an HDL requirement
+
+Gating the charge pump on `MUTE_N` moved a line from the hardware's column to
+the FPGA's. **Nothing on this module makes an analog rail until the FPGA
+asserts `MUTE_N`**, so an HDL that never drives that pin leaves a board that
+powers up, enumerates, clocks, converts, and is silent. It is the right failure
+direction — silence rather than 90 mA the host has not granted, or a thump into
+somebody's amplifier — but only if something eventually asserts it.
+
+**What the pin does now.** It drives `EN+` and `EN−` on the LTC3265 through a
+100 kΩ pull-down on the module. Low or undriven means both charge pumps and
+both of the pump's LDOs are off, so `+5V_A` and `−5V_A` do not exist and the
+six OPA1612 channels are unpowered. High means the whole analog stage comes up.
+The thresholds are 2 V rising maximum and 0.4 V falling minimum, which the
+header's 2.5 V logic clears at both ends.
+
+**When to assert it.** Two conditions, and the order matters:
+
+1. **After the host has configured the device.** One unit load applies until
+   then — 150 mA on USB 3.0 — and the analog stage does not fit inside it at
+   any element value (analog.txt Q1b). This is the same event 0009 already uses
+   to release the FPGA rails through the LTM4622 run pins, so the FPGA knows
+   it.
+2. **After the element lines are being driven with a defined code.** The
+   oscillator has to be enabled, the element clock running, and the registers
+   clocked at least once, or the analog stage powers up onto whatever state
+   the flip-flops came up in — which can be all 28 elements high, a
+   full-scale DC step into the output. Assert `MUTE_N` after the modulator is
+   running and settled at mid-scale, not before.
+
+It does **not** wait on the module's own rails, because they do not exist until
+it asserts. It is the cause, not the effect.
+
+**Allow for the ramp.** Asserting `MUTE_N` starts the charge pumps, then the
+pump's LDOs, then the LT3045 and LT3094, whose start-up is set by the 4.7 µF
+bypass on each SET pin. That is milliseconds, not microseconds. Hold the
+digital output at zero across it.
+
+**Do not use it as a mute.** 0010 puts volume and mute in the FPGA, and that is
+where a rate change should mute: 0007's "mute, switch, re-lock, prefill,
+resume" must use the digital path, because toggling `MUTE_N` now power-cycles
+the analog stage and costs milliseconds each way. `MUTE_N` is a power-sequencing
+signal that happens to have the right polarity and the right name.
+
+**De-assert it on the way down** if the FPGA can see it coming — loss of
+configuration, a rate family change that stops the clock, a commanded shutdown
+— so the output stage loses its rails before the element reference rail sags
+and the elements drift.
 
 ## What is left open on purpose
 

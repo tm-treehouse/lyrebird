@@ -8,12 +8,12 @@ everything the FPGA does, which is what isolates the chain itself.
 
       rate          source    SNR dB   SNDR dB    THD dB     mod in  peak dBFS   clip
     48 kHz     24-bit TPDF    138.47    137.59   -144.94     -142.2      -3.70      0
-    48 kHz      24-bit raw    143.25    142.06   -148.28     -147.0      -3.70      0
+    48 kHz      24-bit raw    143.25    142.07   -148.28     -147.0      -3.70      0
     48 kHz    source exact    167.95    167.92   -189.72     -219.2      -3.70      0
 
-    96 kHz     24-bit TPDF    141.35    140.27   -146.83     -145.1      -3.70      0
+    96 kHz     24-bit TPDF    141.37    140.28   -146.83     -145.1      -3.70      0
     96 kHz      24-bit raw    146.60    145.48   -151.88     -150.4      -3.70      0
-    96 kHz    source exact    168.12    168.09   -189.39     -219.5      -3.70      0
+    96 kHz    source exact    168.12    168.09   -189.39     -219.4      -3.70      0
 
    192 kHz     24-bit TPDF    144.83    143.80   -150.54     -148.6      -3.70      0
    192 kHz      24-bit raw    149.38    148.58   -156.34     -153.1      -3.70      0
@@ -21,15 +21,15 @@ everything the FPGA does, which is what isolates the chain itself.
 
   44.1 kHz     24-bit TPDF    138.42    137.55   -144.96     -142.1      -3.70      0
   44.1 kHz      24-bit raw    142.68    141.73   -148.78     -146.4      -3.70      0
-  44.1 kHz    source exact    166.15    166.10   -186.18     -219.5      -3.70      0
+  44.1 kHz    source exact    166.15    166.10   -186.18     -219.4      -3.70      0
 
-  88.2 kHz     24-bit TPDF    141.11    140.18   -147.37     -144.8      -3.70      0
+  88.2 kHz     24-bit TPDF    141.11    140.19   -147.37     -144.8      -3.70      0
   88.2 kHz      24-bit raw    146.59    145.72   -153.10     -150.3      -3.70      0
-  88.2 kHz    source exact    166.33    166.30   -187.23     -219.5      -3.70      0
+  88.2 kHz    source exact    166.33    166.30   -187.23     -219.4      -3.70      0
 
- 176.4 kHz     24-bit TPDF    144.31    143.37   -150.47     -148.0      -3.70      0
+ 176.4 kHz     24-bit TPDF    144.33    143.39   -150.47     -148.0      -3.70      0
  176.4 kHz      24-bit raw    148.96    148.01   -155.11     -152.7      -3.70      0
- 176.4 kHz    source exact    165.71    165.68   -188.16     -219.5      -3.70      0
+ 176.4 kHz    source exact    165.71    165.68   -188.16     -219.4      -3.70      0
 
 
 ========================================================================
@@ -54,9 +54,9 @@ the 24-bit floor is not hiding it either.
   sigma   rotation    SNR dB   SNDR dB    THD dB
    0.0%         on    167.95    167.92   -189.72
    0.1%         on    154.75    154.50   -166.97
-   0.1%        off    111.56     77.08    -77.08
+   0.1%        off    111.57     77.08    -77.08
    1.0%         on    134.91    134.65   -146.94
-   1.0%        off     91.54     57.06    -57.06
+   1.0%        off     91.56     57.06    -57.06
 
 ========================================================================
 MAX STABLE AMPLITUDE AGAINST FILTERED CONTENT
@@ -206,67 +206,75 @@ the chain, and it is not harmless -- a delta-sigma loop turns a
 static input offset into idle tones in the lowest bins of the band.
 
       rate    rounding   chain noise   DC at mod in   SNDR dB
-    48 kHz     half_up        -165.7         -168.8    137.56
+    48 kHz     half_up        -165.7         -168.8    137.57
     48 kHz   half_even        -165.8         -327.3    137.54
 
     96 kHz     half_up        -168.6         -169.2    140.23
-    96 kHz   half_even        -168.6         -342.6    140.23
+    96 kHz   half_even        -168.6         -342.6    140.25
 
-   192 kHz     half_up        -172.3         -169.3    143.76
+   192 kHz     half_up        -172.3         -169.3    143.82
    192 kHz   half_even        -172.7         -329.2    143.83
 
-  44.1 kHz     half_up        -165.9         -169.1    124.73
+  44.1 kHz     half_up        -165.9         -169.1    137.53
   44.1 kHz   half_even        -165.6         -329.9    137.55
 
-  88.2 kHz     half_up        -168.5         -169.3    140.14
+  88.2 kHz     half_up        -168.5         -169.3    140.15
   88.2 kHz   half_even        -168.6         -328.6    140.15
 
- 176.4 kHz     half_up        -171.8         -169.4    143.20
- 176.4 kHz   half_even        -171.7         -345.6    143.31
+ 176.4 kHz     half_up        -171.8         -169.4    143.33
+ 176.4 kHz   half_even        -171.7         -345.6    143.33
 
-Worst case is 96 kHz: an offset of -169.2 dBFS costs -0.0 dB of SNDR.
-The broadband rounding noise is the same either way, so convergent
-rounding buys this for logic alone. Note that half-up does not fail
-at every rate: it leaves the same offset everywhere and the loop
-only sometimes lands on a bad pattern. That makes it a latent fault,
-not a visible one.
+Worst case over the six rates: half-up costs 0.02 dB.
+
+This table used to report 15.7 dB and it was a measurement error --
+the arithmetic mean was being removed where the windowed mean was
+needed, so a sub-20 Hz residue was counted as audio-band noise.
+spectra.remove_dc now removes the right one. See notes-idle.md.
+
+Round ties to even anyway. The offset column above is real: half-up
+leaves a static offset at the modulator input some 20 to 40 dB above
+what convergent rounding leaves, and it reaches the output as DC.
+An unbiased rounding is a cheaper place to deal with that than the
+coupling capacitor. What is no longer claimed is that it costs
+audio-band performance.
 
 ========================================================================
-LOW-FREQUENCY LIMIT CYCLES  (measured, not fixed)
+LOW-FREQUENCY LIMIT CYCLES  (there are none; kept as a regression)
 ========================================================================
-The loop occasionally settles into a very-low-frequency wander that
-lands at the bottom of the audio band. When it does, every bit of
-the excess sits in the 20-100 Hz bins and the in-band figure comes
-back 15 to 19 dB low. It is a property of the loop, not of the
-datapath: adding 2**-40 at the modulator input switches it on or
-off, while adding 1e-18, which float64 discards, does not.
+This experiment used to report one run in thirty-six coming back 15
+to 19 dB low with all the excess in the 20-100 Hz bins, and dither
+moving which run tripped rather than removing it. All of that was
+the analysis window: the arithmetic mean is not the mean a windowed
+transform takes, and the residue landed inside a band starting at
+20 Hz. spectra.remove_dc now removes the right one everywhere, and
+the rows below should be flat. See model/notes-idle.md.
 
 6 input variations per rate, at the recommended widths. The
 second row of each pair adds 0.25 LSB of dither at the quantizer,
-inside the loop, which is the textbook remedy for idle tones.
+inside the loop, which is the textbook remedy for idle tones and
+which turns out to have had nothing to remedy.
 
-    48 kHz  no dither    137.6    137.6    137.6    137.6    137.5    137.6
-             0.25 LSB    137.6    137.6    137.6    137.6    137.6    137.6
-    96 kHz  no dither    140.2    140.2    140.2    140.2    140.2    140.2
-             0.25 LSB    140.2    140.3    140.2    140.2    140.2    140.2
+    48 kHz  no dither    137.6    137.6    137.5    137.6    137.5    137.6
+             0.25 LSB    137.6    137.6    137.6    137.5    137.6    137.6
+    96 kHz  no dither    140.2    140.2    140.3    140.2    140.3    140.2
+             0.25 LSB    140.2    140.3    140.3    140.2    140.3    140.2
    192 kHz  no dither    143.8    143.8    143.8    143.9    143.8    143.8
-             0.25 LSB    143.8    143.8    143.9    124.8    143.8    143.8
+             0.25 LSB    143.8    143.8    143.9    143.8    143.8    143.8
   44.1 kHz  no dither    137.5    137.5    137.5    137.5    137.6    137.5
              0.25 LSB    137.5    137.6    137.6    137.6    137.6    137.6
-  88.2 kHz  no dither    140.2    140.2    140.2    140.2    140.1    140.1
+  88.2 kHz  no dither    140.2    140.2    140.2    140.2    140.1    140.2
              0.25 LSB    140.2    140.2    140.2    140.1    140.2    140.2
- 176.4 kHz  no dither    143.3    143.3    125.1    143.3    143.3    143.3
-             0.25 LSB    143.3    143.3    143.3    143.3    143.3    143.3
+ 176.4 kHz  no dither    143.3    143.4    143.3    143.3    143.3    143.3
+             0.25 LSB    143.4    143.4    143.3    143.3    143.3    143.3
 
 runs more than 5 dB below their rate's median, of 36:
-   no quantizer dither : 1
-   0.25 LSB at the quantizer: 1
+   no quantizer dither : 0
+   0.25 LSB at the quantizer: 0
 
-Dither does not remove it. It moves which run trips. Neither does
-dither at the modulator input, measured separately. This is the
-largest thing the end-to-end measurement turned up that is still
-open, and it belongs in a testbench against real material rather
-than against a single tone.
+Both counts should now be zero. Measured the old way, with the
+arithmetic mean, the same records give 1 of 72; run_idle.py section
+E shows both columns side by side. A non-zero count here means
+something real has appeared, which is why the experiment is kept.
 
 ========================================================================
 VERIFICATION: THE RECOMMENDED DATAPATH, END TO END
@@ -278,8 +286,8 @@ coefficients as settled, ties to even.
     48 kHz      27           -160.1         -142.2       137.57       137.46      0.11
     48 kHz      28           -165.8         -142.2       137.57       137.54      0.03
 
-    96 kHz      27           -162.9         -145.1       140.27       140.24      0.03
-    96 kHz      28           -168.6         -145.1       140.27       140.23      0.04
+    96 kHz      27           -162.9         -145.1       140.29       140.26      0.03
+    96 kHz      28           -168.6         -145.1       140.29       140.25      0.04
 
    192 kHz      27           -166.1         -148.6       143.83       143.74      0.10
    192 kHz      28           -172.7         -148.6       143.83       143.83      0.00
@@ -287,11 +295,11 @@ coefficients as settled, ties to even.
   44.1 kHz      27           -159.2         -142.1       137.56       137.44      0.12
   44.1 kHz      28           -165.6         -142.1       137.56       137.55      0.01
 
-  88.2 kHz      27           -163.6         -144.8       140.18       140.08      0.10
+  88.2 kHz      27           -163.6         -144.8       140.18       140.09      0.10
   88.2 kHz      28           -168.6         -144.8       140.18       140.15      0.03
 
- 176.4 kHz      27           -165.8         -148.0       125.06       143.32    -18.26
- 176.4 kHz      28           -171.7         -148.0       125.06       143.31    -18.25
+ 176.4 kHz      27           -165.8         -148.0       143.40       143.34      0.05
+ 176.4 kHz      28           -171.7         -148.0       143.40       143.33      0.07
 
 budget was -159 dBFS for the whole interpolator.
 27 bits is the narrowest word that meets it at every rate; 28 is the recommendation, for the margin.
@@ -309,9 +317,9 @@ hardware to.
     48 kHz        0.1%    138.28    137.41   -144.82         +27.4
     48 kHz        1.0%    133.48    132.92   -142.15         +22.9
 
-    96 kHz     matched    141.33    140.23   -146.74         +30.2
-    96 kHz        0.1%    141.13    140.09   -146.80         +30.1
-    96 kHz        1.0%    134.19    133.72   -143.60         +23.7
+    96 kHz     matched    141.35    140.25   -146.74         +30.3
+    96 kHz        0.1%    141.15    140.11   -146.80         +30.1
+    96 kHz        1.0%    134.20    133.73   -143.60         +23.7
 
    192 kHz     matched    144.87    143.83   -150.53         +33.8
    192 kHz        0.1%    144.49    143.52   -150.48         +33.5
@@ -321,12 +329,12 @@ hardware to.
   44.1 kHz        0.1%    138.28    137.45   -145.07         +27.5
   44.1 kHz        1.0%    133.31    132.84   -142.74         +22.8
 
-  88.2 kHz     matched    141.05    140.15   -147.41         +30.1
-  88.2 kHz        0.1%    140.87    139.99   -147.34         +30.0
+  88.2 kHz     matched    141.06    140.15   -147.41         +30.2
+  88.2 kHz        0.1%    140.88    140.00   -147.34         +30.0
   88.2 kHz        1.0%    133.29    132.83   -142.84         +22.8
 
- 176.4 kHz     matched    144.24    143.31   -150.43         +33.3
- 176.4 kHz        0.1%    143.96    143.01   -150.09         +33.0
+ 176.4 kHz     matched    144.27    143.33   -150.43         +33.3
+ 176.4 kHz        0.1%    143.99    143.03   -150.09         +33.0
  176.4 kHz        1.0%    133.78    133.32   -143.37         +23.3
 
 Worst case over every rate, with one percent elements: 132.8 dB, 22.8 dB over the 110 dB target.
@@ -336,10 +344,11 @@ RECOMMENDATION
 ========================================================================
 Signal word: 26 fractional bits, 1 integer bit, 1 sign = 28 bits, flat across all nine stages. Flat, not tapered:
 a narrowing word re-rounds the pass-through phase at every stage.
-Accumulator: 2 integer bits and 1 sign above the point, and below it
+Accumulator: bits above the point from the L1 bound, and below it
    stages 1-3: 31 fractional bits, 4 above the point, 35 bits total
    stages 4-5: 30 fractional bits, 3 above the point, 33 bits total
    stages 6-9: 29 fractional bits, 2 above the point, 31 bits total
 Round ties to even everywhere: half-up leaves an offset the modulator
 turns into low-frequency idle tones.
-One thing is measured and not fixed: see the limit-cycle section.
+Nothing here is left open: the limit-cycle section is a regression
+check now, not a finding. See model/notes-idle.md.

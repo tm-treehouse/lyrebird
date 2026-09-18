@@ -407,12 +407,22 @@ def build():
     line_out = {}
     for ch in range(2):
         out_p, inv_p, ni_p = UNIT[ch]
-        # Four 200 ohm resistors on one die. This network sets common-mode
+        # Four 604 ohm resistors on one die. This network sets common-mode
         # rejection, which is what removes the 1.4 V of DC that both
         # transimpedance outputs carry at mid code, so ratio matching here
         # is doing real work.
+        #
+        # 604 ohm rather than the 200 ohm analog.txt names, because this
+        # network is also a load on the negative supply and 200 ohm makes it
+        # an unaffordable one. The transimpedance outputs sit between 0 and
+        # -2.8 V, so the network's current flows out of ground and into their
+        # output stages, which sink it to the negative rail: 21 mA at 200 ohm
+        # against 7 mA here, on a rail that also carries all 13.9 mA of
+        # element current and that a charge pump has to make from 5 V at
+        # twice the current. The cost is 2.1 dB of stage noise; the arithmetic
+        # is in parts-notes.md.
         rn = Part("Device", "R_Pack04", ref=f"RN{16+ch}",
-                  value="200R 0.1% thin film",
+                  value="604R 0.1% thin film",
                   footprint="Resistor_SMD:R_Array_Concave_4x0402")
         inv = Net(f"DIFF_INV_{'LR'[ch]}")
         ref = Net(f"DIFF_REF_{'LR'[ch]}")
@@ -428,11 +438,13 @@ def build():
         rn[6] += ref
         rn[4] += ref                    # non-inverting leg to ground
         rn[5] += gnd
-        # Pole 3 of three: 3.9 nF across 200 ohm is 204 kHz. The same value
-        # sits on the non-inverting leg, because a difference amplifier only
-        # keeps its rejection above the pole if both legs roll off together.
-        _cap(inv, o, "3.9nF C0G", "Capacitor_SMD:C_0603_1608Metric")
-        _cap(ref, gnd, "3.9nF C0G", "Capacitor_SMD:C_0603_1608Metric")
+        # Pole 3 of three: 1.3 nF across 604 ohm is 203 kHz, the same corner
+        # analog.txt asks for with its own 3979 pF across 200 ohm. The same
+        # value sits on the non-inverting leg, because a difference amplifier
+        # only keeps its rejection above the pole if both legs roll off
+        # together.
+        _cap(inv, o, "1.3nF C0G", "Capacitor_SMD:C_0603_1608Metric")
+        _cap(ref, gnd, "1.3nF C0G", "Capacitor_SMD:C_0603_1608Metric")
         lo = Net(f"LINE_OUT_{'LR'[ch]}")
         # Series build-out, so cable capacitance does not hang directly on
         # the feedback loop. 100 ohm into a 10 kohm line load is 0.09 dB.
@@ -456,8 +468,8 @@ def build():
     # output through a regulator that needs its dropout.
     pump_p = Net("PUMP_P")          # 2 x VIN_P, also the inverting pump input
     pump_n = Net("PUMP_N")          # -PUMP_P
-    vpos_raw = Net("+6V_A")         # LDO+, the LT3045's input
-    vneg_raw = Net("-6V_A")         # LDO-, the LT3094's input
+    vpos_raw = Net("+5V7_A")        # LDO+, the LT3045's input
+    vneg_raw = Net("-5V7_A")        # LDO-, the LT3094's input
     pump = Part("lyrebird", "LTC3265", ref="U13", value="LTC3265EDHC#TRPBF",
                 footprint="Package_DFN_QFN:DFN-18-1EP_3x5mm_P0.5mm_EP1.66x4.4mm")
     pump["VIN_P"] += v5
@@ -470,6 +482,8 @@ def build():
     _cap(v5, gnd, "10uF")
     _cap(pump_p, gnd, "10uF")
     _cap(pump_n, gnd, "10uF")
+    _cap(pump_n, gnd, "10uF")      # VOUT- feeds the LT3094 directly; halve the
+                                   # 500 kHz ripple before its rejection sees it
     _cap(pump_p, gnd, "1uF", "Capacitor_SMD:C_0603_1608Metric")  # at VIN_N
     _cap(vpos_raw, gnd, "10uF")
     _cap(vneg_raw, gnd, "10uF")
@@ -488,13 +502,22 @@ def build():
     # reduce their output noise, and these two rails reach the signal.
     _cap(pump["BYP+"], gnd, "100nF", "Capacitor_SMD:C_0402_1005Metric")
     _cap(pump["BYP-"], gnd, "100nF", "Capacitor_SMD:C_0402_1005Metric")
-    # ADJ servos to +/-1.2 V. 49.9k over 12.4k gives 1.2 x (1 + 49.9/12.4) =
-    # 6.03 V, which leaves the LT3045 and LT3094 a volt of headroom over
+    # ADJ servos to +/-1.2 V. 46.4k over 12.4k gives 1.2 x (1 + 46.4/12.4) =
+    # 5.69 V, which is 0.69 V of headroom for the LT3045 and LT3094 over
     # their +/-5 V outputs and keeps the pump's own 32 ohm output impedance
     # out of the final rail.
-    _res(vpos_raw, pump["ADJ+"], "49.9k 1%")
+    #
+    # The setting is chosen by the arithmetic in parts-notes.md rather than
+    # by symmetry with anything. The negative chain is the tight one, because
+    # it inverts the already-sagged doubled rail: at the worst-case 4.43 V
+    # from the header and four amplifiers' worth of maximum quiescent
+    # current, VOUT- reaches only -6.17 V and LDO- needs 5.96 V of it. A
+    # 6.0 V setting would drop out there; 5.69 V holds with 0.21 V to spare
+    # and still leaves both final regulators more headroom than their
+    # dropout needs.
+    _res(vpos_raw, pump["ADJ+"], "46.4k 1%")
     _res(pump["ADJ+"], gnd, "12.4k 1%")
-    _res(vneg_raw, pump["ADJ-"], "49.9k 1%")
+    _res(vneg_raw, pump["ADJ-"], "46.4k 1%")
     _res(pump["ADJ-"], gnd, "12.4k 1%")
     # EN+ and EN- must not float, and they are what holds the analog stage
     # off before enumeration. One unit load applies until the device is
@@ -535,21 +558,30 @@ def build():
     # pin." "If power good and fast start-up functionality are not needed, tie
     # PGFB to IN." EN/UV enables on either polarity beyond +/-1.35 V, so
     # tying it to the negative input is an enable, not a shutdown.
+    # The LT3094 takes the inverting pump's output directly, not LDO-. The
+    # negative rail carries the quiescent current of six amplifiers, all
+    # 13.9 mA of element current, and the difference network's current, which
+    # is 42 to 45 mA together and reaches 56 mA with maximum quiescent
+    # current over temperature. LDO- is a 50 mA part, and its own dropout
+    # would cost another 450 mV of headroom that the doubled-then-inverted
+    # rail does not have at the bottom of the USB range. VOUT- has the pump's
+    # own current capability behind it instead, and the LT3094's rejection is
+    # what the design was relying on anyway.
     neg = Part("Regulator_Linear", "LT3094xDD", ref="U8",
                value="LT3094 op amp negative rail",
                footprint="Package_DFN_QFN:DFN-12-1EP_3x3mm_P0.45mm_EP1.65x2.38mm")
     for p in neg.pins:
         nm = str(p.name)
         if nm.startswith("IN"):
-            p += vneg_raw
+            p += pump_n
         elif nm.startswith("OUT"):
             p += vneg
         elif nm == "GND":
             p += gnd
     _res(neg["SET"], gnd, "49.9k 0.1%")
     _cap(neg["SET"], gnd, "4.7uF")
-    vneg_raw += neg["EN/UV"]
-    vneg_raw += neg["PGFB"]
+    pump_n += neg["EN/UV"]
+    pump_n += neg["PGFB"]
     # Unlike the LT3045, the LT3094's pin description gives no instruction for
     # an unused ILIM, so the current limit is programmed rather than the pin
     # tied: the scale factor is 3.75 A x kohm, so 24.9k sets about 150 mA,
@@ -615,7 +647,7 @@ def build():
     lp.assert_below_abs_max(
         builtins.default_circuit,
         hv_rails={"+5V", "+3V3_CLK", "+3V3_REF", "+5V_A", "-5V_A",
-                  "PUMP_P", "PUMP_N", "+6V_A", "-6V_A"},
+                  "PUMP_P", "PUMP_N", "+5V7_A", "-5V7_A"},
         protected={mez: {"+5V"}})
 
 

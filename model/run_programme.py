@@ -201,8 +201,7 @@ def validate(cs, ntf) -> dict:
             r = P.render(c, ntf, m, pcm, n_out=WINDOW, sigma=SIGMA,
                          keep_source_term=True)
             w = P.measure(r)[0]
-            xx = P.centre(r.x)
-            mm = spectra.Measurement.of(xx, m.element_clock, f, BAND,
+            mm = spectra.Measurement.of(r.x, m.element_clock, f, BAND,
                                         n_harmonics=10)
             _, margin = P.alignment_margin(r.x, r.u_ref, m.element_clock)
             say(f"{m.name:>10}  {mm.snr_db:>12.2f}  {mm.sndr_db:>13.2f}  "
@@ -836,6 +835,222 @@ def traps(cs, ntf, real) -> None:
 # Figures
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# The thing a tone cannot show
+# ---------------------------------------------------------------------------
+
+def coherent(m, f_target: float) -> float:
+    return endtoend.coherent_tone_freq(m, WINDOW, f_target)[1]
+
+
+def to_inband(x: np.ndarray, fs: float, target_dbfs: float) -> np.ndarray:
+    """Scale so the record carries ``target_dbfs`` of power in 20 Hz-20 kHz.
+
+    Matching on peak level would compare a sine against material with 20 dB
+    more crest factor and call the difference a result. What has to be held
+    equal is how hard the converter is driven in the band the answer is
+    reported in.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    w = spectra.analysis_window(len(x))
+    p = spectra.power_spectrum(P.centre(x, w), w)
+    f = spectra.bin_freqs(len(x), fs)
+    sel = (f >= BAND[0]) & (f <= BAND[1])
+    cur = float(spectra.dbfs(float(p[sel].sum())))
+    return x * 10.0 ** ((target_dbfs - cur) / 20.0)
+
+
+def mismatch_and_material(cs, ntf, real) -> dict:
+    head("WHAT ONE TONE UNDERSTATES: MISMATCH AGAINST BROADBAND CONTENT")
+    say("An earlier pass of this script reported that broadband material")
+    say("provoked mid-band distortion a tone did not, rising to 40 dB. It did")
+    say("not. That was the gain fit being taken on un-centred signals, and it")
+    say("is written up in the traps section. This is the same question asked")
+    say("with the instrument repaired, and the answer is much smaller and")
+    say("still worth having.")
+    say()
+    say("Sources are matched on in-band signal power, not on peak level, so")
+    say("what differs between the rows is the content and nothing else.")
+    say()
+    c = cs["48k"]
+    m = [x for x in chain.modes("48k") if x.multiplier == 1][0]
+    fs = m.element_clock
+    need = P.pcm_for(c, m, WINDOW)
+    t = np.arange(need) / m.fs
+
+    def tones(freqs):
+        return sum(np.sin(2 * np.pi * coherent(m, f) * t + 0.7 * i)
+                   for i, f in enumerate(freqs))
+
+    rng = np.random.default_rng(12)
+    srcs = [
+        ("1 kHz sine", tones([1000.0])),
+        ("two tones, 1.0 + 1.1 kHz", tones([1000.0, 1100.0])),
+        ("8-tone multitone", tones([110.0, 220.0, 437.0, 881.0, 1753.0,
+                                    3499.0, 7001.0, 13999.0])),
+        ("white noise to 20 kHz", rng.standard_normal(need)),
+        ("sustained 41 Hz bass", material.sustained_bass(need, m.fs)),
+        ("programme, synthetic", material.programme(need, m.fs)),
+    ]
+    if real is not None:
+        srcs.append(("real audio", real[:need]))
+    target = -16.0
+    say(f"In-band signal power held at {target:.0f} dBFS. 48 kHz, order 3, "
+        f"2^{int(np.log2(WINDOW))} samples.")
+    say()
+    say(f"{'source':>26}  {'crest':>6}  {'matched':>8}  {'0.1%':>8}  "
+        f"{'1%':>8}  {'1%, no rot':>10}  {'1% cost':>8}  {'mod only':>9}")
+    out = {}
+    for label, x in srcs:
+        xx = to_inband(x, m.fs, target)
+        row = {}
+        for key, kw in (("matched", dict(sigma=0.0)),
+                        ("0.1%", dict(sigma=0.001)),
+                        ("1%", dict(sigma=0.01)),
+                        ("norot", dict(sigma=0.01, rotate=False))):
+            r = P.render(c, ntf, m, xx, n_out=WINDOW, **kw)
+            w = P.measure(r, window=WINDOW)[0]
+            row[key] = w.err_dbfs
+            if key == "1%":
+                row["bands"] = (w.low_db, w.mid_db, w.high_db)
+            if key == "matched":
+                cr, au = P.band_gain_terms(r.v, r.u_ref, fs)
+                row["mod"] = P._to_dbfs(material.band_shape(
+                    P.centre(r.v - (cr / au) * r.u_ref), fs)["total_db"])
+        out[label] = row
+        say(f"{label:>26}  {P.crest_db(xx):>6.1f}  {row['matched']:>8.1f}  "
+            f"{row['0.1%']:>8.1f}  {row['1%']:>8.1f}  {row['norot']:>10.1f}  "
+            f"{row['1%'] - row['matched']:>+8.1f}  {row['mod']:>9.1f}")
+        flush()
+    say()
+    say("Read the last column first. 'mod only' is the same error measured")
+    say("before the elements -- cascade, datapath and modulator against the")
+    say("ideal reconstruction. It is within a decibel of the matched-element")
+    say("column on every row, so **the cascade and the modulator do not care")
+    say("what the material is**. Everything that changes between these rows")
+    say("happens in the weighted element sum.")
+    say()
+    say(f"{'source':>26}  {'20-100':>9}  {'0.1-2k':>9}  {'2-20k':>9}   "
+        f"at 1% elements")
+    for label in out:
+        lo, mid, hi = out[label]["bands"]
+        say(f"{label:>26}  {lo:>9.1f}  {mid:>9.1f}  {hi:>9.1f}")
+    say()
+    say("**The error is in 2-20 kHz on every row, 14 dB or more above the")
+    say("100 Hz-2 kHz band.** There is no mid-band term that tracks the")
+    say("signal. Rotation is shaping the mismatch up out of the band against")
+    say("broadband material exactly as it does against a tone, which is what")
+    say("0008 claims and what the earlier pass appeared to contradict.")
+    say()
+    costs = {k: v["1%"] - v["matched"] for k, v in out.items()}
+    cheapest = min(costs, key=costs.get)
+    dearest = max(costs, key=costs.get)
+    say(f"What is real is the spread in the cost column. One percent elements")
+    say(f"cost {costs['1 kHz sine']:.1f} dB against a single sine and "
+        f"{costs[dearest]:.1f} dB against {dearest},")
+    say(f"a spread of {costs[dearest] - costs[cheapest]:.1f} dB over every "
+        f"source measured. **A tone understates")
+    say(f"what one percent elements cost, by "
+        f"{costs[dearest] - costs['1 kHz sine']:.1f} dB against the worst "
+        f"source here.**")
+    say("That is the whole of what broadband content reveals that a tone")
+    say("hides, and it is 4 dB rather than the 40 the broken pass reported.")
+    say()
+
+    head("THE SAME THING AT A LONGER TRANSFORM")
+    say("Two findings from this script have now dissolved into measurement")
+    say("artefacts, so this one is checked before it is believed. The test is")
+    say("the one that would break it: a longer transform, which halves the bin")
+    say("width and so halves how far any leftover DC can reach, against a tone")
+    say("at the same in-band level in the same band.")
+    say()
+    say(f"{'source':>26}  {'2^20 matched':>13}  {'2^20 at 1%':>11}  "
+        f"{'2^21 matched':>13}  {'2^21 at 1%':>11}  {'2^21 mid':>9}")
+    long_need = P.pcm_for(c, m, 2 * WINDOW)
+    tl = np.arange(long_need) / m.fs
+    for label in ("1 kHz sine", "white noise to 20 kHz", "real audio"):
+        if label not in out:
+            continue
+        if label == "1 kHz sine":
+            xl = np.sin(2 * np.pi * coherent(m, 1000.0) * tl)
+        elif label == "white noise to 20 kHz":
+            xl = np.random.default_rng(12).standard_normal(long_need)
+        else:
+            xl = real[:long_need]
+        xl = to_inband(xl, m.fs, target)
+        vals = []
+        for sg in (0.0, 0.01):
+            rl = P.render(c, ntf, m, xl, n_out=2 * WINDOW, sigma=sg)
+            wl = P.measure(rl, window=2 * WINDOW)[0]
+            vals.append(wl)
+        say(f"{label:>26}  {out[label]['matched']:>13.1f}  "
+            f"{out[label]['1%']:>11.1f}  {vals[0].err_dbfs:>13.1f}  "
+            f"{vals[1].err_dbfs:>11.1f}  {vals[1].mid_db:>9.1f}")
+        flush()
+    say()
+    say("Doubling the transform moves nothing by more than a decibel, and the")
+    say("100 Hz-2 kHz band stays where it was. The result is a property of the")
+    say("chain, not of the window.")
+    say()
+
+    head("HOW MUCH THE PARTICULAR ELEMENTS MATTER")
+    say("One percent is a tolerance, not a value. These rows are the same")
+    say("chain and the same record with different draws from it, plus two")
+    say("constructed cases that isolate what the differential pair does.")
+    say()
+    if real is None:
+        say("(needs real material; skipped)")
+        return out
+    seg = P.normalise_peak(real[:need], PLAY_DBFS)
+    say(f"{'elements':>44}  {'error':>8}  {'20-100':>8}  {'0.1-2k':>8}  "
+        f"{'2-20k':>8}")
+
+    def with_weights(wp, wn, label):
+        settle = c.settle_samples(m)
+        import lyrebird_model.datapath as D
+        ref, _ = D.interpolate(c, seg, m, coeff_bits=P.COEFF_BITS)
+        q = endtoend.quantize_pcm(seg)
+        got, _ = D.interpolate(c, q, m, coeff_bits=P.COEFF_BITS,
+                               sig_frac=P.SIG_FRAC, acc_frac=P.ACC_FRAC)
+        drive = got[settle:settle + WARMUP + WINDOW]
+        rr = modulator.simulate(ntf, drive, fs)
+        codes = np.clip(np.asarray(rr.codes, np.int64), 0, chain.N_ELEMENTS)
+        x = P.element_sum(codes, rotate=True, w_pos=wp, w_neg=wn)[WARMUP:]
+        uref = ref[settle + WARMUP:settle + WARMUP + WINDOW]
+        cr, au = P.band_gain_terms(x, uref, fs)
+        bs = material.band_shape(P.centre(x - (cr / au) * uref), fs)
+        say(f"{label:>44}  {P._to_dbfs(bs['total_db']):>8.1f}  "
+            f"{P._to_dbfs(bs['low_db']):>8.1f}  "
+            f"{P._to_dbfs(bs['mid_db']):>8.1f}  "
+            f"{P._to_dbfs(bs['high_db']):>8.1f}")
+        flush()
+        return P._to_dbfs(bs["total_db"])
+
+    seeds = {}
+    for seed in (7, 1, 2, 3, 4):
+        wp, wn = dwa.mismatch(0.01, seed=seed)
+        seeds[seed] = with_weights(wp, wn, f"1% elements, draw {seed}")
+    wp, wn = dwa.mismatch(0.01, seed=P.MISMATCH_SEED)
+    trimmed = with_weights(wp - wp.mean() + 1.0, wn - wn.mean() + 1.0,
+                           "same draw, each bank's sum trimmed to exact")
+    same = with_weights(wp, wp, "same draw, the two banks made identical")
+    say()
+    say(f"The draw matters by {max(seeds.values()) - min(seeds.values()):.1f} "
+        f"dB across five of them, all at the same")
+    say("one percent specification. A single mismatch seed is one board, not")
+    say("the answer, and every other figure in this file uses one board.")
+    say()
+    say(f"Trimming each bank's total to exactly seven is worth "
+        f"{seeds[P.MISMATCH_SEED] - trimmed:+.1f} dB, which is")
+    say("nothing: the rotation already handles the bank total. Making the two")
+    say(f"banks identical is worth {seeds[P.MISMATCH_SEED] - same:+.1f} dB, "
+        f"which says the two sides' errors are")
+    say("independent and add in power, as they should. Neither is buildable;")
+    say("both are here to show which property of the elements the number")
+    say("depends on, and the answer is the spread, not the sum.")
+    return out
+
+
 def figure_mismatch(mm) -> None:
     fig, ax = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
     labels = list(mm)
@@ -945,7 +1160,8 @@ def figure_shape(out, q3) -> None:
             "bass 48 kHz", "bass 96 kHz", "bass 192 kHz"]
     keys = [k for k in want if out.get(k)]
     data = [np.array([w["low_share"] for w in out[k]]) * 100 for k in keys]
-    ax[0].boxplot(data, vert=False, tick_labels=keys, widths=.6,
+    ax[0].boxplot(data, orientation="horizontal", tick_labels=keys,
+                  widths=.6,
                   flierprops=dict(ms=2))
     ax[0].axvline(0.44, color="k", ls="--", lw=1,
                   label="white noise would be 0.44%")

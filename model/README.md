@@ -392,7 +392,7 @@ section D:
 
 | Rate | Ties up | Ties to even | Ties up, as published |
 | --- | --- | --- | --- |
-| 48 kHz | 138.41 dB | 138.41 dB | 137.45 dB |
+| 48 kHz | 138.41 dB | 138.42 dB | 137.45 dB |
 | 96 kHz | 141.39 dB | 141.41 dB | **124.58 dB** |
 | 192 kHz | 144.35 dB | 144.35 dB | 143.43 dB |
 | 44.1 kHz | 137.98 dB | 137.99 dB | 124.73 dB |
@@ -411,8 +411,8 @@ so a fault caused by that offset cannot move between rates from one run to the
 next.
 
 **Round ties to even anyway.** It costs one adder's difference and it removes a
-real static offset: measured at the modulator input, half-up leaves -169 to
--170 dBFS where ties-to-even leaves -187 to -210 dBFS. That offset reaches the
+real static offset: measured at the modulator input, half-up leaves -168.7 to
+-170.3 dBFS where ties to even leaves -187.3 to -210.3 dBFS. That offset reaches the
 output as DC, where it is the output coupling capacitor's problem rather than
 the FPGA's, and an unbiased rounding is the cheaper place to deal with it. What
 is no longer claimed is that it costs audio-band performance. It does not,
@@ -426,13 +426,13 @@ to even. `SNDR exact` is the same chain with an infinite-precision datapath.
 | Rate | Datapath noise | SNDR exact | SNDR sized | Cost |
 | --- | --- | --- | --- | --- |
 | 48 kHz | -165.8 dBFS | 137.57 dB | 137.54 dB | 0.03 dB |
-| 96 kHz | -168.6 dBFS | 140.27 dB | 140.23 dB | 0.04 dB |
+| 96 kHz | -168.6 dBFS | 140.29 dB | 140.25 dB | 0.04 dB |
 | 192 kHz | -172.7 dBFS | 143.83 dB | 143.83 dB | 0.00 dB |
 | 44.1 kHz | -165.6 dBFS | 137.56 dB | 137.55 dB | 0.01 dB |
 | 88.2 kHz | -168.6 dBFS | 140.18 dB | 140.15 dB | 0.03 dB |
-| 176.4 kHz | -171.7 dBFS | 143.40 dB* | 143.31 dB | 0.09 dB |
+| 176.4 kHz | -171.7 dBFS | 143.40 dB* | 143.33 dB | 0.07 dB |
 
-**The whole sized datapath costs at most 0.09 dB.**
+**The whole sized datapath costs at most 0.07 dB.**
 
 \* This row used to read 125.06 dB and carried a footnote blaming a limit
 cycle. **That was a measurement error.** The same record, with the windowed
@@ -559,21 +559,44 @@ dominates the in-band figure and makes the rotation look ineffective. It showed
 up as in-band power 55 dB above a band nine times wider, which is the signature
 of concentrated rather than broadband energy.
 
-**Removing the mean means removing the mean the transform sees, and this one
-cost three published results.** `x - x.mean()` zeroes the flat average of the
-record. The transform does not take a flat average: it weights by the window,
-and a Kaiser at beta 26 weights the record's centre enormously more than its
-ends, so a record whose offset drifts across the window still has a DC bin
-afterwards. That bin is not confined to bin 0 either -- the main lobe is 12
-bins, ±281 Hz at 2^20 of the element clock -- so the leftover lands inside a
-band starting at 20 Hz and is counted as audio. Every delta-sigma record has
-such an offset and cannot not have one: the output alphabet is eight levels
-2/7 apart, so the record mean lives on a grid of (2/7)/N and one unbalanced
-sample per 2^20 window is already -128 dBFS. Which side of that grid a record
-falls on is a lottery, which is exactly what made this look like an
-intermittent fault in the loop for as long as it did. Use
-`spectra.remove_dc`, which subtracts `sum(w*x)/sum(w)`;
-`spectra.Measurement` now does it for every measurement.
+**Removing the mean means removing the mean the *transform* sees, and this one
+cost three published results and two investigations to find.**
+
+`x - x.mean()` zeroes the flat average of the record. The transform does not
+take a flat average: it weights by the window, and a Kaiser at beta 26 weights
+the record's centre enormously more than its ends. A record whose offset drifts
+across the window therefore still has a DC bin after `x - x.mean()`, and that
+bin is not confined to bin 0 -- the main lobe is 12 bins, ±281 Hz at 2^20 of
+the element clock -- so the leftover lands inside a band starting at 20 Hz and
+is counted as audio. Use `spectra.remove_dc`, which subtracts
+`sum(w*x)/sum(w)`. `spectra.Measurement` now calls it for every measurement, so
+a new measurement site cannot reintroduce this by forgetting.
+
+*What it looks like when you hit it.* A figure comes back 15 to 19 dB low.
+Every bit of the excess is in the 20 Hz to 100 Hz bins, so it looks like a
+low-frequency fault rather than a raised floor. It is intermittent: most runs
+are fine and roughly one in thirty is not. It survives every remedy you try,
+and dither appears to *move* it to a different run rather than remove it. It
+responds to perturbations far below the audio -- adding 2^-40 at the modulator
+input switches it on or off -- so it looks like a real property of an exact
+loop. Every one of those is the artifact, and together they are convincing
+enough to have been written up here as a loop fault.
+
+The reason a delta-sigma record always has the offset to leak: the output
+alphabet is eight levels 2/7 apart, so the mean of an N-sample record can only
+sit on a grid of (2/7)/N. One unbalanced sample per 2^20 window is already
+-128 dBFS, which is 18 dB above the floor being measured. Which side of that
+grid a record lands on is a lottery, and every remedy -- dither, a different
+seed, one more sample of settling -- reshuffles it.
+
+*The signature that gives it away, and the general rule.* Rerunning the ties
+table today put the bad row at 44.1 kHz where it had been published at 96 kHz.
+Round-half-up leaves the same offset at every rate, so **a fault that migrates
+between rates from one run to the next cannot be caused by something that is
+identical at every rate.** When a fault moves like that, it is a lottery over
+records, and a lottery over records means the measurement, not the design. The
+cheap confirmation is to measure the same record over a longer window: a real
+in-band fault stays, an artifact of this kind is gone by 2^21.
 
 **A DC offset is not only a mismatch problem, and removing the mean is not
 optional anywhere.** The interpolator's own rounding leaves one too. Measured

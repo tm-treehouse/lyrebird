@@ -301,23 +301,17 @@ def render(cascade: halfband.Cascade, ntf: modulator.NTF, mode: chain.Mode,
 # ---------------------------------------------------------------------------
 
 def centre(x: np.ndarray, w: np.ndarray | None = None) -> np.ndarray:
-    """Remove the mean the *analysis window* sees, not the record's own mean.
+    """Remove the mean the *analysis window* sees. Delegates to spectra.
 
-    ``x - x.mean()`` nulls the unwindowed average, which is not what a
-    Kaiser-windowed transform integrates. What lands in bin 0 is
-    ``sum(w*x)/sum(w)``, and with a Kaiser at beta 26 the main lobe is twelve
-    bins wide, so whatever is left over leaks to 280 Hz -- straight through the
-    20 to 100 Hz band, and straight through the band the gain is fitted over.
-
-    The two means differ by very little and the little matters: the residual is
-    a DC term smeared across exactly the bins where a low-frequency anomaly
-    would be looked for, so removing the wrong one manufactures the anomaly it
-    is looking for.
+    This module originally carried its own copy, having found the same trap
+    independently: ``x - x.mean()`` nulls the record's flat average, while a
+    Kaiser-windowed transform integrates ``sum(w*x)/sum(w)``, and at beta 26
+    the main lobe is twelve bins wide, so whatever is left over is smeared
+    across 281 Hz -- through the 20 to 100 Hz band, and through the band the
+    gain here is fitted over. :func:`spectra.remove_dc` is now the one
+    implementation; this is kept as the name the rest of this module calls.
     """
-    a = np.asarray(x, dtype=np.float64)
-    if w is None:
-        w = spectra.analysis_window(len(a))
-    return a - float((w * a).sum() / w.sum())
+    return spectra.remove_dc(x, w)
 
 
 def band_gain_terms(x: np.ndarray, ref: np.ndarray, fs: float,

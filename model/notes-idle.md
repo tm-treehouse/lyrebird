@@ -159,8 +159,8 @@ Same records, four measurements:
 
 | Rate | Rounding | DC at mod in | 2^20 plain | 2^20 windowed | 2^22 windowed |
 | --- | --- | --- | --- | --- | --- |
-| 48 kHz | half up | -169.1 dBFS | 137.56 | 137.56 | 138.41 |
-| 48 kHz | half even | -198.5 | 137.54 | 137.55 | 138.41 |
+| 48 kHz | half up | -168.7 dBFS | 137.56 | 137.57 | 138.41 |
+| 48 kHz | half even | -203.0 | 137.54 | 137.54 | 138.42 |
 | 96 kHz | half up | -169.6 | 140.23 | 140.23 | 141.39 |
 | 96 kHz | half even | -193.8 | 140.23 | 140.25 | 141.41 |
 | 192 kHz | half up | -169.2 | 143.76 | 143.82 | 144.35 |
@@ -176,7 +176,7 @@ Same records, four measurements:
 is 0.01 dB worse.**
 
 What survives: half-up does leave a real static offset at the modulator input,
-about -169 dBFS against -187 to -210 dBFS for ties-to-even, and that offset
+-168.7 to -170.3 dBFS against -187.3 to -210.3 dBFS for ties to even, and that offset
 does reach the output as DC. Convergent rounding removes it and costs one
 adder's difference, so **the recommendation stands**. The reason given for it
 does not.
@@ -249,7 +249,16 @@ Nothing moves, to 0.01 dB, in any row:
 So the rotation recommendation, the 33.3 dB mismatch correction, the "volume
 goes at the modulator input" result and the order choice are all unaffected.
 
-### F5. The analog section: `results/analog.txt` Q2e is wrong on every row
+### F5. The analog section: `results/analog.txt` Q2e was wrong on every row
+
+**Re-run and fixed.** `run_analog.py` was rerun after the correction went in,
+and the diff against the old log is **ten lines: the Q2e table and nothing
+else** in the whole analog study. The corrected matched row is 132.93 dB
+against the reference row's 132.92 dB quoted in the sentence below it, which is
+the check that says the new numbers are the right ones — a pole three decades
+above the band should cost nothing, and now it measures as costing nothing.
+
+The table as it stood:
 
 This is the second real casualty. The capacitor-tolerance table applies a
 1 MHz pole per element to the 48 kHz, 1% element record and re-measures.
@@ -311,3 +320,36 @@ over a finite record. Over 2^20 samples that is one sample in a million, a
 
 It is not a limit cycle, it is not periodic, and nothing in the loop is
 locking. The rest of this note's measurements confirm that directly.
+
+## What was changed in the tree
+
+**The measurement is fixed at source, not per site.** `spectra.remove_dc`
+subtracts `sum(w*x)/sum(w)` and carries the explanation; `spectra.Measurement`
+calls it for every measurement, so a sixth measurement site cannot reintroduce
+this by forgetting. `Measurement.of(..., dedc=False)` reproduces the old
+behaviour and exists only so `run_idle.py` can show both on one record.
+
+The five sites that had `x - x.mean()` now call `spectra.remove_dc`:
+
+| Site | What it fed |
+| --- | --- |
+| `lyrebird_model/endtoend.py:232` | every end-to-end table |
+| `run_experiments.py:210` | rotation and mismatch |
+| `run_analog.py:113` | the analog records |
+| `run_analog.py:623` | the capacitor-tolerance table |
+| `run_endtoend.py:443` | the limit-cycle count |
+
+Regenerated: `results/idle.txt`, `results/analog.txt` (Q2e only; ten lines
+changed in the whole log), `figures/idle_window.png`, `figures/idle_blast.png`.
+
+Corrected: `README.md` — the ties section, the asterisked 176.4 kHz row, the
+limit-cycle section replaced outright, a new entry in the measurement traps,
+and a note at the top saying the earlier figures were wrong.
+`docs/open-items.md` — the limit cycle closed.
+
+**Not changed, and worth a look from whoever owns it:**
+`lyrebird_model/material.py` still describes the limit cycle as real in three
+docstrings (module header, `dc_offset`, `band_shape`). The module itself is
+exactly right and was the correct instrument for this; only its prose is now
+stale. It was left alone because `run_programme.py` is working in the same
+file.

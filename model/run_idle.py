@@ -68,9 +68,19 @@ def say(s: str = "") -> None:
     log.append(s)
 
 
+_FULL_RUN = True
+
+
 def flush() -> None:
-    """Write the log after every section, so a partial run still reports."""
-    LOG.write_text("\n".join(log) + "\n")
+    """Write the log after every section, so a partial run still reports.
+
+    Only a complete run writes the canonical log. Running one section prints
+    it and leaves ``results/idle.txt`` alone, because a partial write would
+    replace six sections with one -- which is a footgun this script has
+    already fired once.
+    """
+    if _FULL_RUN:
+        LOG.write_text("\n".join(log) + "\n")
 
 
 def head(title: str) -> None:
@@ -882,9 +892,12 @@ def section_g() -> dict:
         ax[0].semilogx(ff[sel], spectra.dbfs(p[sel]), style, lw=1.2, label=lab)
     ax[0].axvspan(20.0, 100.0, alpha=.15, color="tab:red")
     ax[0].axvline(half * fs / N_LEGACY, color="k", ls=":", lw=1)
-    ax[0].text(half * fs / N_LEGACY * 1.05, -200,
-               f"DC main lobe at 2**20\nreaches {half*fs/N_LEGACY:.0f} Hz",
-               fontsize=7.5)
+    ax[0].annotate(f"DC main lobe at 2**20 reaches {half*fs/N_LEGACY:.0f} Hz",
+                   xy=(half * fs / N_LEGACY, -246), xytext=(1.2, -246),
+                   fontsize=7.5, va="center",
+                   arrowprops=dict(arrowstyle="->", lw=.8, color="0.3"))
+    ax[0].text(0.62, -142, "this is what was\nreported as 18 dB of\naudio-band noise",
+               fontsize=7.5, color="tab:blue")
     ax[0].set(title="The tripped run: one record, three transforms\n"
                     "shaded band is 20-100 Hz, where the excess was reported",
               xlabel="Hz", ylabel="dBFS", xlim=(0.5, 2000), ylim=(-260, -100))
@@ -969,7 +982,11 @@ SECTIONS = {}
 
 
 def main(argv) -> int:
+    global _FULL_RUN
     want = [a.upper() for a in argv[1:]] or sorted(SECTIONS)
+    _FULL_RUN = set(want) >= set(SECTIONS)
+    if not _FULL_RUN:
+        print(f"(partial run: {' '.join(want)}; {LOG.name} not rewritten)")
     t0 = time.time()
     say("Idle-channel behaviour of the order-3 loop.")
     say(f"window 2**{int(np.log2(N_WIN))} at the element clock "

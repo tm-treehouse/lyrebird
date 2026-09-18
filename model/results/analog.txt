@@ -356,11 +356,11 @@ are not matched the way a resistor array is. Measured by giving every
 element its own pole and re-running the in-band figure.
 
   C tolerance    SNDR dB   in-band noise     cost
-      matched     120.43         -124.2   +0.00
-           2%     119.98         -123.7   +0.45
-           5%     119.34         -123.1   +1.09
-          10%     118.37         -122.1   +2.06
-          20%     116.70         -120.4   +3.72
+      matched     132.93         -137.2   +0.00
+           2%     132.94         -137.2   -0.01
+           5%     132.93         -137.2   -0.01
+          10%     132.84         -137.1   +0.08
+          20%     132.41         -136.6   +0.52
 
 The reference row, no capacitors at all, measures 132.92 dB. The pole
 itself costs nothing in band -- at 1 MHz its 20 kHz droop is

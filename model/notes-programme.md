@@ -10,16 +10,15 @@ reporting one in-band number per record.
 Three of the four answers are that the existing recommendation stands. The
 fourth is that the limit cycle does not exist.
 
-*(Q3 is still being refilled from the corrected run; everything else is final.)*
-
 ## Summary
 
 | Claim under test | Verdict |
 | --- | --- |
 | 132.8 dB worst case, one percent elements | **Holds on the median, not on the worst window.** Real material: median -132.3 dBFS, worst -115.2 dBFS over 360 windows. |
-| Budget 3 dB of headroom | **Right, and for the stated reason.** Unprocessed material needs 0.8 dB; clipped material needs 3.75 dB against the probe's 3.84 dB prediction. |
+| Budget 3 dB of headroom | **Right in kind, 2.4 dB short in size.** Unprocessed material needs 0.8 dB; clipped percussive material needs 5.39 dB against the probe's 3.84 dB. |
 | Low-frequency limit cycle, one run in 36 | **Does not exist.** It is the mean subtraction, 8.5 dB of it. |
 | The floor's shape window to window | **Stable and high-band dominated.** Below 100 Hz never exceeds 0.82 percent of in-band error power in any of 776 windows. |
+| Bass against a low-frequency fault | **Separable, for free.** A monitor on `u - v` inside the loop is blind to programme content by construction; one on the output is not. |
 
 ## Q1: the median holds; the worst window is 17 dB below it, and it is the elements
 
@@ -92,6 +91,53 @@ Synthetic programme material, worst window at each rate: -134.7 (48), -132.2
 span across six rates, against the 6.3 dB the matched-element tone sweep spans.
 Mismatch noise is shaped by the loop and does not care what the sample rate
 was, which is README.md's observation holding up against material.
+
+## Q3: bass and a low-frequency anomaly are separable, and the detector is free
+
+The question was posed against the limit cycle. That fault does not exist, so
+what is left is the general version, and it is still the one the hardware has
+to answer: if anything ever does put energy between 20 and 100 Hz that is not
+music, can a monitor tell, given that music puts energy there too?
+
+Three detectors, all measuring 20-100 Hz power, against sustained 41 Hz bass
+at -6 dBFS, a 1 kHz tone, and near-silence, each run four ways that differ only
+in things that cannot change the audio:
+
+| Detector | Bass | 1 kHz tone | Near silence | Spread from music alone |
+| --- | --- | --- | --- | --- |
+| Output (element sum) | -6.7 to -14.8 | -170 to -184 | -133 to -146 | **177 dB** |
+| Error vs ideal reconstruction | -171 to -187 | -170 to -185 | -168 to -182 | 19 dB |
+| **Loop error, v - u** | **-303 to -317** | **-329 to -345** | **-314 to -325** | **42 dB** |
+
+**A monitor on the output cannot work.** It reads -6.7 dBFS on bass and
+-179.5 dBFS on a 1 kHz tone: 173 dB of swing caused by nothing but what the
+music happens to contain. Any threshold that flags a low-frequency anomaly
+flags every bass note.
+
+**The loop error is blind to the music, and the FPGA already has it.** The STF
+of this topology is exactly 1 with zero delay, so `v - u` — the modulator's
+output code minus its own input — cancels the programme exactly and leaves the
+shaped quantization error. It is the `d` the integrators are already driven by,
+so it costs no arithmetic to observe. On 41 Hz bass at -6 dBFS it reads
+-303 dBFS, which is the model's numerical floor rather than a measurement: the
+loop puts essentially nothing below 100 Hz, whatever the music is doing there.
+
+Two limits on that, both real:
+
+* **It stops at the codes.** Element mismatch happens after it, so `v - u`
+  cannot see an element fault. It is a loop monitor, not a converter monitor.
+  The thing Q1 found — the rotation residual rising 12 dB in quiet passages —
+  is invisible to it.
+* **-303 dBFS is float64, not silicon.** In hardware the floor would be set by
+  the width of the subtraction and of whatever accumulates it. The useful
+  statement is not the number but the structure: because the STF is exactly
+  unity, the music cancels by construction rather than by filtering, so the
+  detector's floor is set by arithmetic and not by how loud the bass is.
+
+**Recommendation: if a low-frequency health monitor is ever wanted, put it on
+`u - v` inside the loop, not on the output.** It is free, it is immune to
+programme content by construction, and it is the only one of the three that a
+converter can actually compute about itself.
 
 ## Q4: the floor's shape is stable, and nothing is concentrated at low frequency
 
@@ -204,27 +250,32 @@ quantization noise, rotation residual.
 Checked against the measurement it replaces, on the one signal where both
 work — 1 kHz at -3.7 dBFS, one percent elements, settled widths:
 
-| Rate | Classic SNR | Classic SNDR | Error instrument | Error, dBFS |
-| --- | --- | --- | --- | --- |
-| 48 kHz | 133.49 | 132.94 | 134.21 | -137.91 |
-| 96 kHz | 124.29 | 124.23 | 125.72 | -129.42 |
-| 192 kHz | 134.07 | 133.74 | 135.11 | -138.81 |
-| 44.1 kHz | 132.96 | 132.49 | 133.65 | -137.35 |
-| 88.2 kHz | 134.06 | 133.53 | 134.69 | -138.39 |
-| 176.4 kHz | 134.12 | 133.69 | 134.88 | -138.58 |
+| Rate | Classic SNR | Classic SNDR | Error instrument | Error, dBFS | Alignment margin |
+| --- | --- | --- | --- | --- | --- |
+| 48 kHz | 133.49 | 132.94 | 134.21 | -137.91 | +110.8 dB |
+| 96 kHz | 133.40 | 132.94 | 134.25 | -137.95 | +110.2 dB |
+| 192 kHz | 134.07 | 133.74 | 135.11 | -138.81 | +111.0 dB |
+| 44.1 kHz | 132.96 | 132.49 | 133.65 | -137.35 | +111.7 dB |
+| 88.2 kHz | 134.06 | 133.53 | 134.69 | -138.39 | +112.2 dB |
+| 176.4 kHz | 134.12 | 133.69 | 134.88 | -138.58 | +112.7 dB |
 
-**The two instruments agree to between +1.16 and +1.49 dB, mean +1.27 dB.** The
+**The two instruments agree to between +1.16 and +1.37 dB, mean +1.24 dB.** The
 offset has a known cause: the classic figure rescales the noise bins it kept to
 cover the ones it excised, about +1.1 dB of noise it did not measure. Every
 material figure carries that offset, stated rather than corrected away.
 
-The 96 kHz row is the artefact above — both instruments read it, because both
-were fed the same badly-centred record. With the windowed mean it is
--137.95 dBFS, in line with its neighbours.
+Both columns are now measured with `spectra.remove_dc`, which `Measurement.of`
+applies to every measurement. Before that landed, this table's 96 kHz row read
+124.29 / 124.23 / 125.72 on both instruments — the artefact described below,
+which both instruments reported faithfully because both were handed the same
+badly-centred record. Two instruments agreeing is not evidence that either is
+right when they share an input.
 
 The fitted gain came back 0.998570 at all six rates, which is the check that a
 scalar is the right model for element mismatch: the same physical weights, the
-same gain, independent of rate and of material.
+same gain, independent of rate and of material. The alignment margin is how
+much worse the in-band error gets when the two paths are slid 256 samples
+apart; at +110 dB or better everywhere, the settling offset is not in question.
 
 ### Decomposition, 48 kHz, one percent elements
 
@@ -273,6 +324,76 @@ material. What replaced it is the in-band error at the offset used against the
 in-band error 256 samples away — a fifth of a period at 10 kHz, a real
 displacement. It reads +93 to +112 dB across the six rates.
 
+## The mid-band distortion does not exist either
+
+An earlier pass of this script reported that broadband material provoked
+mid-band error that tracked the signal level and reached 40 dB worse than the
+same chain on a tone — element mismatch apparently costing 0.5 dB against a
+sine and 37 dB against real audio. It would have been the most consequential
+thing here, because every figure in README.md comes from a tone and would have
+missed it. It was not real.
+
+It was the scalar gain fit being taken on un-centred signals, which is the
+second trap in the list below. Two independent checks kill it.
+
+**The error does not track the signal.** Real audio at one percent elements,
+the same record at falling level, corrected instrument:
+
+| PCM level | In-band signal | In-band error | 100 Hz-2 kHz | 2-20 kHz |
+| --- | --- | --- | --- | --- |
+| -12 dBFS | -15.8 | -135.0 | -151.7 | -135.0 |
+| -40 dBFS | -43.8 | -123.5 | -151.1 | -123.5 |
+| -70 dBFS | -73.8 | -123.2 | -140.2 | -123.3 |
+
+The error moves with level in the wrong direction for distortion — it gets
+*worse* as the signal shrinks, which is the rotation residual of Q1 — and it
+is 2-20 kHz in every row, 12 to 28 dB above the mid band. Under the broken fit
+the same rows read -88.4 dBFS at every level with the excess in the mid band.
+
+**A tone at the same level in the same band shows the same thing.** Sources
+matched on in-band signal power at -16 dBFS, 48 kHz:
+
+| Source | Matched | 1% | Cost | 1%: 20-100 Hz | 100 Hz-2 kHz | 2-20 kHz |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 kHz sine | -142.5 | -137.6 | 4.9 dB | -167.4 | -151.7 | -137.8 |
+| Two tones, 1.0 + 1.1 kHz | -142.4 | -133.5 | **8.9 dB** | -167.1 | -150.6 | -133.6 |
+| 8-tone multitone | -142.2 | -135.6 | 6.6 dB | -174.6 | -150.2 | -135.7 |
+| White noise to 20 kHz | -142.7 | -135.9 | 6.8 dB | -173.8 | -153.9 | -136.0 |
+| Sustained 41 Hz bass | -142.2 | -137.6 | 4.6 dB | -181.9 | -151.8 | -137.7 |
+| Programme, synthetic | -142.0 | -135.5 | 6.5 dB | -171.9 | -149.4 | -135.7 |
+| Real audio | -142.4 | -137.2 | 5.2 dB | -169.1 | -152.0 | -137.3 |
+
+Matched elements give -142.0 to -142.7 for every source — the 24-bit floor,
+content-independent, as it must be. The error is 2-20 kHz on every row, 14 dB
+or more above the mid band and 30 dB or more above 20-100 Hz, so rotation is
+shaping mismatch out of the band against broadband content exactly as it does
+against a tone.
+
+**Checked at a longer transform**, which halves the bin width and so halves how
+far any leftover DC could reach:
+
+| Source | 2^20 matched | 2^20 at 1% | 2^21 matched | 2^21 at 1% | 2^21 mid band |
+| --- | --- | --- | --- | --- | --- |
+| 1 kHz sine | -142.5 | -137.6 | -142.4 | -137.2 | -153.1 |
+| White noise | -142.7 | -135.9 | -141.9 | -135.5 | -152.6 |
+| Real audio | -142.4 | -137.2 | -142.1 | -135.9 | -151.9 |
+
+Nothing moves by more than 1.3 dB and the mid band stays where it was. The
+result is a property of the chain, not of the window.
+
+**What survives is small and still worth having: a tone understates the cost of
+one percent elements by 4.0 dB.** A sine pays 4.9 dB, the worst
+multi-component source pays 8.9 dB, and the whole spread across every source
+measured is 4.3 dB. That is real — two tones show it on the
+old instrument too, with both fundamentals excised, at -142.5 dBFS matched
+against -136.3 dBFS at one percent — and it is the expected consequence of
+what a tone measurement does: with one tone the mismatch error can only land
+on the fundamental, which is excised as signal, or its harmonics, which are
+excised as distortion. Add a second tone and the same error lands on
+intermodulation products that neither excision removes.
+
+It is 4.0 dB, not 37, and it does not change any recommendation.
+
 ## Q2: the 3 dB budget is right about limited material and short of the worst case
 
 ### Nothing but clipping makes an inter-sample over
@@ -280,18 +401,26 @@ displacement. It reads +93 to +112 dB across the six rates.
 Peak the cascade presents to the quantizer against the peak in the samples.
 Records faded at both ends and scanned in blocks.
 
-| Material | Crest | Samples at FS | True peak | Overshoot |
-| --- | --- | --- | --- | --- |
-| Real audio, 16.7 s | 24.81 dB | 1 | 1.0000 | **+0.000 dB** |
-| Real, clipped 3 dB | 21.86 dB | 190 | 1.0029 | +0.025 dB |
-| Real, clipped 6 dB | 19.06 dB | 998 | 1.0083 | +0.072 dB |
-| Real, clipped 12 dB | 14.45 dB | 10343 | 1.0781 | +0.653 dB |
-| Percussive, synthetic | 21.81 dB | 1 | 1.0033 | +0.029 dB |
-| Percussive, clipped 6 dB | 16.09 dB | 542 | 1.3139 | +2.371 dB |
-| Percussive, clipped 12 dB | 12.13 dB | 3915 | 1.7532 | **+4.876 dB** |
-| Programme, clipped 12 dB | 3.98 dB | 35345 | 1.0399 | +0.340 dB |
-| 1 kHz tone | 3.01 dB | 5461 | 1.0000 | +0.000 dB |
-| Fs/4 inter-sample probe | 0.00 dB | 131072 | 1.4142 | +3.010 dB |
+| Material | Crest | Samples at FS | True peak | Overshoot | Peaks apart |
+| --- | --- | --- | --- | --- | --- |
+| Real audio, 16.7 s | 24.81 dB | 1 | 1.0000 | **+0.000 dB** | 1.5 ms |
+| Real, clipped 3 dB | 21.86 dB | 190 | 1.0029 | +0.025 dB | 4.3 ms |
+| Real, clipped 6 dB | 19.06 dB | 998 | 1.0083 | +0.072 dB | 7.2 ms |
+| Real, clipped 12 dB | 14.45 dB | 10343 | 1.0781 | +0.653 dB | 5887 ms |
+| Percussive, synthetic | 21.81 dB | 1 | 1.0033 | +0.029 dB | 1.5 ms |
+| Percussive, clipped 6 dB | 16.09 dB | 542 | 1.3139 | +2.371 dB | 1958 ms |
+| Percussive, clipped 12 dB | 12.13 dB | 3915 | 1.7532 | **+4.876 dB** | 1515 ms |
+| Programme, clipped 12 dB | 3.98 dB | 35345 | 1.0399 | +0.340 dB | — |
+| 1 kHz tone | 3.01 dB | 5461 | 1.0000 | +0.000 dB | — |
+| Fs/4 inter-sample probe | 0.00 dB | 131072 | 1.4142 | +3.010 dB | — |
+
+"Peaks apart" is the distance between the loudest sample and the loudest
+reconstructed peak. For unprocessed material they are the same event, 1.5 ms
+apart, which is the cascade's group delay. For clipped material they are
+seconds apart, because clipping makes the reconstruction overshoot wherever a
+flat run happens to sit rather than where the record is loudest. **A headroom
+measurement windowed on the loudest sample therefore measures the wrong
+moment**, and that is the fourth trap in the list above.
 
 **Unprocessed material of any crest factor produces no inter-sample overshoot
 at all.** Sixteen seconds of real recording, peak normalised to full scale,
@@ -315,26 +444,124 @@ and `endtoend.max_stable_pcm` — no integrator past 50 quantizer LSBs.
 | Material | 48 kHz | 192 kHz | Headroom needed |
 | --- | --- | --- | --- |
 | Real audio | -0.80 dBFS | -0.66 dBFS | 0.8 dB |
-| Real, clipped 12 dB | -0.89 dBFS | -0.89 dBFS | 0.9 dB |
-| Percussive, synthetic | -0.66 dBFS | -0.42 dBFS | 0.7 dB |
-| Percussive, clipped 12 dB | **-3.75 dBFS** | **-3.66 dBFS** | 3.8 dB |
-| Programme, synthetic | -0.75 dBFS | -0.56 dBFS | 0.8 dB |
+| Real, clipped 12 dB | -1.22 dBFS | -1.17 dBFS | 1.2 dB |
+| Percussive, synthetic | -0.61 dBFS | -0.38 dBFS | 0.6 dB |
+| **Percussive, clipped 12 dB** | **-5.39 dBFS** | **-4.78 dBFS** | **5.4 dB** |
+| Programme, synthetic | -0.66 dBFS | -0.61 dBFS | 0.7 dB |
 | 1 kHz tone | -0.84 dBFS | -0.84 dBFS | 0.8 dB |
 | Fs/4 inter-sample probe | -3.84 dBFS | -3.61 dBFS | 3.8 dB |
 
 **Real material needs 0.8 dB. Heavily clipped percussive material needs
-3.75 dB, which is what the probe predicted to within 0.09 dB.**
+5.39 dB, which is 1.55 dB more than the probe predicts.**
 
-The probe was not pessimistic and it was not a corner case invented for the
-occasion; it is an accurate stand-in for the worst thing a host can send. The
-peak the quantizer sees at the overload point is -0.3 to -0.9 dBFS in every
-row, which is README.md's finding intact: the loop overloads at the same place
-regardless of content, and what changes is how much PCM level that
+**This is the one place a standing recommendation is wrong, and the number that
+shows it is 5.39 against 3.84.** The 3 dB budget is not conservative for
+heavily limited material; it is 2.4 dB short of the worst case measured here.
+The probe is still the right *kind* of stand-in — it is the only synthetic
+signal in the model that produces an inter-sample over at all — but it
+understates the magnitude, because its overshoot is fixed at 3.01 dB by
+construction while clipped percussive material reaches 4.88 dB.
+
+The earlier version of this measurement agreed with the probe to 0.09 dB and
+was wrong. It centred the analysis window on the loudest *sample*; the loudest
+reconstructed peak is 1.5 seconds away in that record, so the bisection never
+saw it and reported 3.75 dB. Centring on the reconstructed peak gives 5.39 dB.
+
+The peak the quantizer sees at the overload point is -0.83 to +0.10 dBFS in
+every row, which is README.md's finding intact: the loop overloads at the same
+place regardless of content, and what changes is how much PCM level that
 corresponds to.
 
-**Recommendation: keep the 3 dB budget, and prefer the clipper at the modulator
-input over a -3 dBFS volume default.** The two options README.md offers are not
-equivalent. A fixed -3 dB default is 2.2 dB of range given away on everything
-unprocessed, and is still short of the +4.9 dB tail that clipped percussive
-material reaches. A clipper at the modulator input costs nothing on material
-that never gets there and covers the tail that a fixed offset does not.
+**Recommendation: use the clipper at the modulator input, not a fixed volume
+default.** README.md offers the two as alternatives; they are not equivalent.
+A fixed -3 dBFS default gives away 2.2 dB of range on everything unprocessed
+*and* leaves clipped percussive material 2.4 dB short. A clipper at the
+modulator input costs nothing on material that never reaches it and covers a
+tail whose size depends on how hard the host's material was limited — which is
+not a number this design can bound in advance.
+
+## The four tone-based claims, against real material
+
+This was the point of the exercise, so it is stated plainly.
+
+### 1. "132.8 dB is the worst case over every rate with one percent elements"
+
+**Survives as a median. Does not survive as a worst case.**
+
+Against 16.7 seconds of real 48 kHz material at one percent elements, measured
+in 42.7 ms windows: median -132.3 dBFS, which restated in the README's
+convention is 128.6 dB; worst window -115.2 dBFS, which is 111.5 dB. The tone
+that produced 132.8 dB varies by 1.1 dB window to window. Real material varies
+by 27.7 dB.
+
+The claim is not wrong about what it measured. It is wrong as a description of
+the chain's behaviour over a record, and the gap is 17 dB. The number to hold
+the hardware to is still 132.8 dB for the average case; **the number that
+bounds it is 111.5 dB**, 1.5 dB above the 110 dB target of 0012 rather than
+22.8 dB above it.
+
+The whole of that spread is element mismatch. The same record with matched
+elements spans 1.1 dB and sits on the 24-bit source floor at -142 dBFS.
+
+### 2. "Budget 3 dB of headroom"
+
+**The reasoning survives. The number does not: the worst case measured is
+5.39 dB.**
+
+The inter-sample probe is the right kind of stand-in — it is the only signal in
+the model that produces an inter-sample over at all, and clipping is the only
+thing in real material that does. Unprocessed material of any crest factor
+needs 0.8 dB and overshoots by 0.000 dB; sixteen seconds of real recording
+normalised to full scale hands the quantizer exactly 1.0000.
+
+But the probe's overshoot is pinned at 3.01 dB by construction, and clipped
+percussive material reaches 4.88 dB. Measured end to end, that material needs
+**5.39 dB** of headroom against the probe's 3.84 dB. **Budget 3 dB and heavily
+limited material overloads the loop.**
+
+Of the two implementations README.md offers, **the clipper at the modulator
+input is the right one and a -3 dBFS volume default is not.** The default gives
+away 2.2 dB on everything unprocessed and is still 2.4 dB short of the worst
+case.
+
+### 3. "A low-frequency limit cycle trips one run in thirty-six"
+
+**Does not survive. It is not a property of the loop and there is nothing to
+fix.**
+
+It is `x - x.mean()` where a Kaiser-windowed transform needs
+`x - sum(w*x)/sum(w)`. Reproduced on demand at 96 kHz and then removed by
+changing only the arithmetic of the mean subtraction: the in-band figure moves
+8.5 dB and the 20-100 Hz band moves 53.6 dB. Across 776 windows of material
+measured correctly, **no window puts as much as one percent of its in-band
+error below 100 Hz**, against the 40 to 95 percent the artefact produced.
+
+This also disposes of the same figure's consequences: the 15.7 dB attributed to
+round-half-up rounding is the same artefact, established independently in
+`notes-idle.md`.
+
+### 4. "Only tones have been run" — the in-band figure as a single number
+
+**Does not survive, and this is the durable one.**
+
+A single in-band figure per record is an adequate description of the chain
+against a tone, where the window-to-window spread is 1.1 dB. It is not an
+adequate description against material, where the spread is 27.7 dB and the
+worst window is 17 dB below the median. Nothing in the tone measurement is
+wrong; it simply does not have a tail to report, and the chain does.
+
+**Report the distribution.** `figures/programme_windows.png` is what that looks
+like.
+
+## What this did not test
+
+* **Nothing above 10 kHz.** The real recordings available on this machine are
+  band-limited well under the audio band's top, so 0010's warning about
+  high-level ultrasonic content eating modulator headroom is still untested
+  against anything but the passband-edge tones already in README.md.
+* **Real material at one rate only.** 48 kHz. The other five rates are
+  measured with `material.py`'s synthetic stand-ins, which have the right
+  spectral shape and the wrong crest factor.
+* **One board.** Every figure except the element-draw table uses one mismatch
+  seed. That table spans several dB across five draws of the same one percent
+  specification, so a single seed is a sample, not a bound.
