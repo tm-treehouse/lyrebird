@@ -7,15 +7,24 @@ repository left open with numbers rather than adjectives. Run it:
 ./.venv/bin/python model/run_experiments.py   # order, cascade, coefficients, rotation
 ./.venv/bin/python model/run_endtoend.py      # the chain connected, and datapath width
 ./.venv/bin/python model/run_idle.py          # idle channel, and what the window was doing
+./.venv/bin/python model/run_programme.py     # real programme material, window by window
 ```
 
 Figures land in `figures/`, the logs in `results/measurements.txt`,
-`results/endtoend.txt` and `results/idle.txt`.
+`results/endtoend.txt`, `results/idle.txt` and `results/programme.txt`.
 
-**If you read an earlier version of this file, two of its numbers were wrong.**
-The low-frequency limit cycle it reported does not exist and the 15.7 dB it
-attributed to round-half-up was the same measurement error. Both are corrected
-below, with what actually caused them.
+**If you read an earlier version of this file, four of its claims were wrong.**
+Two were measurement errors: the low-frequency limit cycle it reported does not
+exist, and the 15.7 dB it attributed to round-half-up was the same error. Two
+were correct measurements stated with the wrong scope: **132.8 dB is a tone's
+figure and a median window's figure, not a worst case** -- real material's
+worst window is 111.5 dB -- and **3 dB of headroom does not cover the case the
+headroom budget exists for**, which is clipped material, at 5.39 dB. All four
+are corrected below, with what actually caused them.
+
+Real material also turned up one thing nothing predicted: **the error is worst
+where the signal is quietest.** See "The error is worst where the signal is
+quietest" below.
 
 ## Recommendations
 
@@ -193,8 +202,57 @@ SNDR, 20 Hz to 20 kHz:
 | 88.2 kHz | 140.2 dB | 140.0 dB | 132.8 dB |
 | 176.4 kHz | 143.3 dB | 143.0 dB | 133.3 dB |
 
-**132.8 dB is the worst case over every rate with one percent elements**, 22.8
-dB above the 110 dB target of 0012. That is the number to hold the hardware to.
+**132.8 dB is the worst case over every rate with one percent elements, for a
+tone**, 22.8 dB above the 110 dB target of 0012.
+
+**It is not a bound, and an earlier version of this section said it was.**
+Measured against real programme material window by window -- `run_programme.py`,
+`notes-programme.md` -- the same chain at the same widths gives a median of
+128.6 dB and a worst window of **111.5 dB**, 1.5 dB above the target rather
+than 22.8. A tone's figure varies by 1.1 dB from window to window; real
+material's varies by 27.7 dB.
+
+So the number keeps its meaning and loses its scope. 132.8 dB is what a tone
+measures, and it is also what a typical window of music measures, which is why
+it is still the right figure to quote for the design and to hold the hardware
+to on a bench. What it does not do is bound the worst 42 ms of a record. The
+distribution, not this number, is the description of the chain against music;
+see [Q1 in notes-programme.md](notes-programme.md) and
+[programme_windows.png](figures/programme_windows.png).
+
+### The error is worst where the signal is quietest
+
+This is the one result real material turned up that nothing in the tone
+measurements predicted, and it is the wrong way round.
+
+16.7 seconds of real 48 kHz recording, one percent elements, split by how much
+in-band signal each 42.7 ms window carries:
+
+| In-band signal in the window | Windows | Median error | Matched elements |
+| --- | --- | --- | --- |
+| Above -12 dBFS | 5 | -137.3 dBFS | -142.5 dBFS |
+| -30 to -12 dBFS | 50 | -135.2 dBFS | -142.3 dBFS |
+| **-60 to -30 dBFS** | **71** | **-125.2 dBFS** | **-142.3 dBFS** |
+| Below -60 dBFS | 234 | -135.8 dBFS | -142.3 dBFS |
+
+**Windows 30 to 60 dB down measure 12 dB worse than loud ones.** The
+matched-element column is flat at -142.3 dBFS across every band, so there is
+nothing else it can be: it is the rotation residual, and rotation works less
+well where there is less to rotate. Data weighted averaging makes every element
+carry every code equally often *over time*; with a small signal the code
+sequence has a short range and the pointer traverses the ring less thoroughly
+per unit time.
+
+It is not a fault, it is not a limit cycle, and it does not threaten the 110 dB
+target -- the worst single window of 360 still measures 111.5 dB. What makes it
+worth stating in the README rather than leaving in the notes is that **quiet
+passages are where a listener is most able to hear a converter's floor**, and
+this chain's floor is at its worst exactly there. Any listening test that plays
+loud material will miss it.
+
+The lever is element tolerance, which README already identifies as the term
+that sets performance. This says it also sets the worst case, and that the
+worst case is not where a tone measurement would look for it.
 
 Note which term dominates. With one percent elements the mismatch residual sits
 close to the 24-bit source floor, so element tolerance and source word length
@@ -269,11 +327,73 @@ cannot take it. Measured peak out of the cascade for a 0 dBFS record of this
 kind is exactly 1.4142.
 
 This is not a corner case. Heavily limited material contains inter-sample overs
-routinely. **Budget 3 dB of headroom below full scale**, either by leaving the
-digital volume control at or below -3 dBFS by default, or by clipping at the
-modulator input. Either sits inside the interpolation chain, which is where
+routinely.
+
+### The headroom budget exists for clipping, and 3 dB does not cover it
+
+Measured against real material by `run_programme.py`, two things changed here.
+
+**Nothing that has not been clipped asks for any headroom at all.** Sixteen
+seconds of real 48 kHz recording, crest factors 15 to 26 dB, normalised so its
+loudest sample sits at full scale, hands the quantizer a peak of exactly
+1.0000 -- zero overshoot -- and survives to within 0.66 to 0.80 dB of full
+scale. A 1 kHz sine asks for 0.84 dB. The synthetic percussive record, at a
+21.8 dB crest factor, overshoots by 0.029 dB.
+
+What creates an inter-sample over is the run of samples sitting flat at full
+scale that only clipping produces, and the probe is the limiting case of it:
+every one of its samples is at full scale by construction, which is why it
+reaches exactly 3.010 dB. **So the budget has a named cause. It is not sized by
+how loud music is; it is sized by how hard the host's material was limited.**
+
+**And 3 dB is 2.4 dB short of the worst case measured.** Percussive material
+clipped 12 dB overshoots by 4.876 dB and needs **5.39 dB** of headroom against
+the probe's 3.84:
+
+| Material | Overshoot | Headroom needed |
+| --- | --- | --- |
+| Real audio, unprocessed | +0.000 dB | 0.80 dB |
+| Real audio, clipped 12 dB | +0.653 dB | 1.22 dB |
+| Percussive, unprocessed | +0.029 dB | 0.61 dB |
+| **Percussive, clipped 12 dB** | **+4.876 dB** | **5.39 dB** |
+| 1 kHz tone | +0.000 dB | 0.84 dB |
+| Fs/4 inter-sample probe | +3.010 dB | 3.84 dB |
+
+**Recommendation: clip at the modulator input. Do not use a -3 dBFS volume
+default.** README previously offered the two as equivalent alternatives; they
+are not. A fixed -3 dB default gives away 2.2 dB of range on everything that
+was never limited *and* is still 2.4 dB short of material that was. A clipper
+costs nothing on material that never reaches it and has no upper bound to get
+wrong. Either sits inside the interpolation chain, which is where
 [0010](../docs/decisions/0010-192khz-and-control-word.md) already puts the
 volume control and for the same reason.
+
+**A cheap indicator comes with it.** The fraction of samples sitting on the top
+or bottom quantizer code -- one comparator, free in the FPGA -- rises about
+threefold per dB for several dB before the loop lets go:
+
+| PCM level | Real audio | Real, clipped 12 dB |
+| --- | --- | --- |
+| -6 dBFS | 0.0000 | 0.0000 |
+| -3 dBFS | 0.0016 | 0.0052 |
+| -2 dBFS | 0.0056 | 0.0163 |
+| -1 dBFS | 0.0164 | **unbounded** |
+| 0 dBFS | **unbounded** | -- |
+
+The in-band error stays flat at -135 to -137 dBFS right up to the edge, so
+performance does not degrade into the overload: it is fine, and then it is
+gone. A threshold anywhere between 1e-4 and 1e-2 gives warning with margin.
+One caveat: percussive material clipped 12 dB goes from 0.0002 to unbounded in
+1.5 dB, so the warning is shortest where it is most needed. The counter is an
+early indication to pair with the clipper, not a replacement for it.
+
+A measurement note that cost a wrong answer here: **the analysis window has to
+be centred on the peak the cascade reconstructs, not on the loudest sample.**
+For unprocessed material they are the same event. For clipped material they are
+seconds apart -- 1.5 s on the percussive record, 5.9 s on the real one --
+because clipping makes the reconstruction overshoot wherever a flat run happens
+to sit, not where the record is loudest. Windowed on the loudest sample this
+same bisection returned 3.75 dB and appeared to confirm the probe to 0.09 dB.
 
 A smaller correction to the existing table: the 0.918 in the order sweep was
 measured over 2^15 samples, which is 1.3 cycles of a 1 kHz tone. Over 2^18 it
@@ -539,9 +659,13 @@ constant.
 
 Three published results were wrong: this section, the ties table above, and the
 capacitor-tolerance table in `results/analog.txt`. Everything else checked --
-every per-rate figure, the 132.8 dB worst case, the rotation table, the order
+every per-rate figure, the 132.8 dB tone figure, the rotation table, the order
 sweep, the volume placement, the datapath widths -- is unaffected to 0.01 dB,
 because the term only shows when the residue happens to be large.
+
+(132.8 dB survived this correction unchanged, and was then corrected for a
+different reason: it is a tone's figure and a median window's figure, not a
+bound. See the end-to-end section above and `notes-programme.md`.)
 
 The fix is in one place. `spectra.remove_dc` removes the windowed mean and
 documents why; `spectra.Measurement` now calls it for every measurement, so a
@@ -648,6 +772,40 @@ the true reconstructed peak is 1.000, and the inter-sample probe measured 1.429
 where its true peak is sqrt(2) = 1.4142. That is 1 dB of headroom invented out
 of nothing, on the one measurement where headroom is the answer.
 
+**If a figure does not move when the input level moves, the instrument has
+stopped listening to the input.** This is the cheapest check in the list and it
+caught the largest error `run_programme.py` made. An error figure that came
+back at -88.4 dBFS at -12, -40 and -70 dBFS, to the last decimal and in the
+same FFT bins, was not measuring the converter -- it was measuring a gain fit
+that had been taken on un-centred signals, so the mismatch DC offset biased it
+by whatever the reference happened to carry below 280 Hz. The fitted gain came
+out 1.207 instead of 0.9988 on the quiet record. It cost a complete pass and
+produced a 40 dB finding that did not exist. **Removing the mean from the error
+is not enough; anything fitted to the error has to have it removed too.**
+
+**A scalar fitted to broadband data has to be fitted in the band you report.**
+Signal-to-noise against a tone excises the signal lobe; broadband material has
+no lobe to excise, so the equivalent is fitting and removing a scalar gain --
+element mismatch is a static weight and shows up as one. Fitted over the whole
+record, that fit is dominated by the modulator's out-of-band noise, which is
+90 dB above the in-band error and whose inner product with the signal is not
+zero. The leftover gain error then injects a pure in-band residual around
+-77 dBFS. Restricting the fit to 20 Hz-20 kHz drops it below -160.
+
+**A lag check over a few samples cannot check alignment.** The signal is
+band-limited to 20 kHz and sampled at 24.576 MHz, so its autocorrelation is
+flat to six decimal places over plus or minus eight samples: an argmax there
+reports where the out-of-band noise fell, and it false-alarmed on 34 of 90
+segments of real material. Check the in-band error at the offset used against
+the in-band error a few hundred samples away instead -- 256 samples is a fifth
+of a period at 10 kHz, and a correct alignment wins by 90 dB or more.
+
+**A peak window has to be centred on the reconstructed peak, not the loudest
+sample.** They are the same event in unprocessed material and seconds apart in
+clipped material. Getting this wrong made a headroom bisection return 3.75 dB
+where the answer is 5.39 dB, and it looked right because it agreed with the
+inter-sample probe to 0.09 dB.
+
 **Per-stage results do not always compose.** Each interpolator stage's minimum
 signal word, measured with the other stages exact, is real. The chain built
 from those minima is 9.6 dB noisier than the flat word they suggest is
@@ -667,12 +825,21 @@ measurement is fixed in `spectra.remove_dc` so it cannot recur.
 
 What is still missing, in the order it is likely to matter:
 
-**Only tones have been run.** Every figure above comes from a single sine, or
-from the inter-sample probe. Multitone, real programme material, and the
-intermodulation between a signal and the ultrasonic content 192 kHz sources may
-carry are all untested. 0010 warns that high-level material above 20 kHz eats
-modulator headroom, and the passband-edge rows in the headroom table are the
-only evidence collected against that.
+**Programme material has now been run**, by `run_programme.py` against 16.7
+seconds of real 48 kHz recording plus multitone and noise; see
+`notes-programme.md`. Three things came back: 132.8 dB is a median and not a
+bound, the error is worst in quiet passages, and the 3 dB headroom budget is
+2.4 dB short of clipped material. All three are in the sections above.
+
+**What programme material still has not tested is anything above 10 kHz.** The
+real recordings available carry nothing up there, so 0010's warning that
+high-level material above 20 kHz eats modulator headroom remains tested only by
+the passband-edge rows in the headroom table. Intermodulation between a signal
+and the ultrasonic content a 192 kHz source may carry is still untested. Real
+material was also available at 48 kHz only -- the other five rates use
+synthetic stand-ins with the right spectra and the wrong crest factors -- and
+every figure except the element-draw table uses a single mismatch seed, which
+spans 5.3 dB across five draws of the same one percent specification.
 
 **The modulator's arithmetic is sized**, by `run_modarith.py`. Peak integrator
 states are small, which is the CIFB-with-feedforward topology doing what its
