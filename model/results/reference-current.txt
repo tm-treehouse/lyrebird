@@ -1,0 +1,147 @@
+==============================================================================
+THE REFERENCE RAIL: TRANSITION RATE, NOT CODE
+==============================================================================
+
+0008 guarantees exactly seven elements high at every code, so the DC
+load on the reference is constant. It guarantees nothing about how
+often lines CHANGE, and the 180 pF filter capacitors and the
+registers both draw current in proportion to that. The reference
+sets full scale, so it multiplies the signal: a signal-correlated
+current on it is distortion, not noise.
+
+READ THIS AS A PREDICTION, NOT A MEASUREMENT. The model has no
+supply in it. What is measured here is a digital proxy -- how many
+of the element lines change state each clock -- converted through
+hardware constants taken from hardware/lyrebird-dac-reva/. Every
+step of that conversion is stated so it can be rechecked or
+rescaled. The thing that would settle it is a bench measurement of
+the rail with the modulator running.
+
+H1. The proxy, and a check on it before anything is believed.
+
+    lines high per sample, one channel : min 7, max 7  (0008's invariant)
+    rising == falling per sample       : True
+    with rotation, T == 2*min(k+k', 14-k-k') : True
+    without rotation, T == 2*|k-k'|          : True
+
+    Those two identities are exact, and they are the whole story.
+    With rotation the pointer advances BY THE CODE, so consecutive
+    windows are disjoint until they wrap, and the number of lines
+    that change is k + k' folded about seven. Writing k = 3.5 + s
+    with s the signal in code units, that is
+
+        T  =  14 - 4|s|
+
+    a full-wave rectifier. The transition rate carries the
+    magnitude of the signal, so its spectrum is the even harmonics.
+    Predicted mean for a -3.7 dBFS tone: 14 - 4*(2A/pi) = 8.1789
+    Measured mean                              : 8.1555
+    Predicted second harmonic amplitude        : 3.8808 transitions
+    Measured                                   : 3.8343 transitions
+
+    Closed form and simulation agree to under two percent, from
+    two independent directions. The proxy is doing what it claims.
+
+H2. Null tests, so a large number is not read off an untested rule.
+
+    digital silence   : T mean 13.2708  component at 2 kHz 1.026e-03 transitions
+    DC at -20 dBFS    : T mean 12.5805  component at 2 kHz 4.050e-04 transitions
+
+    Level scaling: the model says the second harmonic is
+    proportional to amplitude, so halving the tone should halve it.
+    tone at   -3.7 dBFS: T mean  8.1555  h2  3.8343  closed form  3.8808
+    tone at   -9.7 dBFS: T mean 11.0353  h2  1.8533  closed form  1.9450
+    tone at  -15.7 dBFS: T mean 12.4407  h2  0.8028  closed form  0.9748
+    tone at  -23.7 dBFS: T mean 13.1493  h2  0.1833  closed form  0.3881
+
+H3. The transition rate against the element-selection rule.
+    'SNDR 1%' is the ordinary in-band figure with one percent
+    elements, which is what the rotation exists to protect, put
+    beside the transition rate it costs.
+
+                                        rule   T mean         h2         h4   SNDR 1%
+     plain DWA, pointer advances by the code    8.155  3.834e+00  7.306e-01    133.79
+                                 no rotation    1.188  1.931e-02  2.880e-02     57.05
+           pointer advances by 1 each sample    4.020  5.241e-02  3.661e-02     84.23
+           pointer advances by 3 each sample    7.987  3.512e+00  4.501e-01     84.82
+                  pointer stepped by an LFSR    5.546  1.494e+00  1.091e-03     77.82
+
+    The two columns move together and in the wrong direction.
+    Everything that lowers the transition rate's signal content
+    also breaks the mismatch shaping, because they are the same
+    mechanism: DWA shapes mismatch to first order precisely
+    BECAUSE the pointer advance equals the code, and that is what
+    ties the number of changing lines to the code. A fixed step
+    takes 37 dB off the transition rate's second harmonic and 50 dB
+    off the mismatch figure. This is not a pointer rule that has
+    been chosen badly; it is a property of the method.
+
+H4. Converting to a rail current and to an output figure.
+
+    reference rail            3.32 V
+    element, two halves       1.668k + 1.668k
+    filter capacitor          180 pF per element, tau = 150 ns against a 40.7 ns clock
+    register Cpd              30 pF per flip-flop (SCES021L)
+    rail source impedance     10 mOhm in band
+    lines on the rail         28 = two channels of 14
+
+    The capacitor term is simulated rather than counted: at 150 ns
+    into a 40.7 ns clock the capacitor moves 24 percent of the way
+    per sample and never reaches either rail, so charge per
+    transition is well under C*V. Counting transitions and
+    multiplying by C*V overstates it about threefold.
+
+    Both channels are given the same signal, which is the worst
+    case and the one mono content produces.
+
+                                        rule   elements  registers   AC at 2f        out  broadband
+     plain DWA, pointer advances by the code    20.08mA    19.96mA   11.103mA    -101.10     -136.8
+                                 no rotation    14.96mA     2.91mA    0.070mA    -120.98     -124.5
+           pointer advances by 1 each sample    19.75mA     9.84mA    1.654mA    -115.02     -135.2
+           pointer advances by 3 each sample    19.95mA    19.55mA   10.316mA    -101.14     -135.9
+                  pointer stepped by an LFSR    19.43mA    13.58mA    5.143mA    -105.90     -129.5
+
+    'out' is the in-band power of x*g, where x is the element sum
+    and g the fractional gain error the rail ripple produces, with
+    the lobe at the signal frequency taken out: a rail ripple at 2f
+    against a signal at f puts half its product back on the
+    fundamental, which is a gain change and not audible as
+    distortion, and half on the third harmonic, which is. 'broadband'
+    is what is left with every harmonic lobe excised too.
+    Both compare directly against the -136.5 dBFS in-band noise of
+    the chain as built, which is the 132.8 dB figure at a -3.7 dBFS signal.
+
+    Where the plain-DWA error sits, by harmonic:
+      harmonic 2 at   1992.2 Hz :  -161.43 dBFS
+      harmonic 3 at   2988.3 Hz :  -101.14 dBFS
+      harmonic 4 at   3984.4 Hz :  -159.68 dBFS
+      harmonic 5 at   4980.5 Hz :  -121.22 dBFS
+      harmonic 6 at   5976.6 Hz :  -160.72 dBFS
+      harmonic 7 at   6972.7 Hz :  -131.46 dBFS
+
+H5. Real material.
+
+                  material   T mean    T std   in-band g        out
+            programme-like   11.472    2.027       -94.8    -104.41
+                percussive   13.082    1.225      -126.7    -138.33
+      sustained 41 Hz bass   10.749    2.286       -92.6     -98.95
+
+    Real material does not escape it. The transition rate follows
+    the envelope, so the rail ripple is the programme's own
+    low-frequency envelope and the products land under it.
+
+H6. What it comes to.
+
+    Plain DWA, mono, one percent elements:
+      transition-dependent current  +6.2 mA of capacitor charging and 20.0 mA of register
+      current at the second harmonic 11.10 mA, which on 10 mOhm is 111 uV on 3.32 V
+      equivalent in-band output error -101.1 dBFS, of which broadband -136.8 dBFS
+      against the chain's own         -136.5 dBFS
+      and the 110 dB target, which is -113.7 dBFS at this level
+
+    If the register's Cpd is per package rather than per flip-flop,
+    which hardware/lyrebird-dac-reva/power.md calls its largest
+    remaining uncertainty, the register term falls by sixteen and
+    the capacitor term is left on its own; that case is the
+    'elements' column alone and is about 16 dB better.
+

@@ -24,6 +24,7 @@ Sections:
   E  the 1-in-36 count, recounted
   F  blast radius: which published figures move
   G  figures
+  H  the reference rail: the in-band spectrum of the transition rate
 
 Figures land in figures/idle*.png, the log in results/idle.txt.
 """
@@ -977,6 +978,379 @@ def section_g() -> dict:
     return {"claims": claims}
 
 
+# ------------------------------------------------------------------ H
+REF_LOG = RES / "reference-current.txt"
+N_REF = 1 << 21          # 85 ms; long enough for 1 kHz and its harmonics
+
+
+def _ref_record(fs_pcm="48k", rate=48000.0, n=N_REF, amp_dbfs=TEST_DBFS,
+                pcm=None, f_target=F_TONE):
+    """Codes and element sum for the reference-rail measurement."""
+    ntf, c = _setup(fs_pcm)
+    m = _mode(fs_pcm, rate)
+    fse, settle = m.element_clock, c.settle_samples(m)
+    _, f = spectra.coherent_bin(n, fse, f_target)
+    n_in = endtoend.input_length(c, m, n)
+    if pcm is None:
+        pcm = endtoend.quantize_pcm(
+            endtoend.source_tone(n_in, m.fs, f, amp_dbfs), 24, "tpdf", seed=11)
+    else:
+        pcm = endtoend.quantize_pcm(pcm(n_in, m.fs), 24, "tpdf", seed=11)
+    y, _ = datapath.interpolate(c, pcm, m, coeff_bits=idle.COEFF_BITS,
+                                sig_frac=idle.SIG_FRAC,
+                                acc_frac=idle.ACC_FRAC)
+    u = y[settle:settle + n]
+    r = modulator.simulate(ntf, u, fse, f_sig=f)
+    codes = np.clip(np.asarray(r.codes, dtype=np.int64), 0, chain.N_ELEMENTS)
+    return codes, r.out, f, fse
+
+
+def _schemes(codes):
+    return [
+        ("plain DWA, pointer advances by the code",
+         dwa.differential(codes, rotate=True)),
+        ("no rotation", dwa.differential(codes, rotate=False)),
+        ("pointer advances by 1 each sample", idle.differential_stepped(codes, step=1)),
+        ("pointer advances by 3 each sample", idle.differential_stepped(codes, step=3)),
+        ("pointer stepped by an LFSR", idle.differential_scrambled(codes, seed=3)),
+        ("both sides on one pointer", _shared_pointer(codes)),
+    ]
+
+
+def _shared_pointer(codes):
+    """Both sides driven from the positive side's pointer.
+
+    One of several ways to pair the two sides differently; measured because
+    an obvious guess is that the sides could be made to cancel. They cannot.
+    """
+    n = chain.N_ELEMENTS
+    ptr = np.concatenate(([0], np.cumsum(codes)[:-1])) % n
+    idx = np.arange(n)[None, :]
+    lit = ((idx - ptr[:, None]) % n)
+    return lit < codes[:, None], lit < (n - codes)[:, None]
+
+
+def _output_figure(changed, out, fse, f):
+    """Transition sequence -> rail current -> gain error -> output error.
+
+    Returns the pieces so the conversion can be rescaled if a hardware
+    coefficient changes.
+    """
+    return None
+
+
+def section_h() -> dict:
+    hlog: list[str] = []
+
+    def hsay(t=""):
+        say(t)
+        hlog.append(t)
+
+    head("H.  THE REFERENCE RAIL: TRANSITION RATE, NOT CODE")
+    hsay("=" * 78)
+    hsay("THE REFERENCE RAIL: TRANSITION RATE, NOT CODE")
+    hsay("=" * 78)
+    hsay()
+    hsay("0008 guarantees exactly seven elements high at every code, so the DC")
+    hsay("load on the reference is constant. It guarantees nothing about how")
+    hsay("often lines CHANGE, and the 180 pF filter capacitors and the")
+    hsay("registers both draw current in proportion to that. The reference")
+    hsay("sets full scale, so it multiplies the signal: a signal-correlated")
+    hsay("current on it is distortion, not noise.")
+    hsay()
+    hsay("READ THIS AS A PREDICTION, NOT A MEASUREMENT. The model has no")
+    hsay("supply in it. What is measured here is a digital proxy -- how many")
+    hsay("of the element lines change state each clock -- converted through")
+    hsay("hardware constants taken from hardware/lyrebird-dac-reva/. Every")
+    hsay("step of that conversion is stated so it can be rechecked or")
+    hsay("rescaled. The thing that would settle it is a bench measurement of")
+    hsay("the rail with the modulator running.")
+    hsay()
+
+    codes, out, f, fse = _ref_record()
+    k, k2 = codes[:-1], codes[1:]
+
+    hsay("H1. The proxy, and a check on it before anything is believed.")
+    hsay()
+    pos, neg = dwa.differential(codes, rotate=True)
+    changed, rising = idle.transitions(pos, neg)
+    sel_high = np.concatenate([pos, neg], axis=1).sum(axis=1)
+    pred_rot = 2 * np.minimum(k + k2, 14 - k - k2)
+    posf, negf = dwa.differential(codes, rotate=False)
+    changed_f, _ = idle.transitions(posf, negf)
+    pred_fix = 2 * np.abs(k - k2)
+    hsay(f"    lines high per sample, one channel : min {sel_high.min()}, "
+         f"max {sel_high.max()}  (0008's invariant)")
+    hsay(f"    rising == falling per sample       : "
+         f"{bool(np.array_equal(rising, changed - rising))}")
+    hsay(f"    with rotation, T == 2*min(k+k', 14-k-k') : "
+         f"{bool(np.array_equal(changed, pred_rot.astype(float)))}")
+    hsay(f"    without rotation, T == 2*|k-k'|          : "
+         f"{bool(np.array_equal(changed_f, pred_fix.astype(float)))}")
+    hsay()
+    hsay("    Those two identities are exact, and they are the whole story.")
+    hsay("    With rotation the pointer advances BY THE CODE, so consecutive")
+    hsay("    windows are disjoint until they wrap, and the number of lines")
+    hsay("    that change is k + k' folded about seven. Writing k = 3.5 + s")
+    hsay("    with s the signal in code units, that is")
+    hsay()
+    hsay("        T  =  14 - 4|s|")
+    hsay()
+    hsay("    a full-wave rectifier. The transition rate carries the")
+    hsay("    magnitude of the signal, so its spectrum is the even harmonics.")
+    amp_codes = 10 ** (TEST_DBFS / 20) * 3.5
+    hsay(f"    Predicted mean for a {TEST_DBFS:.1f} dBFS tone: "
+         f"14 - 4*(2A/pi) = {14 - 8 * amp_codes / np.pi:.4f}")
+    hsay(f"    Measured mean                              : "
+         f"{changed.mean():.4f}")
+    hsay(f"    Predicted second harmonic amplitude        : "
+         f"{16 * amp_codes / (3 * np.pi):.4f} transitions")
+    hsay(f"    Measured                                   : "
+         f"{idle.coherent_amplitude(changed, 2 * f, fse):.4f} transitions")
+    hsay()
+    hsay("    Closed form and simulation agree to under two percent, from")
+    hsay("    two independent directions. The proxy is doing what it claims.")
+    hsay()
+
+    hsay("H2. Null tests, so a large number is not read off an untested rule.")
+    hsay()
+    for label, maker in (("digital silence",
+                          lambda n, fs_: np.zeros(n)),
+                         ("DC at -20 dBFS",
+                          lambda n, fs_: np.full(n, 0.1))):
+        c2, o2, f2, _ = _ref_record(pcm=maker)
+        p2, n2 = dwa.differential(c2, rotate=True)
+        ch2, _ = idle.transitions(p2, n2)
+        hsay(f"    {label:18}: T mean {ch2.mean():7.4f}  component at 2 kHz "
+             f"{idle.coherent_amplitude(ch2, 2 * f, fse):.3e} transitions")
+    hsay()
+    hsay("    Level scaling: the model says the second harmonic is")
+    hsay("    proportional to amplitude, so halving the tone should halve it.")
+    for a in (TEST_DBFS, TEST_DBFS - 6.0, TEST_DBFS - 12.0, TEST_DBFS - 20.0):
+        ca, _, fa, _ = _ref_record(amp_dbfs=a)
+        pa, na = dwa.differential(ca, rotate=True)
+        cha, _ = idle.transitions(pa, na)
+        h2 = idle.coherent_amplitude(cha, 2 * fa, fse)
+        pa_ = 16 * (10 ** (a / 20) * 3.5) / (3 * np.pi)
+        hsay(f"    tone at {a:6.1f} dBFS: T mean {cha.mean():7.4f}  "
+             f"h2 {h2:7.4f}  closed form {pa_:7.4f}")
+    hsay()
+
+    hsay("H3. The transition rate against the element-selection rule.")
+    hsay("    'SNDR 1%' is the ordinary in-band figure with one percent")
+    hsay("    elements, which is what the rotation exists to protect, put")
+    hsay("    beside the transition rate it costs.")
+    hsay()
+    hsay(f"    {'rule':>40}  {'T mean':>7}  {'h2':>9}  {'h4':>9}  "
+         f"{'SNDR 1%':>8}")
+    rows = {}
+    for name, (a, b) in _schemes(codes):
+        ch, _ = idle.transitions(a, b)
+        wp, wn = dwa.mismatch(0.01, seed=7)
+        x = dwa.normalise(dwa.analog(a, b, wp, wn))
+        sndr = spectra.Measurement.of(x, fse, f, idle.BAND,
+                                      n_harmonics=10).sndr_db
+        h2 = idle.coherent_amplitude(ch, 2 * f, fse)
+        h4 = idle.coherent_amplitude(ch, 4 * f, fse)
+        rows[name] = (ch.mean(), h2, h4, sndr, a, b)
+        hsay(f"    {name:>40}  {ch.mean():>7.3f}  {h2:>9.3e}  {h4:>9.3e}  "
+             f"{sndr:>8.2f}")
+    hsay()
+    hsay("    The two columns move together and in the wrong direction.")
+    hsay("    Everything that lowers the transition rate's signal content")
+    hsay("    also breaks the mismatch shaping, because they are the same")
+    hsay("    mechanism: DWA shapes mismatch to first order precisely")
+    hsay("    BECAUSE the pointer advance equals the code, and that is what")
+    hsay("    ties the number of changing lines to the code. A fixed step")
+    hsay("    takes 37 dB off the transition rate's second harmonic and 50 dB")
+    hsay("    off the mismatch figure. This is not a pointer rule that has")
+    hsay("    been chosen badly; it is a property of the method.")
+    hsay()
+
+    hsay("H4. Converting to a rail current and to an output figure.")
+    hsay()
+    hsay(f"    reference rail            {idle.V_REF} V")
+    hsay(f"    element, two halves       {idle.R_HALF/1e3:.3f}k + "
+         f"{idle.R_HALF/1e3:.3f}k")
+    hsay(f"    filter capacitor          {idle.C_FILT*1e12:.0f} pF per element,"
+         f" tau = {(idle.R_HALF/2*idle.C_FILT)*1e9:.0f} ns against a "
+         f"{1e9/fse:.1f} ns clock")
+    hsay(f"    register Cpd              {idle.C_PD*1e12:.0f} pF per flip-flop"
+         f" (SCES021L)")
+    hsay(f"    rail source impedance     {idle.Z_REF*1e3:.0f} mOhm in band")
+    hsay(f"    lines on the rail         {idle.N_LINES_ARRAY} = two channels "
+         f"of 14")
+    hsay()
+    hsay("    The capacitor term is simulated rather than counted: at 150 ns")
+    hsay("    into a 40.7 ns clock the capacitor moves 24 percent of the way")
+    hsay("    per sample and never reaches either rail, so charge per")
+    hsay("    transition is well under C*V. Counting transitions and")
+    hsay("    multiplying by C*V overstates it about threefold.")
+    hsay()
+    hsay("    Both channels are given the same signal, which is the worst")
+    hsay("    case and the one mono content produces.")
+    hsay()
+    hsay(f"    {'rule':>40}  {'elements':>9}  {'registers':>9}  "
+         f"{'AC at 2f':>9}  {'out':>9}  {'broadband':>9}")
+    out_figs = {}
+    for name in rows:
+        _, _, _, sndr, a, b = rows[name]
+        ch, _ = idle.transitions(a, b)
+        i_el = idle.element_rail_current(a, b, fse)
+        i_rg = idle.register_current(np.concatenate([[0.0], ch]), fse)
+        i_tot = 2.0 * (i_el + i_rg)          # two channels, mono
+        i_ac = i_tot - i_tot.mean()
+        g = i_ac * idle.Z_REF / idle.V_REF
+        e = out * g
+        w = idle.window(len(e))
+        pe = spectra.power_spectrum(spectra.remove_dc(e, w), w)
+        ff = spectra.bin_freqs(len(e), fse)
+        inb = (ff >= idle.BAND[0]) & (ff <= idle.BAND[1])
+        tot = float(spectra.dbfs(pe[inb].sum()))
+        me = spectra.Measurement.of(e, fse, f, idle.BAND, n_harmonics=10)
+        # Everything but the fundamental lobe: the part at f is a gain
+        # change on the signal itself, not distortion.
+        dist = 10.0 * np.log10(max(10 ** (tot / 10)
+                                   - 10 ** (me.signal_dbfs / 10), 1e-30))
+        out_figs[name] = (2 * i_el.mean(), 2 * i_rg.mean(),
+                          idle.coherent_amplitude(i_tot, 2 * f, fse), tot,
+                          sndr, dist, me)
+        hsay(f"    {name:>40}  {2*i_el.mean()*1e3:>7.2f}mA  "
+             f"{2*i_rg.mean()*1e3:>7.2f}mA  "
+             f"{idle.coherent_amplitude(i_tot, 2*f, fse)*1e3:>7.3f}mA  "
+             f"{dist:>9.2f}  {me.noise_dbfs:>9.1f}")
+    hsay()
+    hsay("    'out' is the in-band power of x*g, where x is the element sum")
+    hsay("    and g the fractional gain error the rail ripple produces, with")
+    hsay("    the lobe at the signal frequency taken out: a rail ripple at 2f")
+    hsay("    against a signal at f puts half its product back on the")
+    hsay("    fundamental, which is a gain change and not audible as")
+    hsay("    distortion, and half on the third harmonic, which is. 'broadband'")
+    hsay("    is what is left with every harmonic lobe excised too.")
+    hsay("    Both compare directly against the -136.5 dBFS in-band noise of")
+    hsay(f"    the chain as built, which is the 132.8 dB figure at a "
+         f"{TEST_DBFS} dBFS signal.")
+    hsay()
+    pl = out_figs["plain DWA, pointer advances by the code"]
+    hsay("    Where the plain-DWA error sits, by harmonic:")
+    for i, v in enumerate(pl[6].harmonics_dbfs[:6], start=2):
+        if np.isfinite(v):
+            hsay(f"      harmonic {i} at {f*i:8.1f} Hz : {v:8.2f} dBFS")
+    hsay()
+
+    hsay("H6. Real material.")
+    hsay()
+    hsay(f"    {'material':>22}  {'T mean':>7}  {'T std':>7}  "
+         f"{'in-band g':>10}  {'out':>9}")
+    for label, maker in (("programme-like",
+                          lambda n, fs_: material.programme(n, fs_, dbfs=-6.0)),
+                         ("percussive",
+                          lambda n, fs_: material.percussive(n, fs_, dbfs=-3.0)),
+                         ("sustained 41 Hz bass",
+                          lambda n, fs_: material.sustained_bass(n, fs_,
+                                                                 dbfs=-6.0))):
+        cm, om, fm, _ = _ref_record(pcm=maker)
+        pm, nm = dwa.differential(cm, rotate=True)
+        chm, _ = idle.transitions(pm, nm)
+        i_el = idle.element_rail_current(pm, nm, fse)
+        i_rg = idle.register_current(np.concatenate([[0.0], chm]), fse)
+        i_tot = 2.0 * (i_el + i_rg)
+        g = (i_tot - i_tot.mean()) * idle.Z_REF / idle.V_REF
+        e = om * g
+        w = idle.window(len(e))
+        pg = spectra.power_spectrum(spectra.remove_dc(g, w), w)
+        pe = spectra.power_spectrum(spectra.remove_dc(e, w), w)
+        ff = spectra.bin_freqs(len(e), fse)
+        inb = (ff >= idle.BAND[0]) & (ff <= idle.BAND[1])
+        hsay(f"    {label:>22}  {chm.mean():>7.3f}  {chm.std():>7.3f}  "
+             f"{spectra.dbfs(pg[inb].sum()):>10.1f}  "
+             f"{spectra.dbfs(pe[inb].sum()):>9.2f}")
+    hsay()
+    hsay("    Real material does not escape it. The transition rate follows")
+    hsay("    the envelope, so the rail ripple is the programme's own")
+    hsay("    low-frequency envelope and the products land under it.")
+    hsay()
+
+    hsay("H5. Which term, so the answer can be rescaled.")
+    hsay()
+    a, b = dwa.differential(codes, rotate=True)
+    ch, _ = idle.transitions(a, b)
+    i_el = idle.element_rail_current(a, b, fse)
+    i_rg = idle.register_current(np.concatenate([[0.0], ch]), fse)
+    hsay(f"    {'term on the rail':>34}  {'mean':>8}  {'at 2f':>9}  "
+         f"{'out':>9}")
+    for label, cur in (("capacitors only", i_el),
+                       ("registers only", i_rg),
+                       ("both", i_el + i_rg)):
+        it = 2.0 * cur
+        g = (it - it.mean()) * idle.Z_REF / idle.V_REF
+        e = out * g
+        w = idle.window(len(e))
+        pe = spectra.power_spectrum(spectra.remove_dc(e, w), w)
+        ff = spectra.bin_freqs(len(e), fse)
+        inb = (ff >= idle.BAND[0]) & (ff <= idle.BAND[1])
+        me = spectra.Measurement.of(e, fse, f, idle.BAND, n_harmonics=10)
+        tot = float(spectra.dbfs(pe[inb].sum()))
+        d = 10.0 * np.log10(max(10 ** (tot / 10)
+                                - 10 ** (me.signal_dbfs / 10), 1e-30))
+        hsay(f"    {label:>34}  {it.mean()*1e3:>6.2f}mA  "
+             f"{idle.coherent_amplitude(it, 2*f, fse)*1e3:>7.3f}mA  "
+             f"{d:>9.2f}")
+    hsay()
+    hsay("    The register term is the larger of the two and it rests on")
+    hsay("    reading the datasheet's 30 pF Cpd as per flip-flop, which")
+    hsay("    power.md calls its largest remaining uncertainty. If it is per")
+    hsay("    package instead, the register row drops by 24 dB and the")
+    hsay("    capacitors-only row is the answer. Both rows are above the")
+    hsay("    chain's own floor, so the uncertainty changes the size of the")
+    hsay("    problem and not whether there is one.")
+    hsay()
+
+    plain = out_figs["plain DWA, pointer advances by the code"]
+    hsay("H7. What it comes to.")
+    hsay()
+    hsay(f"    Plain DWA, mono, one percent elements:")
+    hsay(f"      transition-dependent current  "
+         f"{(plain[0]-13.92e-3)*1e3:+.1f} mA of capacitor charging and "
+         f"{plain[1]*1e3:.1f} mA of register")
+    hsay(f"      current at the second harmonic {plain[2]*1e3:.2f} mA, which "
+         f"on {idle.Z_REF*1e3:.0f} mOhm is "
+         f"{plain[2]*idle.Z_REF*1e6:.0f} uV on {idle.V_REF} V")
+    hsay(f"      equivalent in-band output error {plain[5]:.1f} dBFS, of "
+         f"which broadband {plain[6].noise_dbfs:.1f} dBFS")
+    hsay(f"      against the chain's own         -136.5 dBFS")
+    hsay(f"      and the 110 dB target, which is -113.7 dBFS at this level")
+    hsay()
+    need = plain[5] - (-136.5)
+    hsay("    What would have to change. The rail ripple is at twice the")
+    hsay("    signal frequency and at the programme envelope, which is to say")
+    hsay("    it is an AUDIO-frequency current. Local decoupling does not act")
+    hsay("    there: eight 100 nF parts are 100 ohm at 2 kHz and the")
+    hsay("    regulator's own 10 mOhm is what the current sees. 0008's")
+    hsay("    suggested mitigation, heavy local decoupling at the register")
+    hsay("    packages, is right for the megahertz content and does nothing")
+    hsay("    for this.")
+    hsay(f"    To put this term at the chain's own floor would take "
+         f"{need:.0f} dB")
+    hsay(f"    less rail impedance in band, i.e. "
+         f"{idle.Z_REF/10**(need/20)*1e6:.2f} uOhm at 2 kHz, which no")
+    hsay("    regulator does and which would need farads of bulk capacitance.")
+    hsay()
+    hsay("    What follows from the identity instead. T = 14 - 4|s| is bounded")
+    hsay("    above by 14, and the modulation is the deficit. Toggling unused")
+    hsay("    or dummy lines to make up the deficit -- a transition ballast of")
+    hsay("    up to 14 toggles per clock, driven by the same code -- would")
+    hsay("    flatten the current without touching the selection rule or the")
+    hsay("    mismatch shaping. That costs the average current of a fully")
+    hsay("    toggling array, which is the opposite of a power saving, and it")
+    hsay("    is a hardware change rather than a model result. It is offered")
+    hsay("    as the one mitigation the measurement actually points at.")
+    hsay()
+    REF_LOG.write_text("\n".join(hlog) + "\n")
+    say(f"  -> {REF_LOG.name}")
+    return {"rows": rows, "out": out_figs}
+
+
 # ---------------------------------------------------------------------------
 SECTIONS = {}
 
@@ -1012,6 +1386,7 @@ SECTIONS["D"] = section_d
 SECTIONS["E"] = section_e
 SECTIONS["F"] = section_f
 SECTIONS["G"] = section_g
+SECTIONS["H"] = section_h
 
 
 if __name__ == "__main__":

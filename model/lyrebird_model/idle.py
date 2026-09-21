@@ -43,6 +43,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.signal import lfilter
 
 from . import chain, dwa, halfband, material, modulator, spectra
 
@@ -446,6 +447,113 @@ def differential_scrambled(codes: np.ndarray, n: int = chain.N_ELEMENTS,
 
 
 # ---------------------------------------------------------------------------
+# The reference rail: what the element lines do to the current that sets
+# full scale
+# ---------------------------------------------------------------------------
+
+# Hardware constants, from hardware/lyrebird-dac-reva/. Transcribed, not chosen
+# here.
+V_REF = 3.32               # element reference rail, volts
+R_HALF = 1.668e3           # each half of the 3.32k element
+C_FILT = 180e-12           # filter capacitor per element
+C_PD = 30e-12              # register power-dissipation capacitance per flop
+Z_REF = 10e-3              # in-band source impedance of the reference rail
+N_LINES_ARRAY = 28         # element lines on the rail: two channels of 14
+
+
+def transitions(pos: np.ndarray, neg: np.ndarray):
+    """Lines that changed state, and lines that went high, per sample.
+
+    0008 guarantees a constant *number* of lines high, so the DC load on the
+    reference is constant. It guarantees nothing about how often lines change,
+    and that is what the filter capacitors and the registers draw current in
+    proportion to. Returns ``(changed, rising)``, each one sample shorter than
+    the input.
+    """
+    sel = np.concatenate([np.asarray(pos), np.asarray(neg)], axis=1)
+    changed = (sel[1:] != sel[:-1]).sum(axis=1).astype(np.float64)
+    rising = (sel[1:] & ~sel[:-1]).sum(axis=1).astype(np.float64)
+    return changed, rising
+
+
+def coherent_amplitude(x: np.ndarray, f: float, fs: float) -> float:
+    """Amplitude of the component of ``x`` at exactly ``f``, by projection.
+
+    Used instead of reading an FFT lobe because the transition-rate sequence
+    has a broadband floor far above the component being looked for, so a lobe
+    sum measures the floor. A projection onto a known frequency does not.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    n = len(x)
+    ph = 2.0 * np.pi * f * np.arange(n) / fs
+    xx = x - x.mean()
+    return float(np.hypot(2.0 * np.mean(xx * np.cos(ph)),
+                          2.0 * np.mean(xx * np.sin(ph))))
+
+
+def select_stepped(codes: np.ndarray, n: int = chain.N_ELEMENTS,
+                   step: int = 1) -> np.ndarray:
+    """Rotation whose pointer advances by a fixed amount, not by the code.
+
+    The candidate fix for the transition-rate problem: if the pointer's
+    advance does not depend on the code then neither should the number of
+    lines that change. Measured in ``run_idle.py`` section H, along with what
+    it costs in mismatch shaping, which is the reason plain DWA advances by
+    the code in the first place.
+    """
+    c = np.asarray(codes, dtype=np.int64)
+    ptr = (step * np.arange(len(c))) % n
+    idx = np.arange(n)[None, :]
+    return ((idx - ptr[:, None]) % n) < c[:, None]
+
+
+def differential_stepped(codes: np.ndarray, n: int = chain.N_ELEMENTS,
+                         step: int = 1):
+    codes = np.asarray(codes, dtype=np.int64)
+    return select_stepped(codes, n, step), select_stepped(n - codes, n, step)
+
+
+def element_rail_current(pos: np.ndarray, neg: np.ndarray, fs: float,
+                         v_ref: float = V_REF, r_half: float = R_HALF,
+                         c_filt: float = C_FILT) -> np.ndarray:
+    """Current one channel's elements draw from the reference, RC limited.
+
+    The filter capacitor sits between the two halves of its element, so it
+    charges through ``r_half`` toward ``v_ref/2`` when its line is high and
+    discharges toward zero when it is low, with a time constant of
+    ``(r_half/2) * c_filt`` = 150 ns against a 40.7 ns clock. It therefore
+    never reaches either end, and the charge drawn per transition is well
+    below ``C*V``. Counting transitions and multiplying by ``C*V`` overstates
+    this term by a factor of about three, which is why it is simulated rather
+    than counted.
+
+    Current is taken from the rail only through lines that are high; a line
+    going low discharges its capacitor to ground through the flip-flop. The
+    mean of the result is the constant element current 0008 guarantees plus
+    the capacitors' own average, and the AC part is what this module is about.
+    """
+    sel = np.concatenate([np.asarray(pos), np.asarray(neg)],
+                         axis=1).astype(np.float64)
+    tau = (r_half / 2.0) * c_filt
+    a = float(np.exp(-1.0 / (fs * tau)))
+    v_inf = sel * (v_ref / 2.0)
+    v = lfilter([0.0, 1.0 - a], [1.0, -a], v_inf, axis=0)
+    return ((v_ref - v) / r_half * sel).sum(axis=1)
+
+
+def register_current(changed: np.ndarray, fs: float, v_ref: float = V_REF,
+                     c_pd: float = C_PD) -> np.ndarray:
+    """Register dynamic current, which is exactly linear in transitions.
+
+    ``I = Cpd * V * f`` per flip-flop with ``f`` the output's switching
+    frequency, and one full cycle is two transitions, so the charge per
+    transition is ``Cpd * V / 2``. No RC to limit it: this term is a datasheet
+    figure times a counted rate.
+    """
+    return np.asarray(changed, dtype=np.float64) * (c_pd * v_ref / 2.0) * fs
+
+
+# ---------------------------------------------------------------------------
 # A runtime detector
 # ---------------------------------------------------------------------------
 
@@ -487,7 +595,10 @@ def idle_gate(u: np.ndarray, block: int, thresh: float) -> np.ndarray:
     return a[:m].reshape(-1, block).max(axis=1) < thresh
 
 
-__all__ = ["BAND", "LOW", "window", "COEFF_BITS", "SIG_FRAC", "ACC_FRAC", "QLSB",
+__all__ = ["BAND", "LOW", "window", "V_REF", "Z_REF", "N_LINES_ARRAY",
+           "transitions", "coherent_amplitude", "select_stepped",
+           "differential_stepped", "element_rail_current", "register_current",
+           "COEFF_BITS", "SIG_FRAC", "ACC_FRAC", "QLSB",
            "Bands", "Trial", "min_transform", "dc_grid_dbfs", "remove_dc",
            "bands", "states", "pointer", "preamble_pcm", "idle_pcm",
            "run_trial", "imbalance", "detector_stat", "idle_gate",
