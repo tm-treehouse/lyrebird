@@ -1,13 +1,21 @@
-# Idle-channel behaviour: the low-frequency limit cycle
+# Idle-channel behaviour, and what the element lines do to the reference
 
-Run: `./.venv/bin/python model/run_idle.py`. Log in `results/idle.txt`,
-figures `figures/idle_window.png` and `figures/idle_blast.png`.
+Run: `./.venv/bin/python model/run_idle.py`. Logs in `results/idle.txt` and
+`results/reference-current.txt`, figures `figures/idle_window.png` and
+`figures/idle_blast.png`.
+
+Two findings, in the order they were made. The first closes an open item: the
+low-frequency limit cycle was a measurement artifact. The second opens a
+larger one: **the element transition rate is a rectified copy of the signal,
+it puts a signal-correlated current on the rail that sets full scale, and the
+rotation creates that correlation rather than whitening it.** Section H.
+
+## The headline (first finding: the limit cycle)
 
 `notes-programme.md` reached the same conclusion independently and from a
 different reproduction, at 96 kHz with one percent elements rather than the
 176.4 kHz reference row. Two unrelated routes to the same 12-bin main lobe.
 
-## The headline
 
 **The 15 to 19 dB loss is a measurement artifact, not a loop fault.** The
 tripped run README.md reports at 125.06 dB measures **143.40 dB** when the
@@ -320,6 +328,166 @@ over a finite record. Over 2^20 samples that is one sample in a million, a
 
 It is not a limit cycle, it is not periodic, and nothing in the loop is
 locking. The rest of this note's measurements confirm that directly.
+
+## H. The reference rail: the transition rate is not whitened, it is rectified
+
+Run by `run_idle.py H`, log in `results/reference-current.txt`. This answers a
+question the hardware thread raised in
+`hardware/lyrebird-dac-reva/parts-notes.md`: the 180 pF filter capacitors and
+the registers draw current in proportion to how often element lines *change*,
+0008's constant-current guarantee covers only the DC term, and the reference
+rail is a multiplier on the output, so a signal-correlated current there is
+distortion.
+
+**Read this as a prediction, not a measurement.** The model has no supply in
+it. What is measured is a digital proxy — how many element lines change state
+each clock — converted through hardware constants transcribed from
+`hardware/lyrebird-dac-reva/`. Every step is stated in the log so it can be
+rechecked or rescaled. A bench measurement of the rail with the modulator
+running is what would settle it.
+
+### The answer: correlated, and the rotation creates the correlation
+
+Not whitened. The transition rate is a **full-wave rectified copy of the
+signal**, and two exact identities say why. With `k` and `k'` consecutive
+codes, measured over 2^21 samples and confirmed bit-exact:
+
+| Selection rule | Lines that change per sample |
+| --- | --- |
+| plain DWA | `T = 2·min(k+k', 14−k−k')` |
+| no rotation | `T = 2·|k−k'|` |
+
+With rotation the pointer advances **by the code**, so consecutive windows are
+disjoint until they wrap and the count is `k+k'` folded about seven. Writing
+`k = 3.5 + s`:
+
+```
+T  =  14 − 4|s|
+```
+
+A rectifier. Its spectrum is the even harmonics of the signal. Checked two
+ways before being believed:
+
+| | Closed form | Simulated |
+| --- | --- | --- |
+| mean, 1 kHz at -3.7 dBFS | 8.179 | 8.155 |
+| second harmonic amplitude | 3.881 transitions | 3.834 transitions |
+
+and the null tests hold: digital silence and a DC input both put the 2 kHz
+component at ~1e-3 transitions against 3.83 with the tone, and the second
+harmonic scales with amplitude as the closed form says down to about
+-16 dBFS, below which the loop's own noise fills in the rectification.
+
+### No selection rule separates the two properties
+
+`SNDR 1%` is the ordinary in-band figure with one percent elements — what the
+rotation exists to protect — beside the transition rate it costs:
+
+| Rule | T mean | 2nd harmonic | SNDR, 1% elements |
+| --- | --- | --- | --- |
+| **plain DWA, advance by the code** | 8.155 | **3.834** | **133.79 dB** |
+| no rotation | 1.188 | 0.019 | 57.05 dB |
+| advance by 1 each sample | 4.020 | 0.052 | 84.23 dB |
+| advance by 3 each sample | 7.987 | 3.512 | 84.82 dB |
+| pointer stepped by an LFSR | 5.546 | 1.494 | 77.82 dB |
+| both sides on one pointer | 7.505 | 3.632 | 81.33 dB |
+
+**Everything that lowers the transition rate's signal content also destroys
+the mismatch shaping, because they are the same mechanism.** DWA shapes
+mismatch to first order precisely *because* the pointer advance equals the
+code, and that is what ties the number of changing lines to the code. A fixed
+step takes 37 dB off the transition rate and 50 dB off the mismatch figure.
+This is not a pointer rule chosen badly; it is a property of the method. Four
+alternatives were tried and all four failed — recorded so nobody tries them
+again.
+
+### Converted through the hardware constants
+
+3.32 V rail, 1.668k+1.668k element, 180 pF per element (simulated with its RC,
+τ = 150 ns against a 40.7 ns clock, so charge per transition is about a third
+of C·V), 30 pF Cpd per flip-flop, 10 mΩ in-band rail impedance, 28 lines =
+two channels of 14 given the same signal, which is the mono worst case.
+
+| Term | Mean current | At 2f | Equivalent output error |
+| --- | --- | --- | --- |
+| capacitors only | 20.08 mA | 1.718 mA | -115.6 dBFS |
+| registers only | 19.96 mA | 9.385 mA | -102.9 dBFS |
+| **both** | **40.04 mA** | **11.103 mA** | **-101.1 dBFS** |
+
+11.1 mA at 2 kHz on 10 mΩ is **111 µV on 3.32 V**, which is the hardware
+thread's own -90 dB worst case arriving as the actual case rather than the
+bound. The output error is odd-harmonic, as the mechanism demands — an even
+modulation times an odd signal:
+
+| Harmonic | 2 | 3 | 4 | 5 | 6 | 7 |
+| --- | --- | --- | --- | --- | --- | --- |
+| dBFS | -161.4 | **-101.1** | -159.7 | -121.2 | -160.7 | -131.5 |
+
+**Against the -136.5 dBFS the chain is held to, this is 35 dB worse. Against
+the 110 dB target, which is -113.7 dBFS at this level, it is 12.6 dB short.**
+An end-to-end figure of about 97 dB where 132.8 dB is claimed.
+
+Real material does not escape it: the transition rate follows the envelope, so
+the ripple is the programme's own envelope and the products land under it.
+Programme-like material gives -104.4 dBFS and sustained bass -99.0 dBFS.
+Percussive material gives -138.3 dBFS, because its transition rate sits near
+the top of its range most of the time and has little left to modulate.
+
+### What would have to change
+
+**Local decoupling is not the mitigation, and 0008 says it is.** The ripple is
+at twice the signal frequency and at the programme envelope — an *audio*
+frequency current. Eight 100 nF parts are 100 Ω at 2 kHz; the regulator's own
+10 mΩ is what this current sees. The decoupling 0008 asks for is right for the
+megahertz content and does nothing here. Reaching the chain's own floor would
+take 35 dB less rail impedance in band, 170 µΩ at 2 kHz, which no regulator
+does and which would need farads of bulk capacitance.
+
+What the identity points at instead: `T = 14 − 4|s|` is bounded above by 14 and
+the modulation is the deficit, so **a transition ballast** — dummy lines
+toggled to make up the deficit, driven by the same code — would flatten the
+current without touching the selection rule or the mismatch shaping. It costs
+the average current of a fully toggling array, which is the opposite of a power
+saving, and it is a hardware change rather than a model result. It is the one
+mitigation the measurement actually points at.
+
+### Cross-checks, because the result is large
+
+An independent arithmetic route: a ripple of amplitude `G` at 2f against a
+signal of amplitude `A` at f puts `A·G/2` on the third harmonic. Measured
+against that, and swept over what the identity says should and should not
+matter:
+
+| Case | T mean | I at 2f | H3 | A·G/2 | diff |
+| --- | --- | --- | --- | --- | --- |
+| 48 kHz, 1 kHz, -3.7 dBFS | 8.155 | 11.103 mA | -101.14 | -99.23 | -1.91 |
+| 192 kHz, 1 kHz, -3.7 | 8.155 | 11.103 mA | -101.14 | -99.23 | -1.91 |
+| 44.1 kHz, 1 kHz, -3.7 | 8.155 | 10.364 mA | -101.71 | -99.83 | -1.88 |
+| 48 kHz, 200 Hz, -3.7 | 8.155 | 11.103 mA | -101.14 | -99.23 | -1.91 |
+| 48 kHz, 5 kHz, -3.7 | 8.155 | 11.103 mA | -101.14 | -99.23 | -1.91 |
+| 48 kHz, 1 kHz, -10 | 11.133 | 4.773 mA | -116.35 | -112.87 | -3.48 |
+| 48 kHz, 1 kHz, -20 | 12.936 | 0.974 mA | -137.85 | -136.68 | -1.18 |
+
+Sample rate and tone frequency change nothing, which is what `T = 14 − 4|s|`
+requires — the mean and second-harmonic amplitude of a rectified sine depend on
+amplitude alone. The 44.1 kHz row differs because its element clock does, which
+is the check that the pipeline is responding at all.
+
+**Level changes it faster than the signal.** The ripple is proportional to
+amplitude and the product to amplitude squared, so the third harmonic sits
+97 dB below a -3.7 dBFS signal and 118 dB below a -20 dBFS one. This is a
+large-signal mechanism, worst exactly where the 110 dB target is specified.
+
+### How confident to be
+
+The largest single uncertainty is the register's Cpd, which
+`hardware/.../power.md` already flags: read as per package rather than per
+flip-flop, the register row drops 24 dB and the capacitors-only row is the
+answer. **Both rows are above the chain's own floor, so the uncertainty
+changes the size of the problem, not whether there is one.** The other
+assumptions worth challenging before acting: that the rail impedance really is
+10 mΩ at 2 kHz, and that the element current is proportional to the rail to
+first order with nothing else regulating it.
 
 ## What is now unmeasured, as opposed to corrected
 

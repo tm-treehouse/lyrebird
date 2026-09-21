@@ -350,10 +350,27 @@ element current. Two things follow, and neither is settled here:
   below it if the rotation whitens it, which is exactly what the rotation is
   for.
 
-It is recorded rather than resolved because it needs the modulator running to
-answer: the quantity to measure is the in-band component of the *transition
-rate*, not of the code. The mitigation if it matters is the one 0008 already
-asks for — heavy local decoupling at the register packages, which is fitted.
+**This has since been measured, and it is the worst of the two cases above.**
+`model/results/reference-current.txt` finds the current strongly correlated,
+and finds that the rotation *creates* the correlation rather than whitening
+it: with the DWA pointer advancing by the code, the number of lines that
+change is `T = 14 − 4|s|` for a code `s` about mid scale, which is a full-wave
+rectifier, so the transition rate carries the signal's magnitude. The
+predicted in-band error is −101.1 dBFS against the −136.5 dBFS the chain is
+held to.
+
+**The mitigation named above is the wrong one, and so is 0008's.** Heavy local
+decoupling answers a disturbance at tens of megahertz. This one is at twice
+the signal frequency and at the programme envelope — an audio-frequency
+current, where the eight 100 nF parts are about 100 Ω and the regulator's
+10 mΩ is what the rail actually sees. Reaching the chain's floor would need
+170 µΩ at 2 kHz, which is farads. The decoupling is still right for what it
+was fitted for; it does not touch this.
+
+What the identity does point at is a **transition ballast**: `T` is bounded
+above by 14 and the modulation is the deficit, so dummy lines toggled to make
+that deficit up flatten the current without altering the selection rule. It
+costs the current of a fully toggling array. Not designed here.
 
 **Poles two and three** are in the amplifier feedback: 2.0 nF across each
 402 Ω transimpedance resistor (198 kHz) and 3.9 nF across each 200 Ω

@@ -7,6 +7,59 @@ reconstructed from memory six months later.
 Keep this file honest. Delete an item when a decision record covers it, rather
 than leaving both.
 
+## The most significant open item: the reference rail carries the signal
+
+**The DWA rotation makes the reference-rail current track the signal, and the
+predicted error is 35 dB above the chain's own floor.** This is the largest
+outstanding risk in the design and it has no accepted answer yet.
+
+0008 guarantees seven elements high at every code, so the *DC* load on the
+reference is constant. It guarantees nothing about how often lines change, and
+the 180 pF element filter capacitors and the registers both draw current in
+proportion to that. Because the DWA pointer advances by the code, consecutive
+windows are disjoint until they wrap and the number of changing lines is
+`T = 14 − 4|s|` about mid scale — a full-wave rectifier, so the transition
+rate carries the signal's magnitude onto the even harmonics, and its product
+with the signal lands on the odd ones.
+
+| | |
+| --- | --- |
+| Predicted in-band error | **−101.1 dBFS**, third harmonic |
+| The chain's own noise | −136.5 dBFS |
+| What 0012's 110 dB target allows here | −113.7 dBFS |
+
+Worst at full scale, because the level dependence is quadratic — which is
+where the target is specified. Programme material gives −104.4 dBFS and
+sustained bass −99.0, so real content does not escape it.
+
+What is known, and what is not:
+
+- **The two properties appear inseparable.** DWA shapes mismatch to first
+  order *because* the pointer advance equals the code, which is exactly what
+  ties the changing-line count to the code. Four alternative rules were tried
+  and all four trade the whole benefit away: no rotation 57.05 dB SNDR at one
+  percent elements, advance-by-one 84.23 dB, LFSR 77.82 dB, shared pointer
+  81.33 dB, against plain DWA's 133.79 dB.
+- **Decoupling is not the mitigation**, and both 0008 and parts-notes.md said
+  it was. The disturbance is at twice the signal frequency and at the
+  programme envelope, so the eight 100 nF parts are about 100 Ω where it lives
+  and the regulator's 10 mΩ is what the rail sees. The chain's floor would
+  need 170 µΩ at 2 kHz.
+- **A transition ballast is the untested idea.** `T` is bounded above by 14
+  and the modulation is the deficit, so dummy lines toggled to make it up
+  flatten the current without touching the selection rule, at the cost of a
+  fully toggling array's current. Nobody has designed or costed it.
+- **It is a prediction, not a measurement.** The model has no supply in it;
+  this is a digital proxy through hardware constants, every one of them listed
+  in the log for rescaling. A bench measurement of the rail with the modulator
+  running is what settles it.
+- **The register `Cpd` uncertainty changes the size, not the existence.** Per
+  package rather than per flip-flop drops that row 24 dB, and the
+  capacitors-only case is still 21 dB above the chain's floor.
+
+Source: [model/results/reference-current.txt](../model/results/reference-current.txt),
+section H of [model/notes-idle.md](../model/notes-idle.md).
+
 ## Flagged in the repo, blocking nothing yet
 
 | Item | Where | Note |

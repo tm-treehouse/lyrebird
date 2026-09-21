@@ -65,6 +65,7 @@ H3. The transition rate against the element-selection rule.
            pointer advances by 1 each sample    4.020  5.241e-02  3.661e-02     84.23
            pointer advances by 3 each sample    7.987  3.512e+00  4.501e-01     84.82
                   pointer stepped by an LFSR    5.546  1.494e+00  1.091e-03     77.82
+                   both sides on one pointer    7.505  3.632e+00  6.202e-01     81.33
 
     The two columns move together and in the wrong direction.
     Everything that lowers the transition rate's signal content
@@ -100,6 +101,7 @@ H4. Converting to a rail current and to an output figure.
            pointer advances by 1 each sample    19.75mA     9.84mA    1.654mA    -115.02     -135.2
            pointer advances by 3 each sample    19.95mA    19.55mA   10.316mA    -101.14     -135.9
                   pointer stepped by an LFSR    19.43mA    13.58mA    5.143mA    -105.90     -129.5
+                   both sides on one pointer    19.93mA    18.37mA   10.580mA    -101.10     -133.5
 
     'out' is the in-band power of x*g, where x is the element sum
     and g the fractional gain error the rail ripple produces, with
@@ -119,7 +121,7 @@ H4. Converting to a rail current and to an output figure.
       harmonic 6 at   5976.6 Hz :  -160.72 dBFS
       harmonic 7 at   6972.7 Hz :  -131.46 dBFS
 
-H5. Real material.
+H6. Real material.
 
                   material   T mean    T std   in-band g        out
             programme-like   11.472    2.027       -94.8    -104.41
@@ -130,7 +132,22 @@ H5. Real material.
     the envelope, so the rail ripple is the programme's own
     low-frequency envelope and the products land under it.
 
-H6. What it comes to.
+H5. Which term, so the answer can be rescaled.
+
+                      term on the rail      mean      at 2f        out
+                       capacitors only   20.08mA    1.718mA    -115.55
+                        registers only   19.96mA    9.385mA    -102.91
+                                  both   40.04mA   11.103mA    -101.10
+
+    The register term is the larger of the two and it rests on
+    reading the datasheet's 30 pF Cpd as per flip-flop, which
+    power.md calls its largest remaining uncertainty. If it is per
+    package instead, the register row drops by 24 dB and the
+    capacitors-only row is the answer. Both rows are above the
+    chain's own floor, so the uncertainty changes the size of the
+    problem and not whether there is one.
+
+H7. What it comes to.
 
     Plain DWA, mono, one percent elements:
       transition-dependent current  +6.2 mA of capacitor charging and 20.0 mA of register
@@ -139,9 +156,56 @@ H6. What it comes to.
       against the chain's own         -136.5 dBFS
       and the 110 dB target, which is -113.7 dBFS at this level
 
-    If the register's Cpd is per package rather than per flip-flop,
-    which hardware/lyrebird-dac-reva/power.md calls its largest
-    remaining uncertainty, the register term falls by sixteen and
-    the capacitor term is left on its own; that case is the
-    'elements' column alone and is about 16 dB better.
+    What would have to change. The rail ripple is at twice the
+    signal frequency and at the programme envelope, which is to say
+    it is an AUDIO-frequency current. Local decoupling does not act
+    there: eight 100 nF parts are 100 ohm at 2 kHz and the
+    regulator's own 10 mOhm is what the current sees. 0008's
+    suggested mitigation, heavy local decoupling at the register
+    packages, is right for the megahertz content and does nothing
+    for this.
+    To put this term at the chain's own floor would take 35 dB
+    less rail impedance in band, i.e. 169.73 uOhm at 2 kHz, which no
+    regulator does and which would need farads of bulk capacitance.
+
+    What follows from the identity instead. T = 14 - 4|s| is bounded
+    above by 14, and the modulation is the deficit. Toggling unused
+    or dummy lines to make up the deficit -- a transition ballast of
+    up to 14 toggles per clock, driven by the same code -- would
+    flatten the current without touching the selection rule or the
+    mismatch shaping. That costs the average current of a fully
+    toggling array, which is the opposite of a power saving, and it
+    is a hardware change rather than a model result. It is offered
+    as the one mitigation the measurement actually points at.
+
+H8. Cross-checks, because the result is large.
+
+    An independent arithmetic route to the same number: a rail
+    ripple of amplitude G at 2f against a signal of amplitude A at f
+    puts A*G/2 on the third harmonic. Measured against that, and
+    swept over things the identity says should and should not
+    matter.
+
+                          case   T mean    I at 2f         H3      A*G/2    diff
+           48 kHz, 1 kHz, -3.7    8.155   11.103mA    -101.14     -99.23   -1.91
+          192 kHz, 1 kHz, -3.7    8.155   11.103mA    -101.14     -99.23   -1.91
+         44.1 kHz, 1 kHz, -3.7    8.155   10.364mA    -101.71     -99.83   -1.88
+          48 kHz, 200 Hz, -3.7    8.155   11.103mA    -101.14     -99.23   -1.91
+           48 kHz, 5 kHz, -3.7    8.155   11.103mA    -101.14     -99.23   -1.91
+            48 kHz, 1 kHz, -10   11.133    4.773mA    -116.35    -112.87   -3.48
+            48 kHz, 1 kHz, -20   12.936    0.974mA    -137.85    -136.68   -1.18
+
+    Sample rate and tone frequency change nothing, which is what
+    T = 14 - 4|s| requires: the mean and the second-harmonic
+    amplitude of a rectified sine depend on its amplitude alone.
+    The 44.1 kHz row differs because its element clock does, which
+    is the check that the pipeline is responding at all. Level
+    does change it, and faster than the signal: the ripple is
+    proportional to amplitude and the product to amplitude
+    squared, so the third harmonic sits 97 dB below a -3.7 dBFS
+    signal and 118 dB below a -20 dBFS one. This is a large-signal
+    mechanism, worst exactly where the 110 dB target is specified.
+    Simulation runs 1 to 3 dB below the closed form throughout,
+    because the loop's own shaped noise fills in the rectifier's
+    corner that a pure sine would leave sharp.
 

@@ -109,6 +109,20 @@ megahertz, so decouple heavily at the flip-flops and keep element return
 currents tight. The constant-current property above is what makes this
 tractable.
 
+> **Correction.** The constant-current property covers the DC term only. It
+> guarantees seven elements high at every code; it guarantees nothing about
+> how often lines *change*, and both the element filter capacitors and the
+> registers draw current in proportion to that. Worse, the rotation creates
+> the correlation rather than whitening it: because the DWA pointer advances
+> by the code, the number of changing lines is `T = 14 − 4|s|` about mid
+> scale, a full-wave rectifier that puts the transition rate on the even
+> harmonics of the signal. The predicted in-band error is −101.1 dBFS against
+> a chain held to −136.5. Heavy decoupling does not address it, because the
+> disturbance is at audio frequency rather than at the switching rate. See
+> [model/results/reference-current.txt](../../model/results/reference-current.txt)
+> and [docs/open-items.md](../open-items.md); the measurement is a digital
+> proxy and wants confirming on a bench.
+
 **The interface contract changes substantially.** Bit clock, word clock, serial
 data, and the I2C pair all disappear, replaced by element lines. See
 [hardware/interface.md](../../hardware/interface.md).
