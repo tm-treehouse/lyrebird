@@ -110,6 +110,15 @@ def build():
         y["GND"] += gnd
         y["OUT"] += osc_out
         y["E/D"] += osc_en[en]
+    # 100 k to ground on each enable, for the same reason MUTE_N has one: an
+    # open E/D pin runs, and before the FPGA is configured its pins are high
+    # impedance and the translator's outputs may be too. Without these, both
+    # oscillators start and drive OSC_RAW into each other -- the one net where
+    # that is possible, because the shared output is only legal while exactly
+    # one part is enabled. Defaulting both off is safe: nothing downstream
+    # needs the element clock until the FPGA is running.
+    for _en in osc_en.values():
+        _res(_en, gnd, "100k")
 
     # ---- Divide by two to the element clock, then fan out. Higher carrier
     # gives lower absolute jitter; dividing keeps those edges (0012).
@@ -324,7 +333,7 @@ def build():
             ("U6", v3v3_clk, "LT3045 clock chain", "33.2k 0.1%"),
             ("U9", v2v5, "LT3045 header-side 2.5 V", "24.9k 0.1%")):
         u = Part("Regulator_Linear", "LT3045xDD", ref=ref, value=val,
-                 footprint="Package_DFN_QFN:DFN-12-1EP_3x3mm_P0.45mm_EP1.65x2.38mm")
+                 footprint="Package_DFN_QFN:DFN-10-1EP_3x3mm_P0.5mm_EP1.65x2.38mm")
         for p in u.pins:
             nm = str(p.name)
             if nm.startswith("IN"):
@@ -539,7 +548,7 @@ def build():
     # arrives from the pump.
     pos = Part("Regulator_Linear", "LT3045xDD", ref="U14",
                value="LT3045 op amp positive rail",
-               footprint="Package_DFN_QFN:DFN-12-1EP_3x3mm_P0.45mm_EP1.65x2.38mm")
+               footprint="Package_DFN_QFN:DFN-10-1EP_3x3mm_P0.5mm_EP1.65x2.38mm")
     for p in pos.pins:
         nm = str(p.name)
         if nm.startswith("IN"):
