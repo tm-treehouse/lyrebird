@@ -60,6 +60,42 @@ What is known, and what is not:
 Source: [model/results/reference-current.txt](../model/results/reference-current.txt),
 section H of [model/notes-idle.md](../model/notes-idle.md).
 
+## Agreed but not yet implemented: wall-wart power, isolated USB 2.0
+
+Decided in conversation, no decision record written yet, nothing in the
+netlists. This supersedes [0009](decisions/0009-usb-bus-power.md) and amends
+0005 and 0012.
+
+- **A single 12 V wall wart replaces USB bus power.** One new buck stage to
+  5 V feeds the existing tree unchanged; the negative rail comes from a
+  discrete inverter into the LT3094 instead of a charge pump.
+- **USB carries data only, galvanically isolated** with an ADuM4165/4166.
+- **This forces USB 2.0 High Speed**, because no isolator exists for 5 Gbps
+  SuperSpeed. 192/24 stereo needs 9.216 Mbit/s against High Speed's 480, so
+  utilisation is 1.9 % and the FT601Q does not change — it supports High
+  Speed natively. The SuperSpeed pairs simply go unrouted, which removes the
+  hardest layout constraint on the main board.
+
+What it retires: the 472 mA against 500 mA USB 2.0 margin, the 150 mA
+pre-enumeration rule, the 4.43 V worst case on `VIN_P`, `MUTE_N`'s
+pre-enumeration role, the LTM4622 run-pin gating and its `WAKEUP_N` NMOS, and
+the LTC3265 with its flying-capacitor ground return.
+
+What it recovers: **2.1 dB.** The 604 Ω difference network was chosen only
+because the charge pump's internal LDO is rated 50 mA and 200 Ω wanted 63.
+A discrete inverter into an LT3094 handles 500 mA, so 200 Ω is affordable
+again and the stage returns to about 125.6 dB.
+
+What it adds: a barrel jack with reverse-polarity and overvoltage protection;
+input filtering, because a switching wall wart becomes the primary noise
+source where `VBUS` used to be; the isolator's upstream supply drawn from
+`VBUS` at roughly 20 mA, under the 100 mA default so it needs no enumeration;
+and a decision on whether supply ground ties to chassis.
+
+What it does **not** fix: the reference-rail item above. That is transition
+current into rail impedance and is indifferent to where the rail's power
+comes from.
+
 ## Flagged in the repo, blocking nothing yet
 
 | Item | Where | Note |
@@ -98,27 +134,33 @@ translator's signal pins were not wired at all, which is what let the clock
 bypass it. `assert_below_abs_max` in `hardware/netlist/lyrebird_parts.py`
 now fails the build on this whole class of error.
 
-### Never chosen at all
+### Chosen since, with the datasheet each was verified against
 
-- **A 2.5 V rail on the module.** Surfaced by the translator fix: `VCC(A)`
-  faces the header and must be 2.5 V, but the header carries only +5 V and
-  ground, so the module has to regulate its own. A fourth LT3045 is in the
-  netlist as the consistent choice; whether it deserves a cheaper part is
-  open, since nothing on it reaches the signal.
-- **Fanout and divider part.** Divides the oscillator by two and distributes
-  the element clock to two register packages with tight skew, on the clean
-  3.3 V rail. Constrained by
-  [0012](decisions/0012-module-clock-architecture.md).
-- **Register part.** Constrained to a family whose input threshold is 2.0 V at
-  a 3.3 V supply, in a 16-bit package. No stock symbol exists either.
-- **Element resistor value.** Thin film and arrays are specified; the value is
-  not. The symbol is now `R_Pack04`, four isolated elements, rather than
-  `R_Network08`, which is a bussed array with one common terminal and
-  collapsed all 28 elements and both summing nodes onto a single net.
-- **Op amp, charge pump, headphone amplifier.** No parts chosen. This is why
-  the LT3094's input pins are still open in the netlist: it post-regulates a
-  charge pump that does not exist yet.
-- **Reconstruction filter.** Topology and corner frequency.
+Every part the module was missing now exists in the netlist, which generates
+with zero errors at 126 components and 144 nets. Reasons and verified
+specifications are in
+[parts-notes.md](../hardware/lyrebird-dac-reva/parts-notes.md).
+
+| Item | Part | Decided by |
+| --- | --- | --- |
+| Output op amp | OPA1612AID | 1.1 nV/√Hz, the best row on the measured noise curve |
+| Registers | SN74ALVCH16374DGGR | VIH 2.0 V at a 3.3 V supply, with CMOS not BiCMOS outputs |
+| Divider and fanout | SN74LVC1G74 + LMK1C1104 | 50 ps output skew; the single-chip alternative wanted 65 mA |
+| Element resistor | 1.69 kΩ + 1.65 kΩ, E96 | 3.34 kΩ split around the filter capacitor |
+| Reconstruction filter | 180 pF per element, then 2.0 nF and 1.3 nF | A shunt capacitor at a virtual ground forms no pole at all |
+| 2.5 V module rail | Fourth LT3045 | Consistency; nothing on it reaches the signal |
+| Output connector | SJ1-3523N | |
+| Oscillators | CCHD-957, symbol and 9×14 mm footprint drawn | 0012 |
+
+The charge pump (LTC3265) and both post-regulators were also chosen and
+wired, but **the move to a 12 V wall wart deletes the charge pump**, so that
+part of the tree is superseded before it was ever built. See the redesign
+section below.
+
+### Still never chosen
+
+- **Headphone amplifier.** No part, and no decision on whether the first
+  module carries one.
 - **Which module to build first.** Line, headphone, or combined. The ID
   encoding in [interface.md](../hardware/interface.md) supports all three.
 - **Whether to provision an unpopulated quad-SPI PSRAM footprint**, six pins,
@@ -147,8 +189,12 @@ RTL reads the same numbers rather than deriving its own.
   splitting the cascade breaks either the settling offset or the coherent FFT
   window. Worth pursuing only if a multiplier at the element clock proves
   expensive.
-- **Real material.** Every figure comes from a tone or the inter-sample probe.
-  The noise floor's shape under music has never been looked at.
+- ~~**Real material.**~~ **Closed.** Fourteen real 48 kHz recordings measured
+  window by window, plus synthetic material at all six rates. It changed three
+  claims: 132.8 dB is a tone's figure and a median window's, not a worst case
+  (worst window 111.5 dB); the 3 dB headroom budget is 2.4 dB short of the
+  clipped case it exists for; and the error is worst where the signal is
+  quietest. See [model/notes-programme.md](../model/notes-programme.md).
 - ~~**The low-frequency limit cycle.**~~ **Closed.** There was no limit cycle:
   the 15 to 19 dB was an analysis-window artifact, and the same records measure
   correctly once the windowed mean is removed instead of the arithmetic one
