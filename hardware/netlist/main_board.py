@@ -183,8 +183,48 @@ def build():
         p += v["+2V5"]
     for p in lp.pins_named(buck, "VOUT2"):
         p += v["+1V0"]
+    #
+    # Failure modes, because these two resistors are the only thing setting
+    # either rail and one of them sits in front of a 1.20 V absolute maximum.
+    #
+    # An OPEN R_FB is safe, and it is worth writing down because the intuition
+    # runs the other way. With no path to ground the FB node is pulled to VOUT
+    # through the internal 60.4k, the error amplifier sees FB above its 0.6 V
+    # reference, and it reduces duty until VOUT is about 0.6 V. A cracked
+    # resistor browns the rail out; it does not raise it.
+    #
+    # What is genuinely dangerous is fitting the WRONG value, and the worst
+    # single assembly error on this board is swapping these two: 19.1k on FB2
+    # puts 2.5 V onto +1V0, which reaches VDD x28, VDD_PLL, VDD_SER x2 and
+    # VDD_SER_PLL against a 1.20 V absolute maximum, and kills the FPGA on
+    # first power-up. The reverse swap only browns out +2V5, which is safe.
+    #
+    # So the core rail's resistor is deliberately a DIFFERENT PACKAGE. A 0603
+    # part cannot be placed on an 0402 land, which makes the fatal direction
+    # of the swap a physical impossibility rather than a process control.
     resistor(lp.pin_named(buck, "FB1"), v["GND"], "19.1k 1%")
-    resistor(lp.pin_named(buck, "FB2"), v["GND"], "90.9k 1%")
+    resistor(lp.pin_named(buck, "FB2"), v["GND"], "90.9k 1%",
+             footprint="Resistor_SMD:R_0603_1608Metric")
+    #
+    # E-4, recorded rather than fixed. DS1001 gives two operating windows on
+    # this one net: VDD and VDD_PLL want 0.95-1.05 V, while VDD_SER and
+    # VDD_SER_PLL want 1.00-1.15 V. The LTM4622 delivers 0.979/0.999/1.019 V
+    # across its own feedback tolerance and a 1 % resistor, so VDD_SER sits
+    # below its minimum at nominal. The two windows overlap only between 1.00
+    # and 1.05 V, which is narrower than the regulator's own spread, so no
+    # resistor value satisfies both parts with margin. VDD is the one with 28
+    # balls and a real design depending on it; the SerDes is unused and every
+    # one of its signal balls is open. The rail is therefore centred on VDD
+    # and VDD_SER is knowingly out of specification on a block that never
+    # runs. Revisit if the SerDes is ever used -- it needs its own rail.
+    #
+    # E-5, recorded. The same arithmetic on channel 1 gives 2.563 V worst
+    # case against a 2.75 V absolute maximum and a 2.7 V operating maximum:
+    # 187 mV to destruction, 137 mV to out of specification, before any
+    # load-step overshoot. Dominated by the LTM4622's own +/-1.33 % feedback
+    # tolerance rather than by the resistor, so a tighter resistor buys only
+    # about 18 mV and is not fitted. This rail has no room for a second
+    # tolerance mistake on top of it.
     # 2.5 V output wants 1.5 MHz rather than the default 1 MHz to keep the
     # inductor ripple sensible; the datasheet gives R_FSET = 649k for that.
     # FREQ is shared, and 1.5 MHz is harmless for the 1.0 V channel: 5 V in
@@ -361,6 +401,24 @@ def build():
         r[1] += ctrl_nets[sig]
         r[2] += v["GND"]
 
+    # ---- Unused SerDes clock inputs, tied rather than left open.
+    #
+    # DS1001 section 2.10 lists SER_CLK and SER_CLK_N among the pins VDD_CLK
+    # supplies, and VDD_CLK is powered here at 2.5 V. A floating input on a
+    # powered receiver settles near mid-rail, where both halves of the input
+    # stage conduct, and a differential receiver left open can oscillate as
+    # well. Neither current is characterised in the datasheet -- Table 4.5's
+    # 158 uA "at GPIO input at transition point" is the GPIO figure, not this
+    # receiver's. The SerDes is unused and every one of its signal balls is
+    # open, so both clock inputs go to ground: a defined level costs two
+    # shorts and removes an unbounded, unmeasured current.
+    #
+    # This is the class of pin assert_below_abs_max cannot help with. It
+    # checks what drives a protected pin, and nothing drives these at all.
+    for nm in ("SER_CLK", "SER_CLK_N"):
+        ser_clk_pin = lp.pin_named(fpga, nm)
+        ser_clk_pin += v["GND"]
+
     # ---- Configuration. CFG_MD[3:0] = 0b0000 selects SPI Active mode with
     # CPOL=0 CPHA=0, so the FPGA loads itself from flash at reset (0006).
     for p in lp.pins_matching(fpga, r"^CFG_MD"):
@@ -450,6 +508,31 @@ def build():
     for k in (3, 5, 9):
         jtag[k] += v["GND"]
     # Figure 3.10 puts 10k pull-ups on TMS, TCK and TDI to VDD_WA.
+    #
+    # The three adapter-driven pins get a series resistor, and this is the one
+    # protection on the board that guards against something outside it. 0006
+    # specifies an ordinary external FTDI adapter, and the common ones -- the
+    # FT2232H mini-module, FT232H breakouts, Cologne Chip's own programmer --
+    # are fixed 3.3 V drivers. Pin 1 carries VREF at 2.5 V, but VREF is an
+    # output of this board and only an input to adapters that bother to
+    # implement it; a fixed 3.3 V adapter ignores it and drives 3.3 V into a
+    # ball whose absolute maximum is 2.75 V. assert_below_abs_max cannot see
+    # this, because the offending driver is not in the netlist.
+    #
+    # 1k against the 10k pull-up. UG1003, Cologne Chip's own guide for 3.3 V
+    # peripherals, says a series resistor is sufficient because "the input
+    # overvoltage security circuitry of the GateMate input pin will limit the
+    # input voltage", and recommends 10k to 100k. 10k cannot be used here: in
+    # series with the 10k pull-up that Cologne Chip's own figure 3.10 asks for
+    # it would divide a driven low to 1.25 V, which is not a low. 1k holds a
+    # driven low at 227 mV, bounds the clamp current at about 550 uA, and
+    # keeps the RC inside JTAG speeds. That is above the 80 uA UG1003's own
+    # example implies, so it is a deliberate compromise rather than vendor
+    # compliance, and a 2.5 V adapter or a translator remains the correct
+    # answer if this header is ever used at speed.
+    #
+    # TDO, CFG_DONE and CFG_FAILED_N are driven by the FPGA, not by the
+    # adapter, so they are left direct.
     for pin_no, fpga_pin, name, pu in (
             (2, "JTAG_TMS/IO_WA_B4", "JTAG_TMS", True),
             (4, "JTAG_TCK/IO_WA_A5", "JTAG_TCK", True),
@@ -459,9 +542,15 @@ def build():
             (10, "IO_WA_A2/~{CFG_FAILED}", "CFG_FAILED_N", False)):
         n = Net(name)
         n += lp.pin_named(fpga, fpga_pin)
-        n += jtag[pin_no]
         if pu:
+            # Pull-up on the FPGA side of the series resistor, so the ball is
+            # still held high with no adapter plugged in.
             pullup(n, v["+2V5"])
+            hdr = Net(name + "_HDR")
+            hdr += jtag[pin_no]
+            resistor(n, hdr, "1k 1%")
+        else:
+            n += jtag[pin_no]
 
     # ---- Decoupling. One per supply ball is the floor, not the design.
     for _ in lp.pins_matching(fpga, r"^VDD_(NA|NB|EA|EB|SA|SB|WA|WB|WC)$"):

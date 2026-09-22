@@ -77,7 +77,23 @@ re-read it: the logic is sound for what it claims. The gaps it leaves by
 construction are inputs, straps, passive terminations, off-board drivers, and
 the supply pins themselves — which it skips deliberately. Those are what follows.
 
-### E-1 (high) — nothing bounds either FPGA rail if a single feedback resistor fails open
+### E-1 (high) — nothing bounds either FPGA rail if a feedback resistor is wrong
+
+> **Editor's note, added when acting on this review.** The finding is right
+> that nothing bounds either rail, and the remedy was worth applying, but the
+> *mechanism below is inverted* and the heading has been changed to match.
+> An open `R_FB` is **safe**: with no path to ground the FB node is pulled to
+> VOUT through the internal 60.4k, the error amplifier sees FB above its 0.6 V
+> reference and reduces duty, so the rail collapses to about 0.6 V. A cracked
+> resistor browns the rail out; it cannot raise it. The dangerous fault is a
+> *wrong or swapped* resistor -- 19.1k on FB2 puts 2.5 V onto `+1V0` against a
+> 1.20 V absolute maximum -- or an FB net shorted to ground. The fix applied
+> is a poka-yoke rather than a clamp: the core rail's resistor is now 0603
+> where the 2.5 V rail's is 0402, so the fatal direction of the swap cannot be
+> assembled. The two rails' windows are too narrow for a clamp to sit between
+> the worst-case operating maximum and the absolute maximum.
+
+
 
 Verified against LTM4622 Rev. G, PIN FUNCTIONS and Table 1.
 
