@@ -87,7 +87,16 @@ U4_EFF_10 = Fact(0.80, "", ASSUMED, "not read off the efficiency curve")
 # found those pages stale in other respects; these totals are the ones the
 # module's page reached after every part was chosen, and they are the most
 # current numbers in the repository.
-I_MODULE_5V = Fact(0.238, "A", CALC, "module power.md, post-parts-selection")
+# Decision 5 moved the module's negative rail to the main board and deleted
+# its charge pump. The module's draw from 5 V falls by the pump's overhead;
+# the negative rail becomes a separate load on a separate rail.
+I_MODULE_5V = Fact(0.123, "A", CALC, "element 60.6 + clock 35.5 + op amp "
+                                     "positive 23.6 + translator 3")
+I_MODULE_N6V = Fact(0.064, "A", CALC, "op amp negative at the 200 ohm "
+                                      "network: 21.6 quiescent + 13.9 element "
+                                      "+ 21.0 network, worst case")
+V_N6V = Fact(-5.98, "V", CALC, "1.0 V x (1 + 124k/24.9k), inverted")
+INV_EFF = Fact(0.85, "", ASSUMED, "LMR33630 inverting; lower than buck mode")
 I_MAIN_OTHER = Fact(0.234, "A", CALC, "main board, everything but the module")
 
 # Split of the main board's own draw. Needed for dissipation per regulator
@@ -128,9 +137,12 @@ def main() -> int:
 
     i_5v = I_MODULE_5V.value + I_MAIN_OTHER.value
     p_5v = i_5v * V_5V.value
+    # The negative rail is its own converter off the same 12 V.
+    p_n6v = I_MODULE_N6V.value * abs(V_N6V.value)
+    p_in_n6v = p_n6v / INV_EFF.value
 
     # ---- 1. current at the input, worst case (lowest Vin, so highest Iin)
-    p_in = p_5v / U5_EFF.value
+    p_in = p_5v / U5_EFF.value + p_in_n6v
     i_in_hi = p_in / (vin_lo - D1_VF.value)
 
     check("Fuse hold current",
@@ -186,7 +198,11 @@ def main() -> int:
 
     # ---- 4. dissipation
     p_d1 = i_in_hi * D1_VF.value
-    p_u5 = p_in - p_5v
+    # Only the buck's own loss, not the inverter's input power, which p_in
+    # now also carries. Getting this wrong inflates the junction-rise check
+    # on a part that is not doing that work.
+    p_u5 = p_5v / U5_EFF.value - p_5v
+    p_u7 = p_in_n6v - p_n6v
     t_rise_u5 = p_u5 * U5_RTHJA.value
     check("Schottky dissipation",
           p_d1 < 0.5,
@@ -213,6 +229,14 @@ def main() -> int:
           f"{((V_5V.value-V_3V3.value)-U3_DROPOUT.value)*1000:.0f} mV spare")
 
     # ---- 6. buck output current
+    check("Inverter output current",
+          I_MODULE_N6V.value < U5_IOUT_MAX.value * 0.3,
+          f"{I_MODULE_N6V.value*1000:.0f} mA at {V_N6V.value:.2f} V from an "
+          f"LMR33630 wired as an inverting buck-boost",
+          f"it sees VIN + |VOUT| = {vin_hi + abs(V_N6V.value):.1f} V against "
+          f"a {U5_VIN_MAX.value:g} V rating",
+          assumed=True)
+
     check("Buck output current",
           i_5v < U5_IOUT_MAX.value * 0.5,
           f"{i_5v*1000:.0f} mA against a {U5_IOUT_MAX.value:g} A part",
@@ -239,12 +263,15 @@ def main() -> int:
     print("=" * 74)
     print(f"\nInput   {vin_lo:.1f} to {vin_hi:.1f} V at the jack, "
           f"{i_in_hi*1000:.0f} mA worst case, {p_in:.2f} W")
+    print(f"        -6V rail {I_MODULE_N6V.value*1000:.0f} mA "
+          f"= {p_n6v:.2f} W out, {p_in_n6v:.2f} W in")
     print(f"Output  {i_5v*1000:.0f} mA at {V_5V.value:.2f} V "
           f"= {p_5v:.2f} W  "
           f"({I_MAIN_OTHER.value*1000:.0f} mA main + "
           f"{I_MODULE_5V.value*1000:.0f} mA module)")
-    print(f"Losses  {(p_in-p_5v)*1000:.0f} mW total "
-          f"({p_d1*1000:.0f} mW diode, {p_u5*1000:.0f} mW buck)\n")
+    print(f"Losses  {(p_in-p_5v-p_n6v)*1000:.0f} mW total "
+          f"({p_d1*1000:.0f} mW diode, {p_u5*1000:.0f} mW buck, "
+          f"{p_u7*1000:.0f} mW inverter)\n")
 
     npass = sum(1 for r in results if r.ok)
     for r in results:

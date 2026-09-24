@@ -48,8 +48,8 @@ N_ELEM = 7              # unit elements per side
 R_TIA = 402.0           # transimpedance
 C_TIA = 2.0e-9
 
-R_DIFF = 604.0          # difference amplifier, four on one array
-C_DIFF = 1.3e-9
+R_DIFF = 200.0          # difference amplifier, four on one array
+C_DIFF = 3.9e-9
 
 # OPA1612, SBOS450C. The closed-form model uses GBW only; SPICE wants an
 # open-loop gain and a dominant pole, and their product has to be the GBW.
@@ -180,7 +180,7 @@ def main() -> int:
          "the split exists because a shunt cap at a virtual ground is not a pole"),
         ("Transimpedance pole, 402R x 2.0nF", p_tia, f_iv,
          "measured at iv_p, which carries poles 1 and 2 together"),
-        ("Difference pole, 604R x 1.3nF", p_diff, None, ""),
+        ("Difference pole, 200R x 3.9nF", p_diff, None, ""),
         ("Whole chain, -3 dB", None, f_out, "all three poles in cascade"),
     ]
     ok = True

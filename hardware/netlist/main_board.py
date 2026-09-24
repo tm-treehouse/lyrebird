@@ -39,7 +39,7 @@ def rails():
     # from the board's +1V0: the datasheet says that rail is "not to be used
     # for external devices", and it feeds only VD10 and AVDD on the bridge.
     n = {k: Net(k) for k in ("GND", "USB_VBUS", "VIN_RAW", "+12V", "+5V",
-                             "+3V3", "+2V5", "+1V0", "+1V0_FT")}
+                             "-6V_A", "+3V3", "+2V5", "+1V0", "+1V0_FT")}
     n["GND"].drive = 7
     return n
 
@@ -295,6 +295,55 @@ def build():
     resistor(buck5["FB"], v["GND"], "24.9k 1%")
     decouple(v["+5V"], v["GND"], "47uF", "1210")
 
+    # ---- -6 V for the module's analog stage (decision 5, option B).
+    #
+    # The module used to make both analog rails itself, doubling 5 V and then
+    # inverting the doubled rail. That cost 73 mA of pure conversion overhead
+    # -- a third of the module -- and it is why the difference network sits at
+    # 604 ohm instead of 200, forfeiting 2.1 dB: negative-rail current was
+    # expensive there in a way it is not anywhere else.
+    #
+    # Only the NEGATIVE rail ever needed help. The output swings +/-2.83 V
+    # peak and the OPA1612 reaches within 600 mV of its rails, so the positive
+    # analog supply needs about 3.5 V and the mezzanine's 5 V already carries
+    # it. The doubler existed only because the module made both rails
+    # symmetrically from one.
+    #
+    # Same LMR33630 as above, wired as an inverting buck-boost: the device's
+    # GND pin sits on the negative output, its SW drives the inductor back to
+    # system ground, and it therefore sees VIN + |VOUT| = 18 V against a 36 V
+    # rating. Reusing the part means one datasheet, one footprint and one
+    # set of verified numbers rather than two.
+    #
+    # Feedback is referenced to the device's own ground, which is -6 V, so
+    # the divider runs from system ground down to that rail and the part
+    # regulates the difference: 1.0 V x (1 + 124k/24.9k) = 5.98 V.
+    inv = Part("Regulator_Switching", "LMR33630ADDA", ref="U7",
+               value="LMR33630 12V->-6V inverting",
+               footprint="Package_SO:HTSSOP-8-1EP_3x3mm_P0.65mm_EP1.5x2.1mm")
+    for p_ in lp.pins_named(inv, "GND"):
+        p_ += v["-6V_A"]            # the device's ground IS the negative rail
+    inv["VIN"] += v["+12V"]
+    inv["EN"] += v["+12V"]
+    inv["PG"] += Net("PG_N6V")
+    resistor(Net("PG_N6V"), v["GND"], "100k")
+    decouple(inv["VCC"], v["-6V_A"], "1uF", "0603")
+    sw_n = Net("SW_N6V")
+    inv["SW"] += sw_n
+    cbn = Part("Device", "C", value="100nF", footprint=FP_C["0402"])
+    cbn[1] += sw_n
+    cbn[2] += inv["BOOT"]
+    # The inductor returns to system ground, which is what makes this
+    # inverting rather than a buck.
+    ind_n = Part("Device", "L", ref="L2", value="10uH 3A shielded",
+                 footprint="Inductor_SMD:L_12x12mm_H8mm")
+    ind_n[1] += sw_n
+    ind_n[2] += v["GND"]
+    resistor(v["GND"], inv["FB"], "124k 1%")
+    resistor(inv["FB"], v["-6V_A"], "24.9k 1%")
+    decouple(v["GND"], v["-6V_A"], "47uF", "1210")
+    decouple(v["GND"], v["-6V_A"], "100nF", "0603")
+
     # ---- 3.3 V regulator from bus voltage
     for p in ldo.pins:
         nm = str(p.name)
@@ -544,6 +593,12 @@ def build():
         n += ctrl_pool.pop(0)
         n += next_mez()
         ctrl_nets[sig] = n
+    # Two pins for the negative analog rail, taken from the ground
+    # allocation. 37 returns for 28 switching lines is generous; 35 still is.
+    # They are adjacent so the pair can be routed together and so a
+    # half-inserted connector cannot present one without the other.
+    for _ in range(2):
+        v["-6V_A"] += next_mez()
     # Remaining pins: supply and ground, alternating.
     while idx < len(mez_pins):
         rail = v["+5V"] if idx % 2 == 0 else v["GND"]
@@ -752,8 +807,13 @@ def build():
         # to any rail it is not told about: an undeclared rail reaching a
         # protected pin passes silently. That is how a new supply enters a
         # design unguarded.
-        hv_rails={"+3V3", "+5V", "USB_VBUS", "VIN_RAW", "VIN_FUSED", "+12V"},
-        protected={fpga: set(), mez: {"+5V"}})
+        # -6V_A is declared for the same reason +12V is: the check is
+        # membership-based, so a rail it has not been told about reaches a
+        # protected pin silently. A negative rail on a GateMate ball is as
+        # fatal as a high one, and this check is the only thing looking.
+        hv_rails={"+3V3", "+5V", "USB_VBUS", "VIN_RAW", "VIN_FUSED", "+12V",
+                  "-6V_A"},
+        protected={fpga: set(), mez: {"+5V", "-6V_A"}})
 
     return fpga, ftdi, elem_nets
 

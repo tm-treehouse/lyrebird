@@ -91,8 +91,13 @@ N_ELEM = 7              # unit elements per side
 R_TIA = 402.0           # RN15, all four transimpedance resistors, one array
 C_TIA = 2.0e-9
 
-R_DIFF = 604.0          # RN16/RN17, four per channel, one array
-C_DIFF = 1.3e-9         # two discrete C0G parts, tolerance unspecified
+R_DIFF = 200.0          # RN16/RN17, four per channel, one array.
+                        # Was 604 while a charge pump on the module made
+                        # negative-rail current expensive; decision 5 moved
+                        # that rail to the main board and 200 is affordable
+                        # again, which is where analog.txt wanted it.
+C_DIFF = 3.9e-9         # two discrete C0G parts, 2 % -- holds pole 3 at
+                        # 204 kHz now the resistance has changed
 
 R_BUILD = 100.0         # series build-out at the jack
 C_JACK = 100e-12

@@ -86,6 +86,18 @@ def build():
     ctrl = {}
     for sig in ("OSC_EN_441", "OSC_EN_48", "MUTE_N", "ID0", "ID1"):
         n = Net(sig); n += nxt(); ctrl[sig] = n
+    # Two pins of -6 V, then the alternating tail. This mirrors the main
+    # board's allocation exactly and has to: the two halves of the connector
+    # agree pin for pin or nothing works, and the pair is adjacent so a
+    # half-inserted connector cannot present one without the other.
+    # 100 k to ground so the net is defined rather than floating while the
+    # FPGA is unconfigured and its pin is high impedance -- which, with the
+    # rails gated off it, means the analog stage stays off until something
+    # deliberately turns it on.
+    _res(ctrl["MUTE_N"], gnd, "100k")
+    mez_neg = Net("-6V_A")
+    for _ in range(2):
+        mez_neg += nxt()
     while idx < len(mez_pins):
         rail = v5 if idx % 2 == 0 else gnd
         rail += nxt()
@@ -421,20 +433,21 @@ def build():
     line_out = {}
     for ch in range(2):
         out_p, inv_p, ni_p = UNIT[ch]
-        # Four 604 ohm resistors on one die. This network sets common-mode
+        # Four 200 ohm resistors on one die. This network sets common-mode
         # rejection, which is what removes the 1.4 V of DC that both
         # transimpedance outputs carry at mid code, so ratio matching here
         # is doing real work.
         #
-        # 604 ohm rather than the 200 ohm analog.txt names, because this
-        # network is also a load on the negative supply and 200 ohm makes it
-        # an unaffordable one. The transimpedance outputs sit between 0 and
-        # -2.8 V, so the network's current flows out of ground and into their
-        # output stages, which sink it to the negative rail: 21 mA at 200 ohm
-        # against 7 mA here, on a rail that also carries all 13.9 mA of
-        # element current and that a charge pump has to make from 5 V at
-        # twice the current. The cost is 2.1 dB of stage noise; the arithmetic
-        # is in parts-notes.md.
+        # 200 ohm, which is what analog.txt names and what the noise
+        # arithmetic wants. It was 604 ohm for one round, because the network
+        # loads the negative supply -- 21 mA here against 7 at 604 -- and a
+        # charge pump on the module made that current cost twice over. That
+        # pump is gone (decision 5): the negative rail now arrives from the
+        # main board, where 12 V makes an inverter cheap, and the current is
+        # ordinary again. The 2.1 dB the compromise cost is recovered.
+        #
+        # Pole 3 moves with the resistance and has to be held: 3.9 nF across
+        # 200 ohm is 204 kHz, the same corner 1.3 nF across 604 ohm gave.
         rn = Part("Device", "R_Pack04", ref=f"RN{16+ch}",
                   # 0.1 % RATIO, not 0.1 % absolute. An absolute tolerance
                   # permits both legs to sit at opposite ends of it, which is
@@ -443,7 +456,7 @@ def build():
                   # against; hardware/sim/difference_stage.py measures what it
                   # buys. Absolute value is uncritical here -- it sets gain,
                   # which is calibrated out, not rejection.
-                  value="604R, 0.1% RATIO matched, thin film array",
+                  value="200R, 0.1% RATIO matched, thin film array",
                   footprint="Resistor_SMD:R_Array_Concave_4x0402")
         inv = Net(f"DIFF_INV_{'LR'[ch]}")
         ref = Net(f"DIFF_REF_{'LR'[ch]}")
@@ -476,102 +489,45 @@ def build():
         # Removing the non-inverting one entirely does not move the DC
         # transfer curve by a nanovolt while 20 kHz rejection falls 28 dB,
         # so an offset check cannot police this: see difference_stage.py.
-        _cap(inv, o, "1.3nF C0G 2%", "Capacitor_SMD:C_0603_1608Metric")
-        _cap(ref, gnd, "1.3nF C0G 2%", "Capacitor_SMD:C_0603_1608Metric")
+        _cap(inv, o, "3.9nF C0G 2%", "Capacitor_SMD:C_0603_1608Metric")
+        _cap(ref, gnd, "3.9nF C0G 2%", "Capacitor_SMD:C_0603_1608Metric")
         lo = Net(f"LINE_OUT_{'LR'[ch]}")
         # Series build-out, so cable capacitance does not hang directly on
         # the feedback loop. 100 ohm into a 10 kohm line load is 0.09 dB.
         _res(o, lo, "100R")
         line_out[ch] = lo
 
-    # ---- The bipolar rail. A 5 V input cannot make +5 V with headroom, so a
-    # charge pump makes both polarities and low-dropout regulators drop to
-    # the final rails: op amp rejection falls off steeply with frequency, so
-    # at a pump's switching frequency the amplifier rejects far less than its
-    # headline figure (0009).
+    # ---- The bipolar rail (decision 5, option B; supersedes 0009's
+    # arrangement and the LTC3265 that implemented it).
     #
-    # LTC3265: boost charge pump, inverting charge pump, and a 50 mA LDO on
-    # each, in one package. Verified against datasheet 3265fa.
+    # The module used to make both polarities here, doubling the mezzanine's
+    # 5 V and inverting the doubled rail. It cost 73 mA of conversion
+    # overhead -- a third of the module -- and it put a 500 kHz switcher on
+    # the analog board, whose flying-capacitor return was an open layout
+    # risk. It also made negative-rail current expensive enough that the
+    # difference network went to 604 ohm rather than 200, forfeiting 2.1 dB.
     #
-    # VIN_N is tied to VOUT+ rather than to VIN_P, which is the datasheet's
-    # own instruction for this case: "If VIN_N is tied to VOUT+, the output at
-    # VOUT- will be -VOUT+ or -2 * VIN_P. This configuration is suitable for
-    # symmetric outputs at LDO+ and LDO- pins." Tying it to VIN_P instead
-    # would cap the negative raw rail at -VIN_P, which cannot support a -5 V
-    # output through a regulator that needs its dropout.
-    pump_p = Net("PUMP_P")          # 2 x VIN_P, also the inverting pump input
-    pump_n = Net("PUMP_N")          # -PUMP_P
-    vpos_raw = Net("+5V7_A")        # LDO+, the LT3045's input
-    vneg_raw = Net("-5V7_A")        # LDO-, the LT3094's input
-    pump = Part("lyrebird", "LTC3265", ref="U13", value="LTC3265EDHC#TRPBF",
-                footprint="Package_DFN_QFN:DFN-18-1EP_3x5mm_P0.5mm_EP1.66x4.4mm")
-    pump["VIN_P"] += v5
-    pump["GND"] += gnd
-    pump["VOUT+"] += pump_p
-    pump["VIN_N"] += pump_p
-    pump["VOUT-"] += pump_n
-    pump["LDO+"] += vpos_raw
-    pump["LDO-"] += vneg_raw
-    _cap(v5, gnd, "10uF")
-    _cap(pump_p, gnd, "10uF")
-    _cap(pump_n, gnd, "10uF")
-    _cap(pump_n, gnd, "10uF")      # VOUT- feeds the LT3094 directly; halve the
-                                   # 500 kHz ripple before its rejection sees it
-    _cap(pump_p, gnd, "1uF", "Capacitor_SMD:C_0603_1608Metric")  # at VIN_N
-    _cap(vpos_raw, gnd, "10uF")
-    _cap(vneg_raw, gnd, "10uF")
-    # Flying capacitors, one per pump.
-    _cap(pump["CBST+"], pump["CBST-"], "1uF 25V X7R")
-    _cap(pump["CINV+"], pump["CINV-"], "1uF 25V X7R")
-    # MODE low is constant frequency rather than Burst Mode. Burst costs less
-    # quiescent current but puts the ripple at a hysteretic rate that moves
-    # with load; constant frequency puts it at a known 500 kHz where the
-    # LT3045 and LT3094 that follow reject it, which is the whole reason they
-    # are there. RT to ground selects the 500 kHz default, the highest
-    # available and the furthest from the audio band.
-    pump["MODE"] += gnd
-    pump["RT"] += gnd
-    # Reference bypass on both LDOs: the datasheet's stated purpose is to
-    # reduce their output noise, and these two rails reach the signal.
-    _cap(pump["BYP+"], gnd, "100nF", "Capacitor_SMD:C_0402_1005Metric")
-    _cap(pump["BYP-"], gnd, "100nF", "Capacitor_SMD:C_0402_1005Metric")
-    # ADJ servos to +/-1.2 V. 46.4k over 12.4k gives 1.2 x (1 + 46.4/12.4) =
-    # 5.69 V, which is 0.69 V of headroom for the LT3045 and LT3094 over
-    # their +/-5 V outputs and keeps the pump's own 32 ohm output impedance
-    # out of the final rail.
+    # Only the negative rail ever needed the pump. The output swings
+    # +/-2.83 V peak and the OPA1612 reaches within 600 mV of its rails, so
+    # the positive analog supply needs about 3.5 V -- and the mezzanine has
+    # carried 5 V all along. The doubler existed because the module made both
+    # rails symmetrically from one, not because either rail required it.
     #
-    # The setting is chosen by the arithmetic in parts-notes.md rather than
-    # by symmetry with anything. The negative chain is the tight one, because
-    # it inverts the already-sagged doubled rail: at the worst-case 4.43 V
-    # from the header and four amplifiers' worth of maximum quiescent
-    # current, VOUT- reaches only -6.17 V and LDO- needs 5.96 V of it. A
-    # 6.0 V setting would drop out there; 5.69 V holds with 0.21 V to spare
-    # and still leaves both final regulators more headroom than their
-    # dropout needs.
-    _res(vpos_raw, pump["ADJ+"], "46.4k 1%")
-    _res(pump["ADJ+"], gnd, "12.4k 1%")
-    _res(vneg_raw, pump["ADJ-"], "46.4k 1%")
-    _res(pump["ADJ-"], gnd, "12.4k 1%")
-    # EN+ and EN- must not float, and they are what holds the analog stage
-    # off before enumeration. One unit load applies until the device is
-    # configured, and this stage does not fit inside it at any element value
-    # (analog.txt Q1b), so it is gated on MUTE_N: low or undriven means the
-    # pumps and both LDOs are off. The polarity is already right, since
-    # MUTE_N is asserted low to mute. The enable thresholds are 2 V rising
-    # maximum and 0.4 V falling minimum, so the header's 2.5 V logic clears
-    # them, and each pin has a 0.7 uA internal pull-down, so nothing here can
-    # drive the mezzanine above its own level.
-    pump["EN+"] += ctrl["MUTE_N"]
-    pump["EN-"] += ctrl["MUTE_N"]
-    # 100 k to ground so the net is defined rather than held by 0.7 uA while
-    # the FPGA is unconfigured and its pin is high impedance.
-    _res(ctrl["MUTE_N"], gnd, "100k")
+    # So the positive rail is now an LT3045 straight off the mezzanine's 5 V,
+    # dropping tens of millivolts at 22 mA, and the negative rail arrives
+    # from the main board at -6 V where 12 V makes an inverter cheap. Both
+    # final regulators stay exactly where they were: their rejection is what
+    # the design leans on, and it is wanted at the point of load rather than
+    # at the other end of a connector.
+    #
+    # What this deletes: the LTC3265, two flying capacitors, two ADJ
+    # dividers, two reference bypasses and the bulk that fed them. The
+    # analog board now contains no switching converter at all.
+    vneg_raw = mez_neg                  # -6 V across the mezzanine
+    vpos_raw = v5                       # the rail that was always there
 
-    # Final rails. Both regulators are the reason the pump is allowed near an
-    # audio stage at all: 0.8 uVRMS of their own and steep rejection of what
-    # arrives from the pump.
     pos = Part("Regulator_Linear", "LT3045xDD", ref="U14",
-               value="LT3045 op amp positive rail",
+               value="LT3045 op amp positive rail, +4.94 V from mezzanine 5 V",
                footprint="Package_DFN_QFN:DFN-10-1EP_3x3mm_P0.5mm_EP1.65x2.38mm")
     for p in pos.pins:
         nm = str(p.name)
@@ -581,7 +537,20 @@ def build():
             p += vpos
         elif nm == "GND":
             p += gnd
-    lp.lt3045_housekeeping(pos, vpos_raw, gnd, "49.9k 0.1%", _res, _cap)
+    # MUTE_N gates this rail, as it gated the charge pump it replaces. The
+    # reason has changed and is worth recording: 0009 needed the analog stage
+    # held off to stay inside one unit load before enumeration, and 0014
+    # retired that rule entirely. What remains is the audio reason -- the
+    # element lines are undefined until the FPGA configures, and the jack has
+    # no DC blocking -- so the stage should not be live before there is a
+    # code to convert.
+    #
+    # That makes decision D10 purely an audio question now. Collapsing the
+    # supplies is a blunt mute and every assertion is a transient into an
+    # unblocked output; with the budget argument gone, a proper output mute
+    # or a digital ramp is free to win on merit.
+    lp.lt3045_housekeeping(pos, vpos_raw, gnd, "49.9k 0.1%", _res, _cap,
+                           en=ctrl["MUTE_N"])
     _cap(vpos, gnd, "10uF")
 
     # The LT3094 is the negative counterpart and its pins mirror the LT3045's,
@@ -606,15 +575,18 @@ def build():
     for p in neg.pins:
         nm = str(p.name)
         if nm.startswith("IN"):
-            p += pump_n
+            p += vneg_raw
         elif nm.startswith("OUT"):
             p += vneg
         elif nm == "GND":
             p += gnd
     _res(neg["SET"], gnd, "49.9k 0.1%")
     _cap(neg["SET"], gnd, "4.7uF")
-    pump_n += neg["EN/UV"]
-    pump_n += neg["PGFB"]
+    # Same gate on the negative rail. The LT3094's EN/UV enables on either
+    # polarity beyond +/-1.35 V, so the header's 2.5 V logic high enables it
+    # and a low holds it off, which is the polarity MUTE_N already has.
+    ctrl["MUTE_N"] += neg["EN/UV"]
+    vneg_raw += neg["PGFB"]
     # Unlike the LT3045, the LT3094's pin description gives no instruction for
     # an unused ILIM, so the current limit is programmed rather than the pin
     # tied: the scale factor is 3.75 A x kohm, so 24.9k sets about 150 mA,

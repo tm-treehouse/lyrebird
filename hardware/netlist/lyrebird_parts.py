@@ -72,7 +72,7 @@ def spi_flash() -> Part:
 
 
 def lt3045_housekeeping(part, vin, gnd, vset_ohms, make_r, make_c,
-                        c_set="4.7uF") -> None:
+                        c_set="4.7uF", en=None) -> None:
     """Wire the LT3045 pins that are not IN, OUT or GND, per its datasheet
     PIN FUNCTIONS section. Without these the part has no programmed output
     voltage and a floating enable.
@@ -103,8 +103,13 @@ def lt3045_housekeeping(part, vin, gnd, vset_ohms, make_r, make_c,
     set_pin = pin_named(part, "SET")
     make_r(set_pin, gnd, vset_ohms)
     make_c(set_pin, gnd, c_set)
-    for nm in ("EN/UV", "PGFB"):
-        vin += pin_named(part, nm)
+    # EN/UV goes to IN unless a caller wants to gate the rail, which the
+    # analog rails do: MUTE_N holds them off until the element lines carry a
+    # defined code. PGFB always goes to IN -- it selects fast start-up, not
+    # enable, and the two are separate pins for a reason.
+    en_net = vin if en is None else en
+    en_net += pin_named(part, "EN/UV")
+    vin += pin_named(part, "PGFB")
     gnd += pin_named(part, "ILIM")
 
 
