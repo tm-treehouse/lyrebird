@@ -160,10 +160,22 @@ def build():
     # SET had no resistor, so the rail had no programmed voltage at all.
     # 33.2k is the E96 value nearest 33.0k and gives 3.32 V, inside the
     # FT601Q's 3.0 to 3.6 V window with room either side.
+    #
+    # C_SET is 100 nF here, not the 4.7 uF the helper defaults to, and the
+    # reason is start-up rather than noise. The SET pin sources 100 uA and
+    # PGFB is tied to IN, which disables the 2 mA fast-start circuit, so the
+    # ramp is about 2.3 * R_SET * C_SET: 4.7 uF would take 359 ms. This rail
+    # reaches nothing but the bridge and the flash, so the 0.8 uVRMS that
+    # 4.7 uF buys is spent on two digital parts that cannot use it, while
+    # the FT601Q's VCCIO comes up from the LTM4622 in microseconds and would
+    # sit 355 ms ahead of its own VCC33. 100 nF brings the ramp to about
+    # 7.6 ms and closes that gap. Every rail that does reach the signal keeps
+    # the 4.7 uF and the specification it pays for.
     lp.lt3045_housekeeping(
         ldo, v["+5V"], v["GND"], "33.2k 0.1%",
         lambda a, b, val: resistor(a, b, val),
-        lambda a, b, val: decouple(a, b, val, "0805"))
+        lambda a, b, val: decouple(a, b, val, "0805"),
+        c_set="100nF")
     decouple(v["+5V"], v["GND"], "10uF", "0805")
     decouple(v["+3V3"], v["GND"], "10uF", "0805")
 
@@ -557,10 +569,16 @@ def build():
             (6, "JTAG_TDO/IO_WA_B3", "JTAG_TDO", False),
             (8, "JTAG_TDI/IO_WA_A4", "JTAG_TDI", True),
             (7, "IO_WA_B2/CFG_DONE", "CFG_DONE", False),
-            (10, "IO_WA_A2/~{CFG_FAILED}", "CFG_FAILED_N", False)):
+            (10, "IO_WA_A2/~{CFG_FAILED}", "CFG_FAILED_N", True)):
         n = Net(name)
         n += lp.pin_named(fpga, fpga_pin)
-        if pu:
+        if pu and name == "CFG_FAILED_N":
+            # Open drain, and DS1001 3.3.3 says it "requires a pull-up
+            # resistor". It is driven by the FPGA rather than by the adapter,
+            # so it needs the pull-up but not the series protection.
+            pullup(n, v["+2V5"])
+            n += jtag[pin_no]
+        elif pu:
             # Pull-up on the FPGA side of the series resistor, so the ball is
             # still held high with no adapter plugged in.
             pullup(n, v["+2V5"])

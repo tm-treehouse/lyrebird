@@ -1117,3 +1117,56 @@ opposite of the truth. The test above builds a minimal circuit where `VDD_CLK`
 is placed on the high rail *at construction time* and nothing else touches it,
 with a matched control that puts a signal ball on the same rail and does fire.
 
+---
+
+## 7. Summary, in the order I would act
+
+Findings from section 1 (E-1 to E-5) are omitted here; the coordinator has
+already acted on all five.
+
+| # | Finding | Where |
+| --- | --- | --- |
+| **D-1** | `CFG_FAILED_N` has no pull-up. DS1001 §3.3.3: "requires a pull-up resistor". One-word fix (`pu=True`) | 3.1 |
+| **D-6** | `+3V3` takes **359 ms** to come up, because `C_SET` = 4.7 µF and `PGFB` tied to IN disables the fast-start circuit that exists for exactly that capacitor. USB enumeration risk; 355 ms of unintended supply skew on the FT601Q. Fix is the datasheet's own PGFB divider | 3.3 |
+| **P-1** | `power.md` still documents `AVDD` on `+3V3`. That is the destroy-the-part bug already fixed in the netlist, and the page presents it as the design | 6.2 |
+| **R-1** | The netlist ties cable ground to board ground four ways. The isolation redesign requires a net split, and it also changes what `assert_below_abs_max`'s `exempt=("GND",)` means | 5.1 |
+| **R-2** | The FT601Q's `VBUS` pin has no defined source after isolation | 5.1 |
+| **M-1** | `MCLK`, the 24.576 MHz element clock, crosses the mezzanine with no adjacent ground, while ten spare pins sit grouped at the far end. Free to fix before layout | 4.5 |
+| **D-2** | The POR `R3a` disables the GateMate's `VDD_CLK` brown-out detection, to buy a 19.4 ms delay the datasheet says this rail does not need. Arithmetic correct, purpose not | 3.1 |
+| **D-3** | `VDD_PLL`, `VDD_SER` ×2, `VDD_SER_PLL` and `VDD_CLK` have no decoupling at all | 3.1 |
+| **D-4** | 0009's "fit noise filters between every regulator and the FPGA" is unimplemented; only `bom.csv` still records it | 3.1 |
+| **D-7 / D-8** | LT3045 `C_OUT` and both LTM4622 `C_OUT` are at the datasheet *minimum* in nominal terms, i.e. below it after DC-bias derating, with no dielectric or voltage rating specified anywhere | 3.3, 3.4 |
+| **S-2** | `power.md`'s pre-enumeration arithmetic assumes the FPGA rails are gated; `RUN1` is tied on, and the GateMate's bank current with the core unpowered is uncharacterised | 4.3 |
+| **B-1** | `brief.md` claims the clock-pin assignment "is asserted in the generator". It is not — there is one assertion in the file and it is the overvoltage one | 6.3 |
+| **P-2…P-6, 6.3, 6.4** | `power.md`, `brief.md` and `bom.csv` describe a superseded netlist throughout | 6 |
+| **D-5, D-9, D-10, D-11, U-1…U-3, M-2, R-3…R-6, C-1, S-1, S-3** | Recorded above | |
+
+The board itself is in better shape than its documentation. The wiring is
+careful, the symbols are right, the comments are overwhelmingly accurate against
+the datasheets, and the one invariant that is asserted is genuinely asserted. The
+four prose files in `hardware/lyrebird-main-reva/` are the liability.
+
+## Cross-section flags
+
+Every inconsistency I found between the main board and something outside my
+scope. Tagged with the section of this review that concerns it.
+
+- **[3.3 / D-6] `lp.lt3045_housekeeping()` gives every LT3045 on *both* boards a start-up time of a third to half a second.** The helper lives in `hardware/netlist/lyrebird_parts.py`, which is in my scope, but it is called four more times in `hardware/netlist/output_module.py` (U5, U6, U9, U14), each with the same 4.7 µF `C_SET` and the same `PGFB`-to-IN tie that disables fast start-up. By the datasheet's `tSS ≈ 2.3 · R_SET · C_SET`: U5 element reference and U6 clock chain 359 ms, U9 header-side 2.5 V 269 ms, U14 op-amp positive **539 ms**. The LT3094 negative rail gets the same 4.7 µF on its SET pin at `output_module.py:591`. Nobody appears to have costed these against mute sequencing, the module's power-up order, or `power.md`'s pre-enumeration table — where, incidentally, they *help*, because the element reference rail cannot draw its 56 mA until ~360 ms. The module review should confirm; the fix is one change to the shared helper.
+- **[6.2 / P-6, 3.2 / D-11] 0009's budget line "Bridge I/O and FPGA banks, through buck: 20 mA" is closer to the truth than `power.md`'s 9 mA, and `power.md` asserts the reverse.** The FT601Q datasheet publishes `Iccio` directly — 4.5 mA with no data transfer, 9.5 mA during transfer — so the FT601Q's `VCCIO` alone exceeds `power.md`'s entire 2.5 V figure, and `power.md`'s separately-computed FIFO clock and data terms double-count what that datasheet number already includes. `power.md`'s "Against 0009's budget" table records this line as 0009 being wrong.
+- **[3.2 / D-11] 0009's "185 mA, datasheet typical" for the bridge is specified for *Multi-Channel FIFO mode*.** This design runs 245 Synchronous FIFO mode, for which FTDI publishes no VCC current. The idle figure 0009 uses, 70 mA, is correctly conditioned ("Idle, SuperSpeed"). Decision record 0009 and `power.md` both carry the unconditioned version.
+- **[3.1 / D-4] 0009 requires noise filters between every regulator and the FPGA and they do not exist.** DS1001 §2.10 does ask for them, so 0009 is right and unimplemented. `docs/open-items.md`'s "Closed" section reads as though the main board's power tree is complete; this belongs on the open list.
+- **[4.3 / S-2] 0009 says "Gate the FPGA rails with the LTM4622 run pins" (plural).** Only channel 2 is gated, for a good reason that `open-items.md` records and 0009's own text does not. 0009 should be amended or annotated.
+- **[5.1 / R-4] 0009's "Declare 900 mA in the USB descriptor" must retire with the redesign,** and it is stated in two places (0009 and `power.md`). `open-items.md` retires the 150 mA pre-enumeration rule next to it but not this.
+- **[5.2] When the 12 V wall wart lands, `"+12V"` must be added to `hv_rails` in `main_board.py`'s `assert_below_abs_max` call, and `exempt=("GND",)` revisited for the isolated ground.** Demonstrated: a signal ball on an undeclared rail passes the assertion silently. `output_module.py:656` calls the same function and inherits both issues. Not in `open-items.md`.
+- **[6.2] `power.md` line 190 says the module has "three LT3045s" with "`EN/UV` pins unconnected in the netlist".** `docs/open-items.md` records a **fourth** LT3045 for the module's 2.5 V rail, and `output_module.py:345` calls `lt3045_housekeeping()`, which ties `EN/UV` to IN. Both halves of that sentence look stale. For the module reviewer to confirm.
+- **[6.2] `power.md`'s whole pre-enumeration table is built on "1 kΩ, the netlist placeholder" for the element resistor.** `open-items.md` records the chosen value as 1.69 kΩ + 1.65 kΩ = 3.34 kΩ. At 3.34 kΩ the element reference term is roughly 17 mA, not 56, and the table's conclusion — that nothing fits — needs recomputing rather than quoting.
+- **[6.2] `power.md`'s single imported line for the module, "147 mA across the mezzanine", should be reconciled against the module's own `power.md`.** It is the only number crossing the boundary and I could not check it from this side.
+- **[4.5 / M-1] `hardware/interface.md` lists `GND` as "Interleaved between signals" and `MCLK` has no adjacent ground pin.** The contract file and the netlist disagree; whichever is meant to win, both should say the same thing before layout fixes the connector.
+- **[4.5] `interface.md` does not say which rail the module's `ID0`/`ID1` straps may pull up to.** It says header logic levels are 2.5 V and that no 2.5 V rail crosses the connector, so the module must strap them from its own header-side 2.5 V regulator (`output_module.py` U9). `open-items.md` records that strapping `ID0` to the 3.3 V element reference rail has already happened once and was caught. The contract should name the rail explicitly rather than leaving it to be inferred.
+- **[6.3 / B-1] The clock-capable-pin assignment is not asserted anywhere, and `hdl/constraints/README.md` is where the consequence lands.** `brief.md` claims the generator asserts it; `grep -n assert hardware/netlist/main_board.py` finds only `assert_below_abs_max`. `FT_CLK` and `MCLK` are on `CLK0/IO_SB_A8` and `CLK1/IO_SB_A7` and are correct today, by inspection, not by check.
+- **[2 / U-1] 61 GPIO balls are open on powered banks, and nothing in `hdl/constraints/` defines their state.** DS1001 Table 4.5 gives `IDD,max` = 158 µA per pin at the input transition point and programmable 50 kΩ pulls; 61 floating pins is a potential 9.6 mA on a rail budgeted at 15 mA. This is a board-level open pin whose only possible resolution is in the bitstream.
+- **[3.2] The FT601Q's FIFO bus AC timing is `T1` 3.0 ns / `T2` 3.5 ns (slave-driven setup/hold) and `T3` 2.3 ns / `T4` 3.8 ns (master-driven), at the 66.67 MHz 0005 chose.** I did not find these numbers recorded anywhere in `hdl/`. They are the constraint the 42-signal bus has to meet and they are tighter than the clock period suggests.
+- **[3.5 / D-9] The MX25R6435F ships with `QE` = 0 and Configuration Register-2 bit 1 = 0 (Ultra Low Power), which caps *every* Fast Read variant at 8 MHz and makes quad-I/O unavailable.** 0006 describes the configuration path and records no provisioning step for either bit. DS1001 publishes no number for the GateMate's configuration SPI clock, so whether a virgin part can be read at all at the controller's rate is unverified. Also for 0006: DS1001 §3.4.6 notes that JTAG-SPI flash access "works for all four SPI modes … but **only in single-IO mode**", so the openFPGALoader path is unaffected either way.
+- **[1 / E-2, now fixed] 0006 specifies "an ordinary external FTDI adapter" and the common ones are fixed 3.3 V drivers.** The 1 k series resistors now standing on TMS/TCK/TDI are load-bearing safety parts, not convenience parts. 0006 should say so, and should say which adapters are known-safe, because the decision record is where someone will look before plugging one in.
+- **[5.1 / R-5] `brief.md` lists "No external power input" as a deliberate non-goal** with 0009's ground-reference reasoning. `open-items.md` records that the redesign supersedes 0009 but not that this line inverts — and the redesign's galvanic isolation is a better answer to the original objection than the objection assumed.
+- **[3.4] `lyrebird_parts.py` says the LTM4622 is "Dual 2.5 A" and is right; `power.md` and `bom.csv` say 2 A and are wrong.** Nothing depends on it, but `open-items.md`'s LTM4622 row is the natural place to settle which number the project uses.

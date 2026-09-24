@@ -136,3 +136,39 @@ untested above-10 kHz material, and no HDL task for `MUTE_N`, which now gates
 both analog rails.
 
 Every Markdown link in the audited set resolves. Zero dead targets.
+
+
+---
+
+## G. From the completed main-board review
+
+| # | Item | Status |
+| --- | --- | --- |
+| G1 | **The `+3V3` rail took 359 ms to come up**, and the module's op-amp positive rail 539 ms. Two individually-correct, individually-datasheet-quoted choices multiplied: a 4.7 µF `C_SET` (the condition for the 0.8 µVRMS 0009 quotes) with `PGFB` tied to IN (which disables the 2 mA fast-start circuit that exists for exactly that capacitor), giving `t_ss ≈ 2.3·R_SET·C_SET`. It put the FT601Q's `VCCIO` up **355 ms before its own `VCC33`**. | **Fixed** on the main board — `C_SET` is now a parameter, 100 nF on the digital rail (7.6 ms) since it reaches only the bridge and the flash and buys no noise there. Every rail that reaches the signal keeps 4.7 µF. **The module's four remaining calls are unreviewed** and one of them is the 539 ms rail. |
+| G2 | **`CFG_FAILED_N` had no pull-up.** DS1001 §3.3.3, verbatim: "requires a pull-up resistor". Open-drain with nothing holding it. | **Fixed** — 10 k to +2V5, without the series protection the adapter-driven pins get, since the FPGA drives it. |
+| G3 | **The POR `R3a` at 47 k disables `VDD_CLK` brown-out detection permanently.** DS1001 gives a "no reset condition when R3a ⩽ 100 kΩ" regime; the design sits inside it to buy a 19.4 ms delay the datasheet says a 2.5 V `VDD_CLK` does not need. The comment's arithmetic is right — every step recomputed. | **Open.** Trading brown-out detection for an unnecessary delay is a decision nobody made deliberately. |
+| G4 | **`power.md` line 37 still lists `AVDD` on `+3V3`** — the destroy-the-part bug that `open-items.md` records as *fixed*. The netlist is correct; the document still describes the fault. | **Open**, and the most dangerous stale line in the repository: it is the one a reader would act on. |
+| G5 | **`brief.md` and `bom.csv` describe a netlist two rounds old.** brief says 111 open pins, 3 active devices and no USB connector; reality is 76, 6 and fitted. All six of `bom.csv`'s `MISSING` rows are present. | **Open.** |
+
+### The assertion's real coverage, demonstrated rather than argued
+
+The reviewer tested `assert_below_abs_max` rather than reasoning about it, and
+its **first test was a bad test** — connecting `VDD_CLK` to `+5V` on the built
+circuit merged `+2V5` into `+5V`, so twelve signal pins fired and the
+conclusion would have been "supply pins are covered", the opposite of the
+truth. The passing version builds a minimal circuit with a matched control.
+
+That is the third time in this review round that a first attempt at testing
+this assertion produced a confident wrong answer, mine included. The result:
+
+- **supply balls pass silently** — the check skips them by construction;
+- **undeclared rails pass silently** — a rail absent from `hv_rails` is
+  invisible, so **`"+12V"` must be added when the wall wart lands**, or the
+  new supply enters the design with no guard at all.
+
+### What checked out
+
+All 324 GateMate balls, all 25 LTM4622 balls, the FT601Q pin numbers and the
+flash pinout match their datasheets exactly. Every regulator programming pin is
+fitted. DS1001 §3.2.1's "No restrictions concerning order of voltage
+switch-on" makes the unusual core-gating scheme legal.

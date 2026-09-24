@@ -71,7 +71,8 @@ def spi_flash() -> Part:
                 footprint="Package_SO:SOIC-8_3.9x4.9mm_P1.27mm")
 
 
-def lt3045_housekeeping(part, vin, gnd, vset_ohms, make_r, make_c) -> None:
+def lt3045_housekeeping(part, vin, gnd, vset_ohms, make_r, make_c,
+                        c_set="4.7uF") -> None:
     """Wire the LT3045 pins that are not IN, OUT or GND, per its datasheet
     PIN FUNCTIONS section. Without these the part has no programmed output
     voltage and a floating enable.
@@ -79,6 +80,19 @@ def lt3045_housekeeping(part, vin, gnd, vset_ohms, make_r, make_c) -> None:
       SET   100 uA out through R_SET to ground sets VOUT = 100uA * R_SET.
             The 4.7 uF bypass is what buys the 0.8 uVRMS quoted in 0009;
             the datasheet's noise specification is taken with it fitted.
+
+            It also sets the ramp, and that is the trap. The SET pin sources
+            100 uA, so the output follows C_SET charging at that current and
+            t_ss is about 2.3 * R_SET * C_SET. Tying PGFB to IN below
+            disables the 2 mA fast start-up circuit that exists precisely to
+            charge this capacitor, so the two choices multiply: 33.2k with
+            4.7 uF is 359 ms, and 49.9k with 4.7 uF is 539 ms. Each choice is
+            correct on its own and quoted from the datasheet; together they
+            are a supply that arrives a third of a second late.
+
+            Pass a smaller c_set on any rail where the noise specification is
+            not being bought. A rail that only feeds digital parts gains
+            nothing from 4.7 uF and pays the whole ramp for it.
       EN/UV "If unused, tie EN/UV to IN. Do not float the EN/UV pin."
       ILIM  "If the programmable current limit functionality is not needed,
             tie ILIM to GND."
@@ -88,7 +102,7 @@ def lt3045_housekeeping(part, vin, gnd, vset_ohms, make_r, make_c) -> None:
     """
     set_pin = pin_named(part, "SET")
     make_r(set_pin, gnd, vset_ohms)
-    make_c(set_pin, gnd, "4.7uF")
+    make_c(set_pin, gnd, c_set)
     for nm in ("EN/UV", "PGFB"):
         vin += pin_named(part, nm)
     gnd += pin_named(part, "ILIM")
