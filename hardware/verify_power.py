@@ -52,20 +52,24 @@ VIN_FAULT = Fact(19.0, "V", ASSUMED, "the brick that fits the same jack")
 
 # F1, resettable fuse. Hold current and series resistance both matter: the
 # resistance is in the path at full load.
-F1_HOLD = Fact(1.1, "A", DS, "Polyfuse 1.1 A hold / 2.2 A trip")
+F1_HOLD = Fact(0.5, "A", ASSUMED, "part unchosen; the old line named a 6 Vdc device")
 F1_RMAX = Fact(0.30, "ohm", ASSUMED, "typical 1.1 A PPTC max initial R")
 
 # D1, SS34 Schottky, reverse polarity.
-D1_VF = Fact(0.35, "V", DS, "SS34 at a few hundred mA, 25 C")
+D1_VF = Fact(0.35, "V", ASSUMED, "read off the SS34 typical curve, not a spec limit")
 D1_IMAX = Fact(3.0, "A", DS, "SS34 average rectified")
 
-# D2, SMAJ15A TVS.
-D2_STANDOFF = Fact(15.0, "V", DS, "SMAJ15A reverse standoff")
-D2_VBR_MIN = Fact(16.7, "V", DS, "minimum breakdown")
-D2_VCLAMP = Fact(24.4, "V", DS, "clamping voltage at 21.7 A")
+# D2, SMAJ18A TVS. Was an SMAJ15A; a transient simulation showed the 15 V
+# part conducting indefinitely on a 19 V adapter without ever tripping the
+# fuse, because a TVS breakdown has a positive tempco and the fault settles
+# instead of running away.
+D2_STANDOFF = Fact(18.0, "V", DS, "SMAJ18A reverse standoff")
+D2_VBR_MIN = Fact(20.0, "V", DS, "minimum breakdown; above a 19 V adapter")
+D2_VCLAMP = Fact(29.2, "V", DS, "clamping voltage at 13.7 A")
+D2_TEMPCO = Fact(0.088, "%/degC", DS, "why the fault settles rather than trips")
 
 # U5, LMR33630, 12 V -> 5 V.
-U5_VIN_MAX = Fact(36.0, "V", DS, "LMR33630 absolute maximum VIN")
+U5_VIN_MAX = Fact(36.0, "V", DS, "recommended operating max; abs max is 38 V")
 U5_IOUT_MAX = Fact(3.0, "A", DS, "rated output current")
 U5_EFF = Fact(0.91, "", DS, "typical, 12 V in / 5 V out, ~0.5 A")
 U5_RTHJA = Fact(45.0, "C/W", DS, "HTSSOP-8 with thermal pad, JEDEC board")
@@ -151,24 +155,33 @@ def main() -> int:
           assumed=True)
 
     # ---- 3. absolute maxima on the input side
-    check("Buck VIN rating vs the wrong adapter",
+    # This check compares two datasheet constants to each other, so it cannot
+    # fail for any input voltage and it passed with D2 deleted from the
+    # netlist entirely. Kept, because the comparison is still worth asserting,
+    # but it is a statement about the parts and not about the circuit -- the
+    # circuit question is answered by the transient simulation instead.
+    check("Buck rating covers the TVS clamp [structural]",
           D2_VCLAMP.value < U5_VIN_MAX.value,
           f"TVS clamps at {D2_VCLAMP.value:g} V against U5's "
           f"{U5_VIN_MAX.value:g} V maximum",
-          f"{U5_VIN_MAX.value - D2_VCLAMP.value:.1f} V of margin")
+          f"{U5_VIN_MAX.value - D2_VCLAMP.value:.1f} V of margin; this compares "
+          f"two constants and cannot fail on circuit changes")
+
+    # What the 19 V case actually does, which is not what 0014 claimed.
+    check("A 19 V adapter is accepted, not fought",
+          VIN_FAULT.value < U5_VIN_MAX.value
+          and VIN_FAULT.value < D2_VBR_MIN.value,
+          f"{VIN_FAULT.value:g} V is below the TVS's {D2_VBR_MIN.value:g} V "
+          f"breakdown and well inside U5's {U5_VIN_MAX.value:g} V, so the "
+          f"board simply runs",
+          "an SMAJ15A instead conducts at 41 mA and 117 degC forever without "
+          "ever tripping the fuse")
 
     check("TVS does not conduct in normal operation",
           D2_STANDOFF.value > vin_hi,
           f"standoff {D2_STANDOFF.value:g} V against a high-tolerance "
           f"adapter at {vin_hi:.1f} V",
           f"{D2_STANDOFF.value - vin_hi:.1f} V of margin",
-          assumed=True)
-
-    check("A 19 V brick is clamped, not passed",
-          VIN_FAULT.value > D2_VBR_MIN.value,
-          f"{VIN_FAULT.value:g} V is above the {D2_VBR_MIN.value:g} V minimum "
-          f"breakdown, so the TVS conducts and the fuse trips",
-          "fault is caught, not survived indefinitely",
           assumed=True)
 
     # ---- 4. dissipation

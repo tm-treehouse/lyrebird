@@ -164,7 +164,23 @@ def build():
 
     # Resettable fuse first, so a downstream short does not depend on the
     # adapter's own protection being sane.
-    fuse = Part("Device", "Polyfuse", ref="F1", value="1.1 A hold, 2.2 A trip",
+    #
+    # The value is stated as a requirement rather than as a part, because the
+    # part this line used to name does not exist at this voltage. "1.1 A hold,
+    # 2.2 A trip" in an 1812 matches exactly one Littelfuse 1812L device,
+    # 1812L110, and that part is rated 6 Vdc. The rail is 12 V and 0014
+    # contemplates a 19 V adapter in the same barrel. The 24 V variant exists
+    # but trips at 1.95 A rather than 2.2, and carries Imax 20 A where the
+    # low-voltage parts carry 100 A -- against an inrush that reaches 27.9 A
+    # in the stiffest corner simulated.
+    #
+    # So three things have to hold together and no single catalogue line was
+    # confirmed to do it: >= 24 Vdc rating, a hold current comfortably over
+    # the 236 mA the board draws, and an Imax above the inrush. A lower hold
+    # current than 1.1 A is wanted anyway -- the board draws a fifth of it,
+    # so the present value protects almost nothing.
+    fuse = Part("Device", "Polyfuse", ref="F1",
+                value="PTC >=24Vdc, 0.5 A hold, Imax >=40 A — PART UNCHOSEN",
                 footprint="Fuse:Fuse_1812_4532Metric")
     fuse[1] += v["VIN_RAW"]
     prot = Net("VIN_FUSED")
@@ -177,16 +193,42 @@ def build():
     # Vgs rating to check against the input, and no body-diode conduction
     # path in the reversed case. The FET is the better answer on a 5 V rail;
     # here the simpler part is the better one.
+    # Reverse polarity, and D1 is not doing this alone. With the adapter
+    # backwards D1 blocks correctly, but its own reverse leakage is then the
+    # only current in the circuit and it flows *out* of the protected node,
+    # dragging it negative. What stops it is D2 conducting forward, which
+    # pins the rail near one diode drop below ground: about -0.40 V,
+    # against the LMR33630's -0.3 V absolute minimum on VIN and EN. Delete
+    # D2 and the rail reaches -12.2 V. So the reverse case is held by the
+    # TVS, not by the Schottky, and it is held marginally -- see the
+    # unresolved -0.40 V against -0.3 V in the review.
     rev = Part("Device", "D_Schottky", ref="D1", value="SS34 3A 40V",
                footprint="Diode_SMD:D_SMA")
     rev["A"] += prot
     rev["K"] += v["+12V"]
 
-    # Unidirectional TVS. A 12 V adapter is a thing a person plugs in, and
-    # the population of barrel-jack supplies includes 19 V laptop bricks with
-    # the same connector. 15 V standoff clears the adapter's own tolerance
-    # and clamps well below the LMR33630's 36 V maximum.
-    tvs = Part("Device", "D_TVS", ref="D2", value="SMAJ15A",
+    # Unidirectional TVS, 18 V rather than 15 V, and the reason is a
+    # simulation result rather than a catalogue preference.
+    #
+    # 0014 claimed a 19 V laptop brick would make the TVS conduct and the
+    # fuse trip. The first half is right and the second is not. A TVS
+    # breakdown has a positive tempco -- 0.088 %/degC on this family -- so
+    # conducting heats it, heating raises its breakdown, and the current
+    # falls. The fault does not run away into a trip; it settles. At 19 V an
+    # SMAJ15A lands at about 41 mA and 0.77 W with a junction near 117 degC,
+    # indefinitely, while the board runs perfectly well beside it. That is a
+    # heater, not a protection.
+    #
+    # And the protection was never needed for that case: the LMR33630 is a
+    # 36 V part, so 19 V is simply an input it accepts. An 18 V standoff does
+    # not conduct at 19 V at all, and still clamps a genuine surge at about
+    # 29.2 V, inside the converter's rating. The TVS goes back to guarding
+    # against transients, which is what a TVS is for.
+    #
+    # It must stay UNIDIRECTIONAL. See the reverse-polarity note below: the
+    # bidirectional SMAJ18CA is one character away in a BOM line and removes
+    # the only thing holding the rail out of the converter's negative limit.
+    tvs = Part("Device", "D_TVS", ref="D2", value="SMAJ18A unidirectional",
                footprint="Diode_SMD:D_SMA")
     tvs["A1"] += v["GND"]
     tvs["A2"] += v["+12V"]
@@ -338,33 +380,29 @@ def build():
     decouple(v["+2V5"], v["GND"], "22uF", "0805")
     decouple(v["+1V0"], v["GND"], "22uF", "0805")
 
-    # ---- Enumeration gating of the core rail (0009).
+    # ---- Both rails run unconditionally (0014).
     #
-    # RUN1 is tied on: channel 1 is the 2.5 V rail and it feeds the bridge's
-    # own VCCIO. Gating it would take away the I/O supply for the pin that
-    # does the gating, so only the 1.0 V core rail is switched.
+    # 0009 gated the 1.0 V core rail off the bridge's WAKEUP_N through an
+    # inverting NMOS, so that the board stayed inside one unit load until USB
+    # activity released it. 0014 retired that rule with bus power, and this
+    # is where it actually comes out.
     #
-    # WAKEUP_N is low while USB is active and high in suspend, so it needs
-    # inverting to drive RUN2, which enables above 1.27 V. A logic-level
-    # NMOS does that: gate high in suspend pulls RUN2 down, gate low in
-    # normal operation lets the pull-up take RUN2 to the bus rail.
+    # Leaving it in place was not merely stale, it was fatal. WAKEUP_N is
+    # high in suspend and its pull-up holds it high whenever the bridge is
+    # not driving it -- which, on an externally powered board with no host
+    # attached, is always. Gate high turns the NMOS on, RUN2 is pulled down,
+    # and the FPGA core rail never comes up. The board would have been dead
+    # without a USB host it no longer needs for power.
     #
-    # The honest caveat, and the reason the open item in 0009 stays open:
-    # WAKEUP_N tracks "bus not suspended", not "enumeration complete". It
-    # releases the core on bus activity, which is earlier than the one unit
-    # load rule strictly wants. Verify against silicon before trusting it.
+    # The transient was worse than the static reading. CORE_RUN reaches its
+    # +5V pull-up before Q1's gate crosses threshold, so channel 2 began its
+    # soft start into a 1.2 ms window and was killed mid-ramp: +1V0 rose to
+    # about 319 mV and collapsed, on every power-up, whether or not a host
+    # was present. Found by hardware/sim/power_input_transient.py, which is
+    # the class of fault a netlist review cannot see because every net is
+    # connected exactly as intended.
     v["+5V"] += lp.pin_named(buck, "RUN1")
-    wake = Net("FT_WAKEUP_N")
-    wake += lp.pin_named(ftdi, "~{WAKEUP}")
-    pullup(wake, v["+2V5"], "100k")     # holds the core off if VCCIO is absent
-    core_run = Net("CORE_RUN")
-    core_run += lp.pin_named(buck, "RUN2")
-    pullup(core_run, v["+5V"], "100k")
-    q = Part("Transistor_FET", "BSS138", ref="Q1", value="BSS138",
-             footprint="Package_TO_SOT_SMD:SOT-23")
-    q["G"] += wake
-    q["D"] += core_run
-    q["S"] += v["GND"]
+    v["+5V"] += lp.pin_named(buck, "RUN2")
 
     # ---- Bridge housekeeping, all of it from the FT601Q pin table.
     # RREF: "connect 1.6K 1% resistor to ground, provides reference voltage
