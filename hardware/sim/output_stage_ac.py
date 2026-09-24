@@ -53,7 +53,13 @@ C_DIFF = 1.3e-9
 
 # OPA1612, SBOS450C. The closed-form model uses GBW only; SPICE wants an
 # open-loop gain and a dominant pole, and their product has to be the GBW.
-AOL_DB = 120.0
+# SBOS450C gives open-loop gain against load: 114 dB typical (110 min) at
+# 2 kohm, 130 dB (114 min) at 10 kohm. 120 dB was in this file and is neither
+# of them. This stage's loads are heavier than either figure covers -- the
+# difference amplifier presents 241 to 302 ohm to the transimpedance outputs
+# -- so 114 dB is the applicable number and is already the optimistic end of
+# it. Found by the difference-stage simulation, which read the table.
+AOL_DB = 114.0
 GBW = 40e6
 AOL = 10 ** (AOL_DB / 20)
 F_DOM = GBW / AOL

@@ -81,6 +81,14 @@ sinks it to `V−`. That is 13.9 mA, constant at every code by construction
 quiescent current, it is the signal.
 
 **The difference network is a second such load, and its size is a choice.**
+> **Precision note, from `hardware/sim/difference_stage.py`.** What follows is
+> true of the *network's* current and not of the *amplifier's output* current.
+> The positive half's output current passes through zero at code −0.667, which
+> is −3.5 dBFS and therefore inside the signal; only the negative half's stays
+> one-signed across the range. The supply-current conclusion below is
+> unaffected, because it is the network current that loads the rail. The
+> distinction matters for distortion rather than for power — see D3.
+
 The transimpedance outputs sit between 0 and −2.8 V, never positive, so the
 network's current flows out of ground into those outputs and is sunk to `V−`
 as well. It scales as 1/R while the network's own noise scales as √R:
