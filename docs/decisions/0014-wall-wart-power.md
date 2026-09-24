@@ -69,6 +69,21 @@ pre-enumeration role; the LTM4622 run-pin gating and its `WAKEUP_N` NMOS.
 **Recoverable, once the module follows.** 2.1 dB, by returning the difference
 network to 200 Ω.
 
+**And a second 1.1 dB nobody was looking for.** `analog.txt` Q1c measures the
+noise-optimal element resistor at **2585 Ω**, giving 133.5 dB, and records
+3.32 kΩ as costing 1.1 dB against it. One of the three reasons given for
+choosing 3.32 kΩ is that "the whole board has to fit one unit load before
+enumeration with the flip-flops in an undefined state. That needs R ⩾ 3312 Ω."
+**That constraint is gone.** The other two reasons both argue *downward* — the
+optimum is at 2585 Ω and everything past 3 kΩ buys resistor noise for less
+current — so nothing now holds the element above the optimum. It costs about
+4 mA of extra element current, which was the entire objection and is no longer
+a budget anyone is defending.
+
+Not acted on here, because `analog.py` prices four amplifiers where the board
+has six, so the model that would size it is measuring a circuit that was not
+built. Fix that first, then re-run the element sweep.
+
 **New obligations.** A switching wall wart is now the primary noise source
 where `VBUS` used to be, and it arrives through a connector a person can plug
 anything into — hence the TVS, sized for the 19 V laptop bricks that share this
