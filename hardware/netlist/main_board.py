@@ -394,8 +394,26 @@ def build():
         rail = v["+5V"] if idx % 2 == 0 else v["GND"]
         rail += next_mez()
 
-    # ID pins pulled low here so "no module fitted" is detectable
-    for sig in ("ID0", "ID1"):
+    # ID pins pulled low here so "no module fitted" is detectable.
+    #
+    # OSC_EN_* are pulled low for a different and harder reason. They leave
+    # this board, cross the mezzanine and drive the A port of the module's
+    # 74AVC4T245, which has no bus hold and whose datasheet requires every
+    # unused data input to be held at VCCI or GND. Before the FPGA is
+    # configured its pins are high impedance, so without these the translator
+    # input floats, its output drives whatever that resolves to, and both
+    # CCHD-957 oscillators can turn on into the module's single shared
+    # OSC_RAW net. Sharing that net is only legal while exactly one part is
+    # enabled -- interface.md states the rule and nothing enforced it.
+    #
+    # The module also fits 100k pull-downs on the translated side, but those
+    # alone are not sufficient: they are downstream of a push-pull output that
+    # can source milliamps, so they only decide the case where the translator
+    # is itself high impedance. The floating *input* has to be fixed here.
+    # MUTE_N needs no pull here because the module grounds it through 100k on
+    # its own side, where it is a direct input to the charge pump's enables
+    # rather than a translator input.
+    for sig in ("ID0", "ID1", "OSC_EN_441", "OSC_EN_48"):
         r = Part("Device", "R", value="10k",
                  footprint="Resistor_SMD:R_0402_1005Metric")
         r[1] += ctrl_nets[sig]
