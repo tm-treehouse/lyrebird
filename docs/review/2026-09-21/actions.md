@@ -69,7 +69,7 @@ None of these change a conclusion. All of them will waste someone's afternoon.
 | D4 | **Control words bypass the lock gate**, so the flush path is not protected by lock and a control word seen while hunting will flush the elastic buffer. Safe under the word-alignment argument, and arguably right — but currently an accident rather than a decision. | The real toplevel has not made this choice yet. Make it consciously; it is the one place un-validated stream content reaches a destructive action. |
 | D5 | **`ELEM[31:28]` are reserved and nothing drives them.** `interface.md` requires the main board to drive them low; there is no synthesizable top-level in `hdl/rtl/` at all. | Scope, not a bug — but it is on the critical path to a working board. |
 | D6 | **The wall-wart redesign is agreed and unimplemented.** 12 V supply, USB data-only with an ADuM4166 at High Speed, charge pump deleted, 200 Ω recoverable. | Needs a decision record superseding 0009, then netlist work. Recorded in `docs/open-items.md`. |
-| D7 | **Status word bit layout**, described in prose in 0010 and never mapped to bits; and the **prefill threshold and lock state machine**, where "fifty to a hundred milliseconds" is a range rather than a threshold. | Both block finishing the HDL, not starting it. |
+| D7 | **Status word bit layout**, described in prose in 0010 and never mapped to bits. | Blocks the status path only. **Correction:** the prefill threshold and lock state machine were listed here and are already done — `lyrebird_elastic.sv` implements the mute/drain/fill/run sequence with `PrefillWords = 6400`, underrun returning to fill without discarding, and a mute output. `docs/open-items.md` still lists both as open. |
 
 ---
 
@@ -84,3 +84,55 @@ Recorded so nobody re-reports them.
 - **Nothing bounded either FPGA rail** (E-1). The review's mechanism was inverted — an open feedback resistor is *safe*, collapsing the rail to ≈0.6 V. The real hazard is a swapped resistor putting 2.5 V on the 1.0 V core rail, now prevented by a package poka-yoke: 0603 on the core rail, 0402 on the other.
 - **E-4 and E-5 recorded** in the netlist beside the values they concern. The two operating windows on `+1V0` overlap by less than the regulator's own spread, so the rail is centred on VDD and VDD_SER is knowingly out of spec on an unused block.
 - **The coefficient package's scaling rule** said a tap of width N is tap/2\*\*(N−1), which is wrong for the modulator's Q1.22 words by exactly a factor of two — 6.02 dB of loop gain in all three feedback paths. A trap for the first HDL consumer; no RTL imports the package yet.
+
+
+---
+
+## F. Decision records that no longer describe the design
+
+From `docs-audit.md`, which produced the verdict-per-record mapping that did not
+exist anywhere. 0004 and 0011 hold outright; 0001, 0003 and 0010 are amended and
+properly marked. The rest are not.
+
+| # | Record | Verdict | Action |
+| --- | --- | --- | --- |
+| F1 | **0007 — two boards, split at I2S** | **Contradicted**, not merely amended | It names the boundary as I2S and the module as carrying a "DAC", and rests its oscillator argument on "a delta-sigma DAC in slave mode" and a bit clock. 0008 deletes all of it — the boundary is element lines and the module carries resistors. The status line is a bare "accepted". **The filename itself carries the false claim into eight other files.** |
+| F2 | **0009 — USB bus power** | **Superseded**, marked nowhere inside `docs/decisions/` | Not in its status line, not in the index, and no 0014 exists — against the index's own stated convention. Only `open-items.md` records it. |
+| F3 | **0005, 0012** | Amended, unmarked | 0005:70-71 still tells a reader the SuperSpeed pairs are the hardest layout constraint, which is exactly what the amendment retires. 0012:134-135 still lists two parts as open that are chosen and wired. |
+| F4 | **0002 — the FPGA owns the audio clock** | Contradicted, and nobody had noticed | It names the oscillators as 22.5792/24.576 MHz — those are now the *element clock*; the parts fitted are 45.1584/49.152 MHz. It also sizes the crossing FIFO at "a few thousand samples" against 0011's 38,400. |
+| F5 | **0013 — toolchain** | Self-contradictory | git-lfs is "installed" at :128 and "**missing**" at :130, two table rows apart. Its bitstream table is two designs behind `hdl/build/`. |
+| F6 | **0008 — the correction is real but incomplete** | | The retired form is still stated *above* the correction in the same file. And 0008:52-53's "**ordinary one percent resistors are adequate**" rests on the retracted 0.5 dB, where the model now measures 33.3 dB at order 3 — while the board actually fits **0.1 % thin film**. This is the only place in `docs/decisions/` where a part specification rests on a retracted measurement. The conclusion may well survive (1 % still gives 134.65 dB against a 110 dB target); the stated reason does not. |
+
+### The corrected constant-current claim has two more homes
+
+`interface.md:75-80` — the contract a module designer reads — and
+`hardware/README.md:158-167` both still say the reference load is
+signal-independent and that decoupling handles it. Neither was on anyone's
+list. Both are wrong in the same way 0008 was, and `interface.md` is the more
+dangerous of the two because it is what somebody designing a different output
+module would build against.
+
+### The largest single contradiction: the main board's power page
+
+`hardware/lyrebird-main-reva/power.md` prints **module 147 mA, board 381 mA,
+42 % of USB 3.0**, against the module page's **238 / 472 / 94 % of USB 2.0** —
+while both pages state that they must agree. Its "What has no source today"
+section is false in **every clause**: the LTM4622, the ferrite, the USB
+connector and the 5 V capacitors are all in the netlist. Its pre-enumeration
+analysis is indexed on a 1 kΩ element placeholder that the built 3.34 kΩ
+replaced. Both board briefs describe netlists two rounds of work old.
+
+`parts-notes.md` carries *both* budgets — 182/416 and 238/472 — and is the only
+file in the repository that identifies the main page's figures as superseded.
+
+### `open-items.md` corrections
+
+The best-maintained file in the repository, and still: one item closed (the
+LTM4622 footprint exists), two overtaken by the HDL (the prefill threshold and
+the drain/fill/run state machine are implemented; underrun emits zero and
+asserts mute), and three genuine gaps missing — no owner for the model's
+clipper recommendation, no record of the 5.3 dB single-seed spread or the
+untested above-10 kHz material, and no HDL task for `MUTE_N`, which now gates
+both analog rails.
+
+Every Markdown link in the audited set resolves. Zero dead targets.
