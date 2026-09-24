@@ -122,14 +122,19 @@ D1_IS = F(5e-6, "A", MODEL, "fitted to VF(3 A) = 0.45 V")
 D1_N = F(1.05, "", MODEL, "")
 D1_RS = F(0.03, "ohm", MODEL, "")
 
-# --- D2, SMAJ15A -----------------------------------------------------------
-D2_VWM = F(15.0, "V", DS, "reverse stand-off voltage")
-D2_VBR_MIN = F(16.7, "V", DS, "breakdown at IT = 1.0 mA")
-D2_VBR_MAX = F(18.5, "V", DS, "breakdown at IT = 1.0 mA")
+# --- D2, SMAJ18A -----------------------------------------------------------
+# Was an SMAJ15A when this file was written. The 15 V part conducted
+# indefinitely on a 19 V adapter without ever tripping the fuse, because the
+# breakdown tempco makes the fault settle rather than run away -- 41 mA at a
+# junction near 117 C, beside a board running perfectly. The LMR33630 is a
+# 36 V part, so 19 V was never a threat to it; the 18 V part does not conduct
+# there at all and still clamps a real surge inside the converter's rating.
+D2_VWM = F(18.0, "V", DS, "reverse stand-off voltage")
+D2_VBR_MIN = F(20.0, "V", DS, "breakdown at IT = 1.0 mA")
+D2_VBR_MAX = F(22.1, "V", DS, "breakdown at IT = 1.0 mA")
 D2_IT = F(1.0e-3, "A", DS, "breakdown test current")
-D2_VC = F(24.4, "V", DS, "maximum clamping voltage")
-D2_IPPM = F(16.4, "A", DS, "peak pulse current at VC. NOT 21.7 A -- see "
-                           "the report; verify_power.py carries 21.7")
+D2_VC = F(29.2, "V", DS, "maximum clamping voltage")
+D2_IPPM = F(13.7, "A", DS, "peak pulse current at VC")
 D2_ID = F(1.0e-6, "A", DS, "maximum reverse leakage at VWM")
 D2_ALPHA = F(0.088e-2, "1/C", DS, "maximum temperature coefficient of VBR, "
                                   "%/C column of the SMAJ15A row")
@@ -139,6 +144,16 @@ D2_TJMAX = F(150.0, "C", DS, "operating junction maximum")
 D2_PD_INF = F(3.3, "W", DS, "on an INFINITE heatsink at TA = 50 C. Not a "
                             "board number; RthJA is")
 D2_VF_25A = F(3.5, "V", DS, "forward, unidirectional, at IF = 25 A")
+
+# --- D3, BAT54 -------------------------------------------------------------
+# Added because this simulation found the reversed rail settling at -0.40 V
+# against the LMR33630's -0.3 V absolute minimum, held there by D2's forward
+# drop. A Schottky in the same direction clamps lower at leakage-level
+# current, which is the only current present in that case.
+D3_VF_10U = F(0.15, "V", ASSUMED, "BAT54 forward at tens of microamps; the "
+                                  "datasheet curve starts at 0.1 mA")
+D3_N = F(1.05, "", ASSUMED, "ideality, fitted to the 0.1 mA and 1 mA points")
+D3_IS = F(1.0e-7, "A", ASSUMED, "saturation current implied by the above")
 D2_IFSM = F(40.0, "A", DS, "8.3 ms single half sine, unidirectional")
 # Breakdown knee: I = IT * exp((V - VBR)/VK) through a series Rd. VK sets how
 # soft the knee is and Rd is then forced by the one clamping point the
@@ -447,7 +462,8 @@ def scenario_inrush(ck):
 # ==========================================================================
 # 2. REVERSE POLARITY
 # ==========================================================================
-def build_reverse(v_rev, i_leak, tvs=True, tvs_is=None, d1_backwards=False):
+def build_reverse(v_rev, i_leak, tvs=True, tvs_is=None, d1_backwards=False,
+                  clamp=True):
     """A centre-negative adapter in a centre-positive jack.
 
     D1 blocks, and then the only current anywhere in the circuit is D1's own
@@ -481,6 +497,15 @@ def build_reverse(v_rev, i_leak, tvs=True, tvs_is=None, d1_backwards=False):
     if tvs:
         # Unidirectional: anode on GND, cathode on +12V. Forward here.
         c.raw_spice += "Dd2 0 v12 D2FWD\n"
+    if clamp:
+        # D3, the Schottky added after this scenario found -0.40 V against a
+        # -0.3 V absolute minimum. Same direction as D2's forward path and a
+        # lower drop at the microamps that are the only current here, so it
+        # takes the clamping over and D2 stops being the thing holding the
+        # rail out of the converter's limit.
+        c.raw_spice += (f".model DBAT54 D(IS={D3_IS.value} N={D3_N.value} "
+                        f"RS=2.0 CJO=10p BV=30)\n")
+        c.raw_spice += "Dd3 0 v12 DBAT54\n"
     # U5 VIN and EN, quiescent and drawing nothing at a negative input.
     c.raw_spice += "Ru5 v12 0 500k\n"
     return c
@@ -1252,12 +1277,23 @@ def main() -> int:
     for v in (12.0, 19.0, 24.0):
         print(f"   reversed {v:4.0f} V:  {rev[v]['v_reverse']:5.1f} V across "
               f"D1, protected rail at {rev[v]['v12']:+.3f} V")
+    def _cross(rec):
+        """t_cross is None when the rail never reaches the limit at all.
+
+        That is now the expected outcome rather than an error case: D3 was
+        added precisely so the rail stops short of the converter's -0.3 V,
+        and a run that never crosses has no crossing time to report.
+        """
+        t = rec.get("t_cross")
+        return f"after {t*1e3:.2f} ms" if t is not None else \
+            "and never reaches the -0.3 V limit"
+
     print(f"\n   D1 leakage 0.5 mA (25 C max):  rail settles "
-          f"{rev['leaks']['25 C']['v12']:+.3f} V after "
-          f"{rev['leaks']['25 C']['t_cross']*1e3:.1f} ms")
+          f"{rev['leaks']['25 C']['v12']:+.3f} V "
+          f"{_cross(rev['leaks']['25 C'])}")
     print(f"   D1 leakage  20 mA (100 C max): rail settles "
-          f"{rev['leaks']['100 C']['v12']:+.3f} V after "
-          f"{rev['leaks']['100 C']['t_cross']*1e3:.2f} ms")
+          f"{rev['leaks']['100 C']['v12']:+.3f} V "
+          f"{_cross(rev['leaks']['100 C'])}")
     print(f"   D2 removed:                    rail settles "
           f"{rev['no_tvs']:+.2f} V")
 

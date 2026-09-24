@@ -402,7 +402,12 @@ def build():
             # Pole 2 of three: 2.0 nF across 402 ohm is 198 kHz. It also
             # compensates the stage, since it is what sets the node
             # impedance once the loop gain is gone (analog.txt Q2c).
-            _cap(node, o, "2.0nF C0G", "Capacitor_SMD:C_0603_1608Metric")
+            # Pole 2. Matching between the two halves matters less here than
+            # at the difference stage -- this capacitor is inside a feedback
+            # loop that the rotation averages across -- but it is the same
+            # class of part and the same argument, so it carries a tolerance
+            # rather than none.
+            _cap(node, o, "2.0nF C0G 2%", "Capacitor_SMD:C_0603_1608Metric")
             iv[(ch, side)] = o
         _cap(vpos, gnd, "100nF", "Capacitor_SMD:C_0402_1005Metric")
         _cap(vneg, gnd, "100nF", "Capacitor_SMD:C_0402_1005Metric")
@@ -431,7 +436,14 @@ def build():
         # twice the current. The cost is 2.1 dB of stage noise; the arithmetic
         # is in parts-notes.md.
         rn = Part("Device", "R_Pack04", ref=f"RN{16+ch}",
-                  value="604R 0.1% thin film",
+                  # 0.1 % RATIO, not 0.1 % absolute. An absolute tolerance
+                  # permits both legs to sit at opposite ends of it, which is
+                  # a 0.2 % ratio error and twice the common-mode leak. The
+                  # ratio is the quantity doing the work and the one to order
+                  # against; hardware/sim/difference_stage.py measures what it
+                  # buys. Absolute value is uncritical here -- it sets gain,
+                  # which is calibrated out, not rejection.
+                  value="604R, 0.1% RATIO matched, thin film array",
                   footprint="Resistor_SMD:R_Array_Concave_4x0402")
         inv = Net(f"DIFF_INV_{'LR'[ch]}")
         ref = Net(f"DIFF_REF_{'LR'[ch]}")
@@ -452,8 +464,20 @@ def build():
         # value sits on the non-inverting leg, because a difference amplifier
         # only keeps its rejection above the pole if both legs roll off
         # together.
-        _cap(inv, o, "1.3nF C0G", "Capacitor_SMD:C_0603_1608Metric")
-        _cap(ref, gnd, "1.3nF C0G", "Capacitor_SMD:C_0603_1608Metric")
+        # These two are matched parts, not merely C0G ones, and that is a
+        # simulation result rather than caution. Above 8.1 kHz they -- not the
+        # resistor array -- set the stage's common-mode rejection, because a
+        # mismatch between them unbalances the two legs with frequency where
+        # the resistors stay matched. At 20 kHz, 5 % parts give 46.1 dB where
+        # the 0.1 % array alone would give 54.0. The netlist specified no
+        # tolerance at all on the component that dominates.
+        #
+        # 2 % is readily stocked in C0G and puts this back under the array.
+        # Removing the non-inverting one entirely does not move the DC
+        # transfer curve by a nanovolt while 20 kHz rejection falls 28 dB,
+        # so an offset check cannot police this: see difference_stage.py.
+        _cap(inv, o, "1.3nF C0G 2%", "Capacitor_SMD:C_0603_1608Metric")
+        _cap(ref, gnd, "1.3nF C0G 2%", "Capacitor_SMD:C_0603_1608Metric")
         lo = Net(f"LINE_OUT_{'LR'[ch]}")
         # Series build-out, so cable capacitance does not hang directly on
         # the feedback loop. 100 ohm into a 10 kohm line load is 0.09 dB.

@@ -232,6 +232,34 @@ def build():
                footprint="Diode_SMD:D_SMA")
     tvs["A1"] += v["GND"]
     tvs["A2"] += v["+12V"]
+    # D3 pins the rail out of the converter's negative limit in the reversed
+    # case, and it exists because the TVS alone does not quite manage it.
+    # With the adapter backwards, D1 blocks and its own reverse leakage --
+    # tens of microamps -- is then the only current in the circuit, flowing
+    # out of this node and dragging it negative. D2 conducting forward is
+    # what stops it, at about -0.40 V, against the LMR33630's -0.3 V absolute
+    # minimum on VIN and EN. A hundred millivolts outside an absolute maximum
+    # is not a place to leave a protection circuit.
+    #
+    # A Schottky in the same direction as D2's forward path clamps lower.
+    # Simulated: the rail goes from -0.399 V to -0.233 V, inside the limit,
+    # and it stays there at 12, 19 and 24 V reversed because the clamp sets
+    # the level and the adapter voltage does not.
+    #
+    # The 100 degC leakage corner still reads -0.371 V, and it is left there
+    # deliberately. Reaching it needs the SS34's 20 mA maximum leakage, which
+    # is specified at 100 degC at rated reverse voltage -- and in this
+    # scenario nothing in the circuit conducts, so nothing dissipates and the
+    # junction sits at ambient. A diode can only be at 100 degC here if the
+    # room is, which is outside anything this product claims. The applicable
+    # figure is the 25 degC one.
+    #
+    # D3 also makes losing D2 survivable rather than fatal: with the TVS
+    # removed the rail now settles at -0.37 V instead of -12.2 V.
+    clamp = Part("Device", "D_Schottky", ref="D3", value="BAT54 negative clamp",
+                 footprint="Diode_SMD:D_SOD-123")
+    clamp["A"] += v["GND"]
+    clamp["K"] += v["+12V"]
     decouple(v["+12V"], v["GND"], "22uF", "1210")
     decouple(v["+12V"], v["GND"], "100nF", "0603")
 
