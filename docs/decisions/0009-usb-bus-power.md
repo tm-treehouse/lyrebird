@@ -1,6 +1,10 @@
 # 0009 — USB bus power, and which rails are precision
 
-**Status:** accepted
+**Status:** superseded by [0014](0014-wall-wart-power.md). The board is
+externally powered from a 12 V supply and USB carries data only. What follows
+is kept because the rail classification and the precision-supply reasoning in
+it are still the design's, and because 0014 is an argument against this one's
+budget rather than against its electronics.
 
 ## Context
 

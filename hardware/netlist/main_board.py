@@ -27,7 +27,10 @@ N_DATA = 32
 # Footprints for the passive sizes actually used here.
 FP_C = {"0402": "Capacitor_SMD:C_0402_1005Metric",
         "0603": "Capacitor_SMD:C_0603_1608Metric",
-        "0805": "Capacitor_SMD:C_0805_2012Metric"}
+        "0805": "Capacitor_SMD:C_0805_2012Metric",
+        # Bulk on the 12 V input and the 5 V output. A 22 uF or 47 uF part
+        # with usable derating at these voltages does not come in 0805.
+        "1210": "Capacitor_SMD:C_1210_3225Metric"}
 FP_R = "Resistor_SMD:R_0402_1005Metric"
 
 
@@ -35,8 +38,8 @@ def rails():
     # +1V0_FT is the FT601Q's own internal LDO output. It is a separate net
     # from the board's +1V0: the datasheet says that rail is "not to be used
     # for external devices", and it feeds only VD10 and AVDD on the bridge.
-    n = {k: Net(k) for k in ("GND", "USB_VBUS", "+5V", "+3V3", "+2V5",
-                             "+1V0", "+1V0_FT")}
+    n = {k: Net(k) for k in ("GND", "USB_VBUS", "VIN_RAW", "+12V", "+5V",
+                             "+3V3", "+2V5", "+1V0", "+1V0_FT")}
     n["GND"].drive = 7
     return n
 
@@ -97,7 +100,11 @@ def build():
         p += v["+2V5"]
     for p in lp.pins_matching(ftdi, r"^GND$"):
         p += v["GND"]
-    v["+5V"] += lp.pin_named(ftdi, "VBUS")
+    # VBUS is now a bus-presence sense input rather than the supply. The
+    # board is externally powered, so the bridge has to be told when a host
+    # is actually attached; wiring this to the board's own +5V would assert
+    # bus presence permanently, including with no cable in the socket.
+    v["USB_VBUS"] += lp.pin_named(ftdi, "VBUS")
 
     # Internal 1.0 V LDO: DV10 out, VD10 and AVDD in, 4.7 uF to ground, which
     # is what the datasheet asks for verbatim.
@@ -138,15 +145,85 @@ def build():
         c[1] += lp.pin_named(ftdi, tod)
         c[2] += usb[leg]
 
-    # ---- Ferrite at the bus input (0009: the 5 V rail is ferrite only).
-    # FTDI's bus-powered reference puts one in series with VBUS to keep the
-    # board's own noise off the cable. 220 ohm at 100 MHz, 1.4 A, 100 mohm,
-    # against the 380 mA the budget in 0009 actually draws.
-    fb = Part("Device", "FerriteBead", ref="FB1",
-              value="BLM18PG221SN1D 220R@100MHz",
-              footprint="Inductor_SMD:L_0603_1608Metric")
-    fb[1] += v["USB_VBUS"]
-    fb[2] += v["+5V"]
+    # ---- Wall wart input (0014, superseding 0009).
+    #
+    # The board is externally powered. USB now carries data only, and the
+    # connector's VBUS reaches nothing but the bridge's sense pin. Everything
+    # the old bus-power budget constrained -- 472 mA against a 500 mA host,
+    # the 150 mA one-unit-load rule before enumeration, the 4.43 V worst case
+    # -- stops applying here.
+    #
+    # 12 V rather than 5 V so the negative analog rail can eventually be made
+    # by inversion instead of by a doubler. That part is not built yet: the
+    # mezzanine still carries +5V and the module still has its charge pump.
+    jack = Part("Connector", "Barrel_Jack", ref="J4",
+                value="12 V 2.1 x 5.5 mm, centre positive",
+                footprint="Connector_BarrelJack:BarrelJack_Horizontal")
+    jack[1] += v["VIN_RAW"]
+    jack[2] += v["GND"]
+
+    # Resettable fuse first, so a downstream short does not depend on the
+    # adapter's own protection being sane.
+    fuse = Part("Device", "Polyfuse", ref="F1", value="1.1 A hold, 2.2 A trip",
+                footprint="Fuse:Fuse_1812_4532Metric")
+    fuse[1] += v["VIN_RAW"]
+    prot = Net("VIN_FUSED")
+    fuse[2] += prot
+
+    # Reverse polarity by series Schottky rather than by a P-channel MOSFET.
+    # At 12 V the 0.35 V drop costs about 210 mW and buys nothing back, which
+    # would be the argument for the FET -- but there is a volt of headroom to
+    # spare before the buck cares, and a diode has no gate to protect, no
+    # Vgs rating to check against the input, and no body-diode conduction
+    # path in the reversed case. The FET is the better answer on a 5 V rail;
+    # here the simpler part is the better one.
+    rev = Part("Device", "D_Schottky", ref="D1", value="SS34 3A 40V",
+               footprint="Diode_SMD:D_SMA")
+    rev["A"] += prot
+    rev["K"] += v["+12V"]
+
+    # Unidirectional TVS. A 12 V adapter is a thing a person plugs in, and
+    # the population of barrel-jack supplies includes 19 V laptop bricks with
+    # the same connector. 15 V standoff clears the adapter's own tolerance
+    # and clamps well below the LMR33630's 36 V maximum.
+    tvs = Part("Device", "D_TVS", ref="D2", value="SMAJ15A",
+               footprint="Diode_SMD:D_SMA")
+    tvs["A1"] += v["GND"]
+    tvs["A2"] += v["+12V"]
+    decouple(v["+12V"], v["GND"], "22uF", "1210")
+    decouple(v["+12V"], v["GND"], "100nF", "0603")
+
+    # ---- 12 V to 5 V. Everything downstream of +5V is unchanged, which is
+    # the point: the LTM4622, the LT3045 and the mezzanine all see the rail
+    # they were designed against.
+    buck5 = Part("Regulator_Switching", "LMR33630ADDA", ref="U5",
+                 value="LMR33630 12V->5V 3A",
+                 footprint="Package_SO:HTSSOP-8-1EP_3x3mm_P0.65mm_EP1.5x2.1mm")
+    for p in lp.pins_named(buck5, "GND"):
+        p += v["GND"]
+    buck5["VIN"] += v["+12V"]
+    # EN to VIN: the part has its own UVLO and nothing here sequences ahead
+    # of it.
+    buck5["EN"] += v["+12V"]
+    buck5["PG"] += Net("PG_5V")
+    pullup(Net("PG_5V"), v["+5V"], "100k")
+    # VCC is the internal rail's own bypass, datasheet value.
+    decouple(buck5["VCC"], v["GND"], "1uF", "0603")
+    sw = Net("SW_5V")
+    buck5["SW"] += sw
+    # Bootstrap across SW to BOOT, datasheet value.
+    cb = Part("Device", "C", value="100nF", footprint=FP_C["0402"])
+    cb[1] += sw
+    cb[2] += buck5["BOOT"]
+    ind = Part("Device", "L", ref="L1", value="10uH 3A shielded",
+               footprint="Inductor_SMD:L_12x12mm_H8mm")
+    ind[1] += sw
+    ind[2] += v["+5V"]
+    # FB reference is 1.0 V, so VOUT = 1.0 * (1 + Rtop/Rbot).
+    #   100k / 24.9k -> 1 + 4.016 = 5.02 V
+    resistor(v["+5V"], buck5["FB"], "100k 1%")
+    resistor(buck5["FB"], v["GND"], "24.9k 1%")
+    decouple(v["+5V"], v["GND"], "47uF", "1210")
 
     # ---- 3.3 V regulator from bus voltage
     for p in ldo.pins:
@@ -605,7 +682,11 @@ def build():
     import builtins
     lp.assert_below_abs_max(
         builtins.default_circuit,
-        hv_rails={"+3V3", "+5V", "USB_VBUS"},
+        # +12V, VIN_RAW and VIN_FUSED are declared because the check is blind
+        # to any rail it is not told about: an undeclared rail reaching a
+        # protected pin passes silently. That is how a new supply enters a
+        # design unguarded.
+        hv_rails={"+3V3", "+5V", "USB_VBUS", "VIN_RAW", "VIN_FUSED", "+12V"},
         protected={fpga: set(), mez: {"+5V"}})
 
     return fpga, ftdi, elem_nets
