@@ -59,19 +59,68 @@ None of these change a conclusion. All of them will waste someone's afternoon.
 
 ---
 
-## D. Needs a decision, not a fix
+## D. Decisions outstanding
 
-| # | Question | Why it is open |
+Rewritten 2026-09-24. Several items here moved since the first pass: D3 has
+been measured, the wall wart is half built, and the lock state machine turned
+out to be done already. Each is a judgement call rather than a defect — the
+work to *do* them is known; what is missing is somebody choosing.
+
+### D.1 — Signal quality, where the trade is known and costed
+
+| # | Decision | What it buys | What it costs |
+| --- | --- | --- | --- |
+| **1** | **The reference rail carries the signal.** The DWA pointer advancing by the code is what shapes mismatch *and* what ties transition current to the code; four alternative rules each trade the whole benefit away. The untested idea is a **transition ballast** — `T` is bounded above by 14, so dummy lines toggled to make up the deficit flatten the current without touching the selection rule. | Predicted error goes from −101.1 dBFS to nothing. It is currently 35 dB above the chain's own floor and 12.6 dB over target. | The current of a fully toggling array, and a block nobody has designed. **Blocked on a bench measurement** — the −101.1 dBFS is a prediction from a digital proxy, and the model has no supply in it. |
+| **2** | **The difference amplifier's unequal loading (was D3).** Now measured rather than estimated: the output currents differ **1.499 : 1**, not the 1.25 the load ratio suggests, and the positive half's output current **crosses zero at −3.5 dBFS — inside the signal**, where an output stage's crossover lives. Even-order cancellation measures **5.1 dB** against what 0008 puts both polarities on one die to buy. Fix: non-inverting leg at **R/3 = 201 Ω**. | Cancellation past 40 dB. | 4.6 mA on the negative rail at mid code, 9.2 mA at −FS, and one matched array becomes two matched pairs. **0008's property to trade.** |
+| **3** | **The element resistor, 3.32 kΩ → 2585 Ω.** One of the three reasons for 3.32 kΩ was fitting one unit load before enumeration. That rule no longer exists; the other two arguments both point *down*. | 1.1 dB. `analog.txt` Q1c puts the noise optimum at 2585 Ω. | ~4 mA, which was the entire objection. **Blocked on fixing `analog.py`**, which prices four amplifiers where the board has six. |
+| **4** | **The difference network, 604 Ω → 200 Ω.** | 2.1 dB. | Needs decision 5 first — at 200 Ω the negative rail wants 63 mA, which a charge pump makes expensive. |
+
+Decisions 3 and 4 are worth **3.2 dB between them** against a design whose worst
+real-material window sits 1.5 dB above target. Neither needs new parts.
+
+### D.2 — Following the wall wart through
+
+0014 is built on the main board and stops at the mezzanine.
+
+| # | Decision | Note |
 | --- | --- | --- |
-| D1 | **The reference rail carries the signal.** Predicted −101.1 dBFS third harmonic against a chain held to −136.5 and a target allowing −113.7. The DWA pointer advancing by the code is what shapes mismatch *and* what ties the changing-line count to the code, so the two properties look inseparable; four alternative rules each trade the whole benefit away. Decoupling does not address it — the disturbance is at audio frequency, where the chain's floor would need 170 µΩ at 2 kHz. | The untested idea is a **transition ballast**: `T` is bounded above by 14 and the modulation is the deficit, so dummy lines toggled to make it up flatten the current without touching the selection rule, at the cost of a fully toggling array. Not designed, not costed. It is a prediction from a digital proxy and wants a bench. |
-| D2 | **`MUTE_N` mutes by collapsing the analog supplies**, and there is no DC blocking or output mute device at the jack. So every assertion and release is a supply transient straight into the output. | Nothing in `hdl/` asserts it yet, and `parts-notes.md` records the contract. Decide whether the output stage needs a mute relay or the HDL needs a ramp. |
-| D3 | **0008's even-order cancellation works against the output stage's loading.** 0008 puts both polarities of a channel on one register die and calls it "real work, not tidiness". The difference amplifier then loads them unequally — the positive transimpedance sees 402 ‖ 604 = 241 Ω, the negative 402 ‖ 1208 = 301 Ω. Both are below the 600 Ω of the OPA1612's lowest published distortion curve, so the asymmetry cannot be costed from the datasheet. | Worth 0008's attention because it works against the property 0008 exists to buy. |
-| D4 | **Control words bypass the lock gate**, so the flush path is not protected by lock and a control word seen while hunting will flush the elastic buffer. Safe under the word-alignment argument, and arguably right — but currently an accident rather than a decision. | The real toplevel has not made this choice yet. Make it consciously; it is the one place un-validated stream content reaches a destructive action. |
-| D5 | **`ELEM[31:28]` are reserved and nothing drives them.** `interface.md` requires the main board to drive them low; there is no synthesizable top-level in `hdl/rtl/` at all. | Scope, not a bug — but it is on the critical path to a working board. |
-| D6 | **The wall-wart redesign is agreed and unimplemented.** 12 V supply, USB data-only with an ADuM4166 at High Speed, charge pump deleted, 200 Ω recoverable. | Needs a decision record superseding 0009, then netlist work. Recorded in `docs/open-items.md`. |
-| D7 | **Status word bit layout**, described in prose in 0010 and never mapped to bits. | Blocks the status path only. **Correction:** the prefill threshold and lock state machine were listed here and are already done — `lyrebird_elastic.sv` implements the mute/drain/fill/run sequence with `PrefillWords = 6400`, underrun returning to fill without discarding, and a mute output. `docs/open-items.md` still lists both as open. |
+| **5** | **Does the mezzanine carry a negative rail from the main board?** With 12 V available, an inverter there is cheap, and it deletes the LTC3265 entirely — its flying-capacitor ground return with it. This is the enabling decision for #4. | Changes the mezzanine contract in `interface.md`. |
+| **6** | **Fit the ADuM4166 isolator?** 0014 argues for it; it is not in the netlist. Forces USB 2.0 High Speed, which costs nothing — 192/24 stereo is 1.9 % of it — and removes two 5 Gbps pairs from the layout. | The SuperSpeed pairs are still routed. |
+| **7** | **Does supply ground tie to chassis?** Named as undecided in 0014 and still is. | |
+| **8** | **Which fuse.** Three requirements must hold together — ≥24 Vdc, hold well above 236 mA, Imax above the inrush — and no catalogue line was confirmed to satisfy all three. The netlist says PART UNCHOSEN rather than naming a 6 V device that cannot work. | |
 
----
+### D.3 — Contracts the HDL needs before it can be finished
+
+| # | Decision | Note |
+| --- | --- | --- |
+| **9** | **Status word bit layout.** Prose in 0010, never mapped to bits. | Blocks the status path only. |
+| **10** | **What `MUTE_N` should actually do.** It mutes by collapsing the analog supplies, and there is no DC blocking or output mute device at the jack — so every assertion and release is a supply transient straight into the output. Mute relay, or an HDL ramp, or accept the pop? | Nothing in `hdl/` asserts it at all yet. |
+| **11** | **Should control words bypass the lock gate?** They do, deliberately and with a comment, and the word-alignment argument makes it safe. But it leaves the flush path unprotected by lock, which is the one place un-validated stream content reaches a destructive action. | Currently an accident rather than a choice. |
+| **12** | **`ELEM[31:28]`.** `interface.md` requires the main board to drive them low; there is no synthesizable top-level in `hdl/rtl/` at all. | Scope, but on the critical path to a working board. |
+
+### D.4 — Behaviour nobody has specified
+
+| # | Decision |
+| --- | --- |
+| **13** | **Underrun.** Counted in the status word and prefill exists to prevent it, but what the converter should *do* is undefined. |
+| **14** | **Host idle.** No defined behaviour when the host simply stops sending. |
+| **15** | **Module hot-swap.** The ID pins can change while running. Nothing says what happens. |
+
+### D.5 — Product scope
+
+| # | Decision |
+| --- | --- |
+| **16** | **Which module to build first** — line, headphone, or combined. The ID encoding supports all three. |
+| **17** | **Headphone amplifier part**, if 16 says headphone. None chosen. |
+| **18** | **Provision an unpopulated quad-SPI PSRAM footprint?** Six pins, as insurance. |
+| **19** | **git-lfs for `hardware/datasheets/`** — much cheaper before the directory fills with multi-megabyte PDFs than after. |
+
+### Deliberately deferred, and still correctly so
+
+USB Audio Class driverless operation (0004); four-bit differential, which would
+need a main board respin (0008); headphone power beyond bus limits, now partly
+reopened by the wall wart (0009); external SRAM, since the requirement is
+latency-bounded rather than memory-bounded (0011).
 
 ## E. Closed in this pass
 
