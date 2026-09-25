@@ -14,7 +14,7 @@
 		(uuid "00000000-0000-0000-0000-000000000001")
 		(property "Reference" "F1" (at 35.56 25.250000000000004 0)
 			(effects (font (size 1.27 1.27))))
-		(property "Value" "PTC >=24Vdc, 0.5 A hold, Imax >=40 A — PART UNCHOSEN" (at 35.56 45.870000000000005 0)
+		(property "Value" "1812L050/30 PPTC 0.5A hold 30V 100A" (at 35.56 45.870000000000005 0)
 			(effects (font (size 1.27 1.27))))
 		(instances (project "" (path "/" (reference "F1") (unit 1))))
 	)
