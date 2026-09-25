@@ -84,7 +84,7 @@ def F(v, u, s, n=""):
 #   SMAJ15A    Vishay 88390 rev 09-Jan-2024; cross-checked against Bourns
 #              and Kemet SMAJ, which agree digit for digit on the table row
 #   SS34       Vishay 88751 rev 23-Apr-2020 (SS32-SS36)
-#   1812L110   Littelfuse 1812L series, revised 12-Jul-2010
+#   1812L050/30 Littelfuse 1812L series, rev GD 01/10/23
 #
 # Anything not in one of those four is marked ASSUMED or MODEL and the report
 # lists it.
@@ -172,14 +172,16 @@ D2_VF_RS = F(0.113, "ohm", MODEL, "so VF(25 A) = 3.5 V with the above")
 # 1812L110 -- and it is rated 6 Vdc. Every 1812L110 rated above 12 V trips at
 # 1.95 A, not 2.2 A. The numbers below are the 24 V part, which is the one a
 # 12 V input with a 19 V failure mode actually needs.
-F1_PART = "1812L110/24"
-F1_IHOLD = F(1.10, "A", DS, "at 20 C still air")
-F1_IHOLD_50C = F(0.83, "A", DS, "temperature rerating table, 50 C")
-F1_ITRIP = F(1.95, "A", DS, "minimum current that WILL trip, 20 C")
-F1_VMAX = F(24.0, "V", DS, "maximum voltage without damage at Imax")
-F1_IMAX = F(20.0, "A", DS, "maximum fault current at Vmax")
-F1_RMIN = F(0.060, "ohm", DS, "initial, un-soldered")
-F1_R1MAX = F(0.200, "ohm", DS, "at 20 C, one hour after trip or reflow")
+F1_PART = "1812L050/30"
+F1_IHOLD = F(0.50, "A", DS, "at 20 C still air")
+F1_IHOLD_50C = F(0.40, "A", DS, "temperature derating table, 50 C")
+F1_IHOLD_70C = F(0.33, "A", DS, "70 C; still above the board's 219 mA")
+F1_ITRIP = F(1.00, "A", DS, "minimum current that WILL trip, 20 C")
+F1_VMAX = F(30.0, "V", DS, "clears the 29.2 V SMAJ18A clamp")
+F1_IMAX = F(100.0, "A", DS, "against 27.9 A of inrush in the worst corner")
+F1_TTRIP_8A = F(0.15, "s", DS, "maximum time to trip at 8 A")
+F1_RMIN = F(0.150, "ohm", DS, "initial, un-soldered")
+F1_R1MAX = F(1.000, "ohm", DS, "at 20 C, one hour after trip or reflow")
 F1_TTRIP_8A = F(0.50, "s", DS, "maximum time to trip at 8.00 A")
 F1_PD_TRIPPED = F(0.8, "W", DS, "dissipated in the tripped state, 20 C")
 F1_TSURF_TRIPPED = F(125.0, "C", DS, "max device surface temp, tripped")

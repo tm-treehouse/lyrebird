@@ -165,22 +165,29 @@ def build():
     # Resettable fuse first, so a downstream short does not depend on the
     # adapter's own protection being sane.
     #
-    # The value is stated as a requirement rather than as a part, because the
-    # part this line used to name does not exist at this voltage. "1.1 A hold,
-    # 2.2 A trip" in an 1812 matches exactly one Littelfuse 1812L device,
-    # 1812L110, and that part is rated 6 Vdc. The rail is 12 V and 0014
-    # contemplates a 19 V adapter in the same barrel. The 24 V variant exists
-    # but trips at 1.95 A rather than 2.2, and carries Imax 20 A where the
-    # low-voltage parts carry 100 A -- against an inrush that reaches 27.9 A
-    # in the stiffest corner simulated.
+    # 1812L050/30, chosen against the Littelfuse 1812L table rather than
+    # named from memory. The line here used to say "1.1 A hold, 2.2 A trip"
+    # in an 1812, which matches exactly one device in that series -- and it
+    # is rated 6 Vdc, on a 12 V rail.
     #
-    # So three things have to hold together and no single catalogue line was
-    # confirmed to do it: >= 24 Vdc rating, a hold current comfortably over
-    # the 236 mA the board draws, and an Imax above the inrush. A lower hold
-    # current than 1.1 A is wanted anyway -- the board draws a fifth of it,
-    # so the present value protects almost nothing.
+    # Three things had to hold together and only this part does all three:
+    #
+    #   30 Vdc   covers 12 V nominal, the 19 V brick that fits the same
+    #            barrel, and the TVS clamping at 29.2 V. The 24 V parts do
+    #            not clear that last one.
+    #   100 A    against an inrush reaching 27.9 A in the stiffest corner
+    #            simulated. The 24 V and 33 V variants drop to 20 A, which
+    #            is under it.
+    #   0.50 A   hold, against 219 mA drawn. The obvious smaller choice,
+    #            1812L035/30, derates to 0.20 A hold at 70 C -- below the
+    #            board's own draw -- and would nuisance-trip in a warm
+    #            enclosure. This part holds 0.33 A at 70 C and 0.29 A at 85.
+    #
+    # Trips at 1.00 A, and at 8 A within 0.15 s. R1max is 1.0 ohm, so the
+    # worst-case drop at full load is 219 mV out of the volts of headroom
+    # the buck has spare.
     fuse = Part("Device", "Polyfuse", ref="F1",
-                value="PTC >=24Vdc, 0.5 A hold, Imax >=40 A — PART UNCHOSEN",
+                value="1812L050/30 PPTC 0.5A hold 30V 100A",
                 footprint="Fuse:Fuse_1812_4532Metric")
     fuse[1] += v["VIN_RAW"]
     prot = Net("VIN_FUSED")

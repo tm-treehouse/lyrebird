@@ -52,8 +52,8 @@ VIN_FAULT = Fact(19.0, "V", ASSUMED, "the brick that fits the same jack")
 
 # F1, resettable fuse. Hold current and series resistance both matter: the
 # resistance is in the path at full load.
-F1_HOLD = Fact(0.5, "A", ASSUMED, "part unchosen; the old line named a 6 Vdc device")
-F1_RMAX = Fact(0.30, "ohm", ASSUMED, "typical 1.1 A PPTC max initial R")
+F1_HOLD = Fact(0.33, "A", DS, "1812L050/30 derated to 70 C; 0.50 A at 20 C")
+F1_RMAX = Fact(1.00, "ohm", DS, "1812L050/30 R1max, one hour after a trip")
 
 # D1, SS34 Schottky, reverse polarity.
 D1_VF = Fact(0.35, "V", ASSUMED, "read off the SS34 typical curve, not a spec limit")
