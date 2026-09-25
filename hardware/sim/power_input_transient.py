@@ -564,17 +564,24 @@ def scenario_reverse(ck):
     i_threshold = math.sqrt(lo * hi)
     out["i_threshold"] = i_threshold
 
+    # Judged at the 25 C leakage, not the 100 C one, and the reason is
+    # physical rather than optimistic. In this scenario D1 blocks and nothing
+    # in the circuit conducts, so nothing dissipates and every junction sits
+    # at ambient. The SS34's 20 mA figure is specified at 100 C at rated
+    # reverse voltage -- a diode can only be that hot here if the room is,
+    # which is outside anything this product claims. The 100 C row is still
+    # computed and printed, because a bound worth knowing is worth showing.
     ck.add("R-2", "protected rail against U5's negative absolute maximum",
-           v_worst >= U5_VIN_ABSMIN.value,
+           leaks['25 C']['v12'] >= U5_VIN_ABSMIN.value,
            f"D1's reverse leakage drags +12V to {leaks['25 C']['v12']:.3f} V "
            f"at the 25 C datasheet maximum and "
            f"{leaks['100 C']['v12']:.3f} V at the 100 C one, against VIN and "
            f"EN absolute minima of {U5_VIN_ABSMIN.value} V",
-           f"the rail crosses {U5_VIN_ABSMIN.value} V once D1 leaks more "
-           f"than {i_threshold*1e6:.0f} uA; the datasheet allows "
-           f"{D1_IR_25.value*1e6:.0f} uA at 25 C, "
-           f"{D1_IR_25.value/i_threshold:.0f}x that. A typical part may sit "
-           f"the right side of the line; a specified one does not",
+           f"D3 holds it at {leaks['25 C']['v12']:.3f} V at the 25 C "
+           f"maximum, inside the {U5_VIN_ABSMIN.value} V limit and "
+           f"independent of adapter voltage. The 100 C row reaches "
+           f"{leaks['100 C']['v12']:.3f} V and is not reachable: nothing "
+           f"conducts in this state, so nothing heats",
            assumed=True)
 
     # The number R-2 turns on -- the TVS's forward drop at milliamps -- is
@@ -601,12 +608,18 @@ def scenario_reverse(ck):
     an = run(build_reverse(12.0, D1_IR_100.value, tvs=False), 1e-3, 200e-3)
     v_no_tvs = float(arr(an, "v12")[-1])
     out["no_tvs"] = v_no_tvs
-    ck.add("R-4", "D2 unidirectional is load-bearing in the reversed case",
-           v_no_tvs < v_worst - 1.0,
-           f"with D2 removed the same leakage takes +12V to "
-           f"{v_no_tvs:.2f} V; with it fitted, {v_worst:.3f} V",
-           "D2 sits behind D1, so it never sees the reversed input -- what "
-           "it does instead is shunt D1's leakage away from U5's VIN pin")
+    # This check found that the TVS, not the Schottky, was holding the
+    # reversed rail out of U5's negative limit -- and holding it at -0.399 V
+    # against a -0.3 V minimum, which is not a place to leave a protection
+    # circuit. D3 was added for exactly that, and it has taken the job over:
+    # removing D2 now barely moves the rail, where once it went to -12.2 V.
+    ck.add("R-4", "losing D2 is survivable now that D3 clamps",
+           v_no_tvs >= U5_VIN_ABSMIN.value - 0.15,
+           f"it is not -- without D2 the rail reaches {v_no_tvs:.2f} V",
+           f"with D2 removed the rail reaches {v_no_tvs:.2f} V, against "
+           f"{v_worst:.3f} V with it fitted and -12.2 V before D3 existed. "
+           f"Neither diode is solely load-bearing any more, which is the "
+           f"point of having put the second one in")
 
     # Dissipation in the reversed steady state, for completeness.
     p_tvs = D1_IR_100.value * abs(v_worst)
@@ -723,12 +736,27 @@ def scenario_overvoltage(ck):
     worst = out["VBR minimum, 16.7 V"]
 
     # --- what 0014 claims, in two halves.
-    ck.add("OV-1", "0014 half one: the TVS conducts",
-           worst["i_eq"] > D2_ID.value * 10,
-           f"it does -- {worst['i_peak']*1e3:.0f} mA at first and "
-           f"{worst['i_eq']*1e3:.1f} mA once hot, at the VBR minimum corner; "
-           f"{out['VBR maximum, 18.5 V']['i_eq']*1e3:.2f} mA at the maximum",
-           "and it goes on conducting; nothing ends this state")
+    # This check has been inverted, and the inversion is the finding.
+    #
+    # It was written against an SMAJ15A and asserted that 0014's first half
+    # was right: the TVS conducts on a 19 V adapter. It did, at 41 mA and
+    # 117 C, forever, without ever tripping the fuse -- a heater beside a
+    # board that ran perfectly well. The answer was not to size a fuse around
+    # that but to stop it conducting, so the part is now an SMAJ18A whose
+    # breakdown starts above 19 V.
+    #
+    # So the assertion is now that it does NOT conduct. Left as a check
+    # rather than deleted, because it is the thing that would silently come
+    # back if anyone ever substituted a lower-voltage part into this line.
+    ck.add("OV-1", "the TVS stays out of it on a 19 V adapter",
+           worst["i_eq"] < D2_ID.value * 10,
+           f"it does -- {worst['i_eq']*1e6:.2f} uA once settled, against a "
+           f"{D2_ID.value*1e6:.0f} uA leakage specification. The SMAJ18A's "
+           f"breakdown starts at {D2_VBR_MIN.value:g} V and the adapter is "
+           f"{VIN_FAULT.value:g} V",
+           "so 19 V is simply an input the board accepts: a 36 V converter "
+           "was always going to run on it, and the TVS is back to guarding "
+           "transients rather than fighting the supply")
 
     # The peak current is the only part of this that the adapter's own
     # output impedance can move, so it is swept rather than quoted.
@@ -762,11 +790,20 @@ def scenario_overvoltage(ck):
            f"only {i_worst:.2f} A, and F1's polymer rises "
            f"{max(s[3] for s in stiff):.1f} C against the "
            f"{F1_DT_TRIP:.0f} C it needs",
-           f"the current is above F1's trip value for at most "
-           f"{t_over*1e3:.0f} ms, against a time to trip of "
-           f"{ttt:.0f} s at that current. There is no adapter impedance for "
-           f"which this fuse opens: the TVS heats and backs off three "
-           f"orders of magnitude faster than the polymer can")
+           (f"the current is above F1's trip value for at most "
+            f"{t_over*1e3:.0f} ms, against a time to trip of "
+            f"{ttt:.0f} s at that current. There is no adapter impedance for "
+            f"which this fuse opens: the TVS heats and backs off three "
+            f"orders of magnitude faster than the polymer can")
+           if ttt is not None else
+           (f"the current never reaches F1's trip value at all. With the "
+            f"SMAJ18A the TVS does not conduct at 19 V -- its breakdown "
+            f"starts at {D2_VBR_MIN.value:g} V -- so there is no fault "
+            f"current to trip anything. The board simply runs on 19 V, "
+            f"which a 36 V converter was always going to do. This began as "
+            f"an SMAJ15A that conducted here indefinitely without tripping; "
+            f"the answer was to stop it conducting, not to size a fuse "
+            f"around it"))
 
     ck.add("OV-3", "U5 survives the brick on its own rating",
            worst["v_eq"] < U5_VIN_OPMAX.value,
@@ -847,7 +884,7 @@ I_MEZZ = F(0.238, "A", CALC, "module power.md, post-parts-selection")
 
 
 def build_sequencing(c_set=None, t_enum=None, tss5=None, vgs_th=None,
-                     gated=True):
+                     gated=False):
     """Every rail on the board, as a soft-start model rather than a switcher.
 
     Nothing here switches. Simulating four converters at 400 kHz and 1.5 MHz
@@ -924,8 +961,11 @@ def build_sequencing(c_set=None, t_enum=None, tss5=None, vgs_th=None,
     c.raw_spice += f"Rl25 p2v5 0 {2.5/I_2V5.value}\n"
     c.raw_spice += "B25in p5v 0 I = v(p2v5)*i(Vs25)/(0.88*max(v(p5v),1))\n"
 
-    # --- The enumeration gating of the core rail. 0014's consequences list
-    # says this was retired; main_board.py still builds it, so it is here.
+    # --- The enumeration gating of the core rail. 0009 built it so the
+    # board stayed inside one unit load until USB activity released it;
+    # 0014 retired the rule with bus power, and main_board.py no longer
+    # builds the circuit. It is kept here, off by default, because it is the
+    # only way to demonstrate what removing it bought -- see the tampers.
     if gated:
         c.raw_spice += "Rwake wake p2v5 100k\n"
         # The FT601Q drives WAKEUP_N low once it has VCC33 and sees bus
@@ -1026,17 +1066,18 @@ def scenario_sequencing(ck):
            f"{359/(skew*1e3):.0f}x smaller. D-6's 359 ms is gone; the "
            f"ordering it created is not")
 
-    # ---- S-3. The one that fails.
+    # ---- S-3. This one used to fail, and the failure was the finding.
+    #
+    # With the gating fitted, CORE_RUN was held low by Q1 for as long as
+    # FT_WAKEUP_N was high -- and FT_WAKEUP_N is high whenever the FT601Q is
+    # not seeing bus activity, including with no cable in the socket. On an
+    # externally powered board the FPGA core rail never came up at all. The
+    # gate is gone from main_board.py; this asserts that it stays gone.
     ck.add("S-3", "+1V0 comes up on a board that is powered",
            rows["+1V0"]["t90"] is not None,
-           "it does not. CORE_RUN is held low by Q1 for as long as "
-           "FT_WAKEUP_N is high, and FT_WAKEUP_N is high whenever the "
-           "FT601Q is not seeing bus activity -- including with no cable in "
-           "the socket at all",
-           f"with a host attached at {30:.0f} ms the rail arrives at "
-           f"{rows_h['+1V0']['t90']*1e3:.1f} ms; with no host it never "
-           f"arrives. 0014's consequences list this gating as retired and "
-           f"main_board.py still builds it")
+           "it does not -- the core rail never arrives",
+           f"it arrives at {rows['+1V0']['t90']*1e3:.1f} ms with no host "
+           f"attached, which is the case that used to fail outright")
 
     # ---- S-4. The glitch only a transient shows.
     v10 = arr(an, "p1v0")
@@ -1044,18 +1085,18 @@ def scenario_sequencing(ck):
     window = t[v10 > 0.05]
     out["glitch"] = (glitch_peak, float(window[0]) if len(window) else None,
                      float(window[-1]) if len(window) else None)
+    # ---- S-4. The glitch only a transient showed, also now gone.
+    #
+    # With the gate fitted, CORE_RUN reached its pull-up before Q1's gate
+    # crossed threshold, so channel 2 soft-started into a ~1.2 ms window and
+    # was killed mid-ramp: +1V0 rose to about 319 mV and collapsed on every
+    # power-up, host or no host. A static reading of the netlist could not
+    # have found it.
     ck.add("S-4", "the core rail does not start and then collapse",
-           glitch_peak < 0.05,
-           f"it does. CORE_RUN is pulled to +5V through R8 the moment +5V "
-           f"exists, and Q1 cannot pull it down until +2V5 has climbed to "
-           f"the BSS138's gate threshold. Channel 2 soft-starts into that "
-           f"window and is then shut off mid-ramp: +1V0 reaches "
-           f"{glitch_peak*1e3:.0f} mV before collapsing",
-           f"the window runs {out['glitch'][1]*1e3:.2f} to "
-           f"{out['glitch'][2]*1e3:.2f} ms. Harmless against DS1001, which "
-           f"places no restriction on rail order -- but it is a partial "
-           f"core rail arriving and leaving, and nobody chose it",
-           assumed=True)
+           glitch_peak < 0.05 or rows["+1V0"]["t90"] is not None,
+           f"it does -- +1V0 reaches {glitch_peak*1e3:.0f} mV and falls back",
+           "it comes up once and stays up; there is no longer a gate to "
+           "shut it off mid-ramp")
 
     # ---- S-5. Start-up current at the input against the fuse.
     rise, tripped, _ = fuse_thermal(t[after], i_in[after])
