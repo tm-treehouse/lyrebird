@@ -15,11 +15,12 @@ result.
 | --- | --- | --- |
 | `MCLK` | module to main | Element clock, the enabled oscillator divided by two |
 | `ELEM[31:0]` | main to module | Thermometer element lines, see allocation below |
-| `OSC_EN_441` | main to module | Enable the 22.5792 MHz oscillator |
-| `OSC_EN_48` | main to module | Enable the 24.576 MHz oscillator |
+| `OSC_EN_441` | main to module | Enable the 45.1584 MHz oscillator (22.5792 MHz element clock) |
+| `OSC_EN_48` | main to module | Enable the 49.152 MHz oscillator (24.576 MHz element clock) |
 | `MUTE_N` | main to module | Mute the analog output stage |
 | `ID0`, `ID1` | module to main | Module type, strapped on the module |
-| `+5V` | main to module | Unregulated, downstream of the VBUS ferrite |
+| `+5V` | main to module | 5.02 V from the main board's buck, for the module's regulators |
+| `-6V_A` | main to module | −5.98 V, two pins, for the module's negative analog rail |
 | `GND` | — | Interleaved between signals |
 
 ## Element allocation
@@ -68,20 +69,55 @@ create it.
 **Every element line sits adjacent to a ground pin.** Element return currents
 are the analog signal.
 
-**Exactly one oscillator runs at a time.** The main board enables the family it
-needs. A module fitted with only one family ignores the other enable and straps
-its ID accordingly.
+**Exactly one oscillator runs at a time**, and this is now enforced rather
+than merely stated. The main board enables the family it needs; a module fitted
+with only one family ignores the other enable and straps its ID accordingly.
 
-**The module regulates its own rails** from the +5 V it is handed. The element
-reference rail is the critical one: it sets full scale, and it carries the
-switching current of the elements themselves. The constant-current property of
-differential thermometer drive is what keeps that load signal-independent, but
-it still needs heavy local decoupling, because a regulator loop cannot hold a
-rail at these frequencies.
+The rule matters because a module may share one output net between two
+oscillators, which is legal only while exactly one is enabled — the CCHD-957
+tri-states its output in standby, so an idle part neither drives nor radiates.
+It used to be a rule with nothing behind it: both enables floated before the
+FPGA was configured, and an open E/D pin on that part *runs*, so both
+oscillators could start and drive the shared net into each other. **Both boards
+now pull the enables down** — the main board because the floating input is on
+its side of the translator, the module as well because a pull-down there only
+decides the case where the translator's output is high impedance.
 
-**The module must stay inside the declared budget.** Current is declared in the
-USB descriptor at enumeration and cannot be renegotiated when a module is
-swapped, so the descriptor is set for the worst case the design supports.
+**The module regulates its own rails** from the +5V and −6V it is handed. Only
+the negative rail comes in pre-inverted: the output stage needs about 3.5 V on
+the positive side and the header's 5 V covers it, so a module needs no
+bipolar converter of its own. A module that wants more than the main board's
+inverter delivers should take its own supply input (0009 defers that case for a
+headphone stage).
+
+**The element reference rail is the critical one**: it sets full scale, so it
+multiplies the signal, and it carries the elements' own switching current.
+
+**A correction to what this document used to promise.** It said the
+constant-current property of differential thermometer drive keeps that load
+signal-independent, and that heavy local decoupling handles the rest. Both
+halves are wrong in a way a module designer would act on:
+
+- 0008 guarantees exactly seven of fourteen elements high at every code, so the
+  **DC** load is constant. It guarantees nothing about how often lines
+  *change*, and the element filter capacitors and the registers both draw
+  current in proportion to that. Because the DWA pointer advances by the code,
+  the count of changing lines is a full-wave rectification of it, which puts a
+  signal-correlated current on the rail.
+- Decoupling does not answer that, because the disturbance is at twice the
+  signal frequency and at the programme envelope rather than at the switching
+  rate. Eight 100 nF parts are about 100 Ω where it lives; reaching the chain's
+  own noise floor would need 170 µΩ at 2 kHz.
+
+Predicted at −101.1 dBFS against a chain held to −136.5. It is the project's
+lead open item, it is a prediction from a digital proxy rather than a
+measurement, and it wants a bench. See
+[docs/open-items.md](../docs/open-items.md).
+
+**There is no declared current budget any more.** This section used to require
+the module to stay inside a figure fixed in the USB descriptor at enumeration.
+0014 replaced bus power with a 12 V supply, so nothing is negotiated and the
+constraint is simply what the main board's converters deliver.
 
 ## Module identification
 

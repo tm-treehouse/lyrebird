@@ -1,6 +1,23 @@
 # 0002 — The FPGA owns the audio clock
 
-**Status:** accepted
+**Status:** accepted, with two corrections below.
+
+> **Corrections, 2026-09-25.** Two statements in this record no longer match
+> the design, and neither was noticed until the documents were audited against
+> the netlists.
+>
+> **The oscillator frequencies named here are the element clock, not the
+> parts.** This record says 22.5792 MHz and 24.576 MHz. Those are what reaches
+> the registers; [0012](0012-module-clock-architecture.md) fits **45.1584 MHz
+> and 49.152 MHz** parts and divides by two on the module, because absolute
+> jitter scales inversely with carrier frequency and dividing keeps the edges.
+> The principle this record establishes — that the FPGA owns the audio clock
+> and the host does not — is untouched.
+>
+> **The crossing FIFO is sized an order of magnitude low.** "A few thousand
+> samples" here against [0011](0011-pack-three-samples-per-fifo-word.md)'s
+> **38,400**, which is what a 100 ms buffer at 192 kHz actually needs. 0011 is
+> the number; this was written before the buffer was sized.
 
 ## Context
 

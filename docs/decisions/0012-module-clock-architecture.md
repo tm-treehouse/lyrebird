@@ -3,6 +3,26 @@
 **Status:** accepted. Supersedes the 2.5 V element rail assumed in
 [0008](0008-multibit-delta-sigma-with-dwa.md).
 
+
+> **Amended, 2026-09-25.** Two things this record leaves open are now closed,
+> and one rail source changed.
+>
+> **The divider and the fanout are chosen**: SN74LVC1G74 as a toggle for the
+> divide-by-two and an LMK1C1104 for distribution, 17.5 fs additive jitter and
+> 50 ps output skew. Two packages rather than one, because every integrated
+> divider-plus-fanout part found is built for hundreds of megahertz and costs
+> 65 mA of core current to replace two parts drawing 16 mA between them.
+>
+> **The oscillator footprint is drawn**, 9 × 14 mm from the datasheet's
+> suggested pad layout. Its pad *numbering* is still wrong — rotated 90° against
+> the bottom view — and that is the one open defect that would stop a board
+> working.
+>
+> **The 3.3 V element rail this record establishes is unchanged**, but the
+> analog rails around it are: [0014](0014-wall-wart-power.md) and decision 5
+> deleted the module's charge pump, so the negative analog rail arrives from the
+> main board and the positive one regulates down from the header's 5 V.
+
 ## Context
 
 The reclocking registers strike the edges that become analog output

@@ -4,6 +4,20 @@
 [0001](0001-ftdi-bridge-over-ulpi-phy.md); the reasoning in 0001 for choosing
 an FTDI bridge over a ULPI PHY still stands.
 
+
+> **Amended by [0014](0014-wall-wart-power.md), 2026-09-25.** The choice of
+> bridge is unaffected — 2.5 V `VCCIO` is still why this part is here rather
+> than an FT2232H. What changed is the speed it runs at. Isolating the data
+> link is worth doing now the host no longer powers the board, and **no
+> galvanic isolator exists for 5 Gbps SuperSpeed**; the ADuM4165/4166 tops out
+> at USB 2.0 High Speed. That costs nothing, because 192 kHz / 24-bit stereo is
+> 9.216 Mbit/s against High Speed's 480 — **1.9 % utilisation** — and the
+> FT601Q supports High Speed natively.
+>
+> So anything below about the SuperSpeed pairs being the hardest constraint in
+> the main board's layout is retired: they go unrouted, which removes that
+> constraint rather than solving it.
+
 ## Context
 
 The target FPGA is a Cologne Chip GateMate CCGM1A1. Its single-ended GPIO

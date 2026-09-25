@@ -1,6 +1,14 @@
 # 0013 — Simulation and build toolchain
 
-**Status:** accepted
+**Status:** accepted, with one correction below.
+
+> **Correction, 2026-09-25.** This record contradicted itself two table rows
+> apart: git-lfs was listed as "installed" and as "**missing**". The tool is
+> installed; the repository is **not configured to use it**, and whether it
+> should be is still open — that decision is much cheaper before
+> `hardware/datasheets/` fills with multi-megabyte PDFs than after. The
+> bitstream figures below are also two designs old and should be re-read from
+> `hdl/build/` rather than from here.
 
 ## Context
 

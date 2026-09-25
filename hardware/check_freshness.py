@@ -151,13 +151,19 @@ def check_timestamps() -> None:
             add(WARN, f"{name}: no schematic PDF", "never exported")
         elif mtime(pdf) < newest:
             add(FAIL, f"{name}: PDF behind the sheets", "re-export it")
+        # Compared against the GENERATOR, not the netlist. The netlist is
+        # rewritten every time anybody verifies anything, so a document is
+        # trivially older than it within minutes and the warning becomes
+        # noise nobody reads. The generator changes when the design changes,
+        # which is the event a document actually needs to follow.
         for doc in ("power.md", "brief.md", "bom.csv"):
             f = d / doc
-            if f.exists() and mtime(f) < mtime(net):
-                days = (mtime(net) - mtime(f)) / 86400
-                add(WARN, f"{name}: {doc} older than the netlist",
-                    f"by {days:.1f} days -- timestamps only suggest; the "
-                    f"content checks below decide")
+            if f.exists() and mtime(f) < mtime(b["gen"]):
+                days = (mtime(b["gen"]) - mtime(f)) / 86400
+                add(WARN, f"{name}: {doc} older than the design",
+                    f"the generator changed {days:.1f} days after this "
+                    f"document. Timestamps only suggest; the content checks "
+                    f"below decide")
 
 
 def check_bom() -> None:

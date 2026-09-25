@@ -175,7 +175,7 @@ confirmed by the model (`model/README.md:257-264`).
 ### 0009 — USB bus power — *superseded, and marked nowhere in the decisions tree*
 
 `open-items.md:63-65` says plainly: "This supersedes
-[0009](decisions/0009-usb-bus-power.md) and amends 0005 and 0012." The record
+[0009](../../decisions/0009-usb-bus-power.md) and amends 0005 and 0012." The record
 still reads "**Status:** accepted", and the index still reads "USB bus power,
 and which rails are precision" with no annotation. The convention the index
 itself sets (`docs/decisions/README.md:3-4` — "If a decision is reversed, add
@@ -401,7 +401,7 @@ it in the form that cannot be built.
 
 Already reported at `docs/open-items.md:177`. It is also at
 **`hardware/lyrebird-dac-reva/brief.md:38-39`**: "Rotation makes 1 % adequate —
-measured at **0.5 dB** against **70 dB** without it ([model](…))". Both numbers
+measured at **0.5 dB** against **70 dB** without it (model)". Both numbers
 are the order-2 pair that `model/README.md:134-149` retracts; at the
 recommended order 3 the cost is **33.3 dB** and the benefit **77.6 dB**
 (`model/README.md:149,158`). The brief cites `model/README.md` as its source,

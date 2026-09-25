@@ -187,21 +187,40 @@ nothing here depends on. An array at one percent absolute with a tenth of a
 percent ratio spec beats half-percent discretes comfortably. Arrays are
 specified this way precisely because it is the number that matters.
 
-Measured end-to-end, order 3, averaged over three element draws:
+Measured end-to-end at order 3, rotation on, one seed —
+`model/results/endtoend.txt`:
 
-| Matching | 48 kHz | 96 kHz | 192 kHz |
-| --- | --- | --- | --- |
-| perfect | 138.1 dB | 141.1 dB | 138.1 dB |
-| 0.05% | 138.0 dB | 141.0 dB | 137.9 dB |
-| 0.1% | 138.0 dB | 140.8 dB | 137.6 dB |
-| 0.5% | 135.8 dB | 137.0 dB | 133.5 dB |
-| 1% | 132.2 dB | 132.6 dB | 129.9 dB |
+| Matching | 48 kHz | 96 kHz | 192 kHz | 44.1 kHz | 88.2 kHz | 176.4 kHz |
+| --- | --- | --- | --- | --- | --- | --- |
+| matched | 137.5 dB | 140.3 dB | 143.8 dB | 137.6 dB | 140.2 dB | 143.3 dB |
+| 0.1 % | 137.4 | 140.1 | 143.5 | 137.5 | 140.0 | 143.0 |
+| 1.0 % | 132.9 | 133.7 | **134.0** | 132.8 | 132.8 | 133.3 |
 
-Two things to read off it. Tightening from one percent to half buys about 4 dB,
-not the 6 dB a halving suggests, because the 24-bit source floor is already
-close underneath. And tightening past a tenth of a percent buys nothing at all:
-at that point the source sets the floor and better resistors are wasted money.
-See [model/README.md](../model/README.md).
+**This table replaces one that was wrong, and the way it was wrong is worth
+recording.** The version here until now carried 0.05 % and 0.5 % rows, and the
+only mismatch values ever measured anywhere in `model/` are 0, 0.1 % and 1 %.
+It also made 192 kHz the *worst* rate where the model makes it the best, and
+described itself as averaged over three element draws when no such run exists.
+The two conclusions drawn from it — that tightening from one percent to half
+buys about 4 dB, and that going past a tenth of a percent buys nothing — rested
+on rows that were never produced.
+
+What the real numbers say instead:
+
+- **0.1 % is free.** It costs 0.1 to 0.3 dB against perfectly matched elements
+  at every rate. There is no reason to pay for tighter.
+- **1 % costs 4.6 dB at 48 kHz and 9.8 dB at 192 kHz**, and the loss grows with
+  rate because a matched chain improves with oversampling while the rotation
+  residual does not. That is the opposite of what the old table implied.
+- **The number to hold the hardware to is 132.8 dB**, the worst rate at 1 %.
+  Two cautions on it, both from measurements made since: it is a *tone's*
+  figure and a median window's, not a bound — real material's worst window is
+  111.5 dB — and a single seed spans 5.3 dB across five draws, so this row is
+  one sample of a distribution rather than a property.
+
+The elements specified for the board are 0.1 % thin film, which is the first
+row that costs nothing.
+
 
 What the rotation does not fix is nonlinearity within a single resistor.
 Voltage coefficient is real in thick film and small in thin film, so specify

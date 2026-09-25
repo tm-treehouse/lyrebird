@@ -1,6 +1,22 @@
 # 0007 — Two boards, split at I2S
 
-**Status:** accepted
+**Status:** accepted in substance, **contradicted in detail** by
+[0008](0008-multibit-delta-sigma-with-dwa.md). Read the correction first.
+
+> **Correction, 2026-09-25.** The decision to split into two boards stands and
+> everything built follows it. The *boundary* this record describes does not
+> exist.
+>
+> This record names the split as I2S, describes the module as carrying a "DAC",
+> and rests its oscillator argument on a delta-sigma converter in slave mode
+> driven by a bit clock. 0008 deleted all of that: the FPGA **is** the
+> converter, the boundary is 28 thermometer element lines plus a clock, and
+> there is no bit clock, word clock, serial data or I2C anywhere in the design.
+> The module carries resistors, registers and amplifiers.
+>
+> The filename is wrong for the same reason and is left alone deliberately —
+> renaming it would break the references in eight other files for no gain. What
+> the split actually is lives in [hardware/interface.md](../../hardware/interface.md).
 
 ## Context
 
