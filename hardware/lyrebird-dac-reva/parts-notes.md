@@ -70,71 +70,55 @@ Two details of the wiring are deliberate and worth not undoing:
 
 ### The negative rail carries the signal, and that set two values
 
-This is the one thing found here that analog.txt's model does not contain, and
-it changed two component values, so it is written out.
+The finding here is not in analog.txt's model, because that model has no
+supply in it. It changed two component values once and has since been partly
+undone by decision 5, so both states are recorded.
 
 **Every milliampere of element current ends up in the negative supply.** The
 elements push current into a node held at 0 V; it leaves through the
 transimpedance resistor into the amplifier's output pin, and the output stage
 sinks it to `V−`. That is 13.9 mA, constant at every code by construction
-(0008) — a third of what the whole analog stage draws, and it is not
-quiescent current, it is the signal.
+(0008) — and it is signal, not quiescent current.
 
-**The difference network is a second such load, and its size is a choice.**
-> **Precision note, from `hardware/sim/difference_stage.py`.** What follows is
-> true of the *network's* current and not of the *amplifier's output* current.
-> The positive half's output current passes through zero at code −0.667, which
-> is −3.5 dBFS and therefore inside the signal; only the negative half's stays
-> one-signed across the range. The supply-current conclusion below is
-> unaffected, because it is the network current that loads the rail. The
-> distinction matters for distortion rather than for power — see D3.
+**The difference network is a second such load.** Its current scales as 1/R
+while its own noise scales as √R, so the value is a genuine trade:
 
-The transimpedance outputs sit between 0 and −2.8 V, never positive, so the
-network's current flows out of ground into those outputs and is sunk to `V−`
-as well. It scales as 1/R while the network's own noise scales as √R:
-
-| Network | Its current, both channels | Negative rail, typical IQ | Stage SNR |
+| Network | Its current, both channels | Negative rail | Stage SNR |
 | --- | --- | --- | --- |
-| 200 Ω | 21.0 mA mid code, 28.0 worst | 56.5–63.5 mA | 125.6 dB |
+| **200 Ω — fitted** | **21.0 mA mid code, 28.0 worst** | **56.5–63.5 mA** | **125.6 dB** |
 | 402 Ω | 10.4 / 14.0 | 46.0–49.4 | 124.3 |
-| **604 Ω** | **7.0 / 9.3** | **42.5–44.8** | **123.5** |
+| 604 Ω — was fitted | 7.0 / 9.3 | 42.5–44.8 | 123.5 |
 | 1 kΩ | 4.2 / 5.6 | 39.7–41.1 | 122.4 |
 
-At 200 Ω the negative rail asks for 56 mA at idle and 63 mA at full scale.
-That is past the LTC3265's 50 mA LDO rating, and — because a charge pump that
-doubles costs about twice its output current at the input, and the negative
-rail is inverted from the already-doubled one — it is 161 mA of USB current
-for the analog stage alone, which does not fit the budget at all.
+**200 Ω is fitted, and the 2.1 dB is recovered.** It was 604 Ω for one round
+because the module made its own negative rail with a charge pump, which cost
+about twice its output current at the input and made 63 mA unaffordable.
+Decision 5 moved that rail to the main board; the current is ordinary again
+and the noise-optimal value is affordable. Pole 3 follows the resistance:
+3.9 nF across 200 Ω is 204 kHz, the same corner 1.3 nF across 604 Ω gave.
 
-**604 Ω is where the two arguments balance.** It costs 2.1 dB against the
-200 Ω case, taking the stage from 125.6 dB to 123.5 and the system to about
-123.3 dB, which is still 13 dB above 0012's 110 dB target and still leaves the
-digital chain's 133.5 dB well clear. It saves 14 mA on the negative rail and
-28 mA at the USB input. Pole 3 moves with it: 1.3 nF across 604 Ω is 203 kHz,
-the same corner analog.txt sets, so the filter is unchanged.
+**A correction, because the reason recorded here was wrong.** This section
+used to say 604 Ω was forced by the LTC3265's 50 mA internal LDO rating. It
+was not: the LT3094 took `VOUT−` directly and `LDO−` drove nothing on this
+board, as the netlist's own comment said. The constraint that actually bound
+was the USB total — 509 mA against 500 at 200 Ω. The conclusion was right and
+the reason given for it was not, which is worth knowing because the reason is
+the part somebody would have acted on.
 
-**The op amp choice still stands, at a smaller margin.** The OPA1612 was
-picked against a curve that put the stage at 126.3 dB with its 1.1 nV/√Hz; the
-difference network has since taken the stage to 123.5 dB, so the two numbers in
-this file disagree by design and this is which is which. Recomputed with the
-604 Ω network in the sum:
+**The op amp choice stands, and at a better margin than it did.** The OPA1612
+was picked against a curve putting the stage at 126.3 dB with its
+1.1 nV/√Hz; with the 200 Ω network in the sum it is 125.6 dB:
 
-| Amplifier voltage noise | Stage SNR, 200 Ω network | Stage SNR, 604 Ω network |
-| --- | --- | --- |
-| 1.1 nV/√Hz, OPA1612 | 125.6 dB | **123.5 dB** |
-| 1.3 nV/√Hz, what analog.txt assumed | 125.2 | 123.1 |
-| 2.5 nV/√Hz, an ordinary audio dual | 122.0 | 120.6 |
+| Amplifier voltage noise | Stage SNR, 200 Ω network |
+| --- | --- |
+| 1.1 nV/√Hz, OPA1612 | **125.6 dB** |
+| 1.3 nV/√Hz, what analog.txt assumed | 125.2 |
+| 2.5 nV/√Hz, an ordinary audio dual | 122.0 |
 
-A 1.3 nV/√Hz part is now within 0.4 dB rather than 0.5, so the case for the
-OPA1612 over that class was always thin and is thinner. A 2.5 nV/√Hz part still
-costs 2.9 dB, which is the comparison that actually decided it, and the
-OPA1612's other numbers — 40 MHz against the 10 MHz the filter was designed
-for, 3.6 mA per channel on a rail a charge pump has to make — are not things a
-cheaper part matches either.
-
-**This is the number to revisit if the supply ever gets easier.** A module with
-its own power input — the one 0007 points a headphone design at — should go
-back to 200 Ω and take the 2.1 dB.
+A 1.3 nV/√Hz part is within 0.4 dB, so that comparison was always thin. The
+2.5 nV/√Hz part costs 3.6 dB, which is the comparison that decided it, and the
+OPA1612's 40 MHz against the 10 MHz the filter was designed for is not
+something a cheaper part matches either.
 
 ## Reclocking registers — SN74ALVCH16374DGGR (U3, U4)
 
@@ -227,11 +211,22 @@ answer: dual 1:3 universal buffer, pin-strapped ÷2 per bank (DIVx low),
 LVCMOS output format, 120–130 fs additive jitter from a single-ended input,
 50 ps output skew. Its core supply current is **65 mA typical, 100 mA
 maximum** (Si5330x data sheet rev 1.0, DC common characteristics), because it
-is built for 725 MHz. The module's rails are not gated, and one unit load
-before enumeration leaves roughly 50 mA for the whole clock rail including
-17 mA of oscillator (analog.txt Q1b). It does not fit. Renesas 870S208, the
-other divider-plus-fanout part found, takes only differential inputs and is
-listed obsolete.
+is built for 725 MHz.
+
+**The reason for rejecting it has since evaporated, and the choice survives
+anyway.** It was rejected because 65 mA did not fit inside one unit load
+before enumeration, and 0014 retired that rule with bus power. What still
+holds is simpler: 65 mA of core current to replace two parts drawing 16 mA
+between them is a poor trade on a board whose whole point is a quiet clock,
+and the two-package arrangement has measured skew where the single chip has a
+different set of unknowns. The original text read:
+
+> The module's rails are not gated, and one unit load before enumeration
+> leaves roughly 50 mA for the whole clock rail including 17 mA of oscillator
+> (analog.txt Q1b). It does not fit.
+
+Renesas 870S208, the other divider-plus-fanout part found, takes only
+differential inputs and is listed obsolete — that rejection stands on its own.
 
 **U1, SN74LVC1G74** wired as a toggle: `~Q` drives `D`, so `Q` is the input
 divided by two at a 50 % duty cycle by construction. Verified against SCES794G:
@@ -389,158 +384,38 @@ and the 0.1 dB droop budget it is set by.
 differential pair, which is a mono mixer. Each channel now has its own pair
 and its own amplifiers.
 
-## Charge pump — LTC3265EDHC#TRPBF (U13)
+## Charge pump — removed (was LTC3265EDHC#TRPBF, U13)
 
-Analog Devices LTC3265: a boost charge pump, an inverting charge pump and a
-50 mA LDO on each, in one 18-lead 5 × 3 mm DFN. Verified against datasheet
-3265fa. A custom symbol was needed; its pinout is the datasheet's own
-PIN FUNCTIONS list, and the DHC package's 1.65 × 4.40 mm exposed pad matches
-the stock `DFN-18-1EP_3x5mm_P0.5mm_EP1.66x4.4mm` footprint exactly.
+**There is no charge pump on this board any more, and no switching converter
+of any kind.** Decision 5 moved the negative rail to the main board, where
+12 V makes an inverter cheap, and the pump went with everything that supported
+it: two flying capacitors, two ADJ dividers, two reference bypasses and their
+bulk. Sixteen parts.
 
-**Why a doubler is unavoidable.** A 5 V input cannot produce a regulated +5 V:
-the module sees 4.43 V worst case at the header (power.md), and an LT3045 needs
-its dropout above that. So the positive rail has to come from a pump that
-doubles, and the negative one has to come from a pump that inverts something
-bigger than 5 V.
+The section that stood here worked out an LTC3265 in detail — `VIN_N` tied to
+`VOUT+` per the datasheet's own instruction for symmetric rails, constant
+frequency at 500 kHz rather than Burst Mode so the ripple sat at a known
+rate, ADJ set to ±5.69 V by dropout arithmetic rather than symmetry, and a
+`VIN_P` minimum of 4.5 V against a worst case of 4.43 that resolved on
+examination. None of it was wrong. All of it is gone, and the reasoning is in
+git history and in 0014 if a future module ever needs a bipolar rail from a
+single supply.
 
-**VIN_N is tied to VOUT+, not to VIN_P**, which is the datasheet's own
-instruction for this case:
+**Why it was never needed.** The pump existed to make a positive rail with
+headroom, because the module made both polarities symmetrically from one 5 V
+input. But the output swings ±2.83 V peak and the OPA1612 reaches within
+600 mV of its rails, so the positive supply wants about 3.5 V — and the
+mezzanine had carried 5 V all along. Only the negative rail ever needed help
+from outside. An LT3045 straight off the header gives +4.94 V, which is U14
+below.
 
-> If VIN_N is tied to VOUT+, the output at VOUT– will be –VOUT+ or –2 • VIN_P.
-> This configuration is suitable for symmetric outputs at LDO+ and LDO– pins.
-> If VIN_N is tied to VIN_P, the output at VOUT– will be –VIN_P.
-
-Tying it to VIN_P would cap the negative raw rail at −4.43 V worst case, which
-cannot feed a −5 V regulator at all.
-
-### The 4.43 V question, worked out
-
-The LTC3265's `VIN_P` range is given as **4.5 V to 16 V**, and power.md's worst
-case at the module is **4.43 V** — 70 mV below it. **It resolves, and this
-section is here so nobody has to re-open it.**
-
-The part does not stop at 4.5 V: its undervoltage lockout is 3.6 V typical and
-**3.8 V maximum rising**, so 4.43 V is 0.6 V above the voltage at which it
-switches off, not near it. What is at stake is not the pump's own regulation
-accuracy, which nothing downstream depends on, but whether what comes out of
-it still lets the LT3045 and LT3094 regulate ±5 V. That is arithmetic, with
-these datasheet numbers in it:
-
-- **32 Ω**, the boost and inverting pumps' output impedance, specified at
-  MODE = 0 and RT = GND, which is how they are wired: constant frequency,
-  500 kHz.
-- **LDO+ dropout 800 mV maximum at 50 mA**, scaled to the current drawn.
-- **`VOUT+` carries both chains** — the positive LDO's load *and* the
-  inverting pump's input current — because `VIN_N` is tied to it.
-- **The rails are asymmetric**: 21.6 mA positive against 42–45 mA negative,
-  for the reason set out under the op amp above.
-
-| Bus | Load +/− | VOUT+ | VOUT− | LDO+ | LT3045 margin | LT3094 margin | USB |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 4.43 V | 21.6 / 42.5 mA, mid code | 6.71 V | −5.35 V | regulating | +0.64 V | +0.30 V | 134 mA |
-| 4.43 V | 21.6 / 44.8 mA, full scale | 6.64 V | −5.21 V | regulating | +0.64 V | +0.16 V | 139 mA |
-| 4.43 V | 33 / 56 mA, max IQ over temperature | 5.92 V | −4.12 V | dropout | +0.34 V | −0.93 V | 184 mA |
-| 5.00 V | 21.6 / 42.5 mA | 7.85 V | −6.49 V | regulating | +0.64 V | +1.44 V | 134 mA |
-| 5.00 V | 33 / 56 mA | 7.06 V | −5.26 V | regulating | +0.64 V | +0.21 V | 184 mA |
-
-Margins are against the 5.05 V each final regulator needs to hold 5 V,
-including its own dropout at these currents.
-
-**So: it resolves.** At the realistic load the ±5 V rails hold at the bottom of
-the USB range with 0.6 V and 0.16 V to spare, and at the nominal 5 V with a
-volt or more. The 70 mV of input-range excursion is not what constrains
-anything; the pump's 32 Ω under an asymmetric load is.
-
-**The one case that does not hold is worth naming.** Stack the minimum bus
-voltage, the maximum quiescent current of six amplifiers *over the full
-temperature range* rather than at 25 °C, and a full-scale signal, and the
-negative rail stops regulating and follows the pump down to about −4.1 V. The
-output stage still has 1.3 V of headroom over the 2.83 V peak it has to
-produce, and full scale is set by the element reference rail, not by this one,
-so what is lost in that corner is headroom and supply rejection, not level or
-accuracy. It should be measured rather than assumed, and 4.43 V is itself
-built from a guaranteed USB minimum plus *estimated* ferrite and contact
-drops, so a real board may never go there.
-
-**The LT3094 is fed from `VOUT−` directly, not through LDO−.** The negative
-rail's 42–56 mA is at or past that LDO's 50 mA rating, and putting it in the
-chain would cost another 450 mV of dropout out of a rail that has 0.16 V of
-margin at the bottom of the range. `VOUT−` has the pump's own capability
-behind it — 100 mA of short-circuit current minimum — and the LT3094's
-rejection is the stage the design was relying on in any case. LDO− stays
-enabled with its capacitor and divider, unused, because `EN−` enables the
-inverting pump and that LDO together.
-
-**What it injects, and at what frequency.** This is the part of the choice that
-matters, not efficiency.
-
-- **MODE is tied low: constant frequency, not Burst Mode.** This is the
-  decisive setting. In Burst Mode the part regulates hysteretically and the
-  **burst repetition rate moves with load** — it is not a fixed frequency at
-  all, and a load-dependent repetition rate is exactly the kind of thing that
-  can land in the audio band or wander through it. Constant-frequency mode
-  puts everything at one known line. The cost is quiescent current, 3 mA
-  typical on each input pin against 135 µA in Burst Mode, and it is worth
-  paying.
-- **RT is tied to ground, which selects the 500 kHz default** — the highest
-  frequency the part offers and the furthest from the band. 500 kHz is 4.6
-  octaves above 20 kHz, and its harmonics only climb away from the band. No
-  subharmonic of it lands in band, because a charge pump has no subharmonics
-  to give: the switching is a fixed divide of one oscillator with no feedback
-  loop that could period-double.
-- **Three stages sit between that ripple and the signal.** The pump's own
-  ripple is roughly I/(f·C) = 22 mA / (500 kHz × 10 µF) = 4.4 mV at VOUT; the
-  internal LDO takes a first bite, the LT3045 or LT3094 rejects around 76 dB
-  more at these frequencies, and the OPA1612's own supply rejection follows.
-  What reaches the output as a 500 kHz tone is far below anything this design
-  measures.
-- **The residual risk is not the tone, it is the ground return.** The flying
-  capacitors dump their charge through GND at 500 kHz, and that current shares
-  a plane with the summing nodes, whose signal *is* a return current (0008).
-  This is a layout constraint rather than a part choice: keep the pump's
-  flying-capacitor loops tight and their return away from the element and
-  summing-node ground. It is recorded here because a netlist cannot express
-  it.
-
-**Enable: the pump is gated on MUTE_N.** `EN+` and `EN−` both go to the
-header's `MUTE_N`, with a 100 kΩ pull-down on the module so the net is defined
-while the FPGA is unconfigured and its pin is high impedance. Three things make
-this right rather than clever:
-
-- analog.txt Q1b says in as many words that the op amp stage and charge pump
-  "does not fit inside one unit load at any element value and has to be held
-  off". Something had to gate it, and this is the only signal that crosses the
-  header for the purpose.
-- The polarity already matches: `MUTE_N` is asserted low to mute, and low or
-  undriven means both pumps and both LDOs are off. The thresholds are 2 V
-  rising maximum and 0.4 V falling minimum, so the header's 2.5 V logic clears
-  them.
-- Each enable pin has a 0.7 µA internal **pull-down**, so this part can never
-  push the mezzanine net above its own level — it is an input in the checker's
-  eyes and a pull-down in the physics.
-
-The consequence to know: **a board whose FPGA never asserts `MUTE_N` has no
-analog rails and makes no sound.** That is the failure mode this buys, against
-drawing 90 mA before the host has allowed it.
-
-**What it costs.** A doubler moves charge, so its input current is about twice
-its output current whatever the voltage; the negative side is inverted from the
-already-doubled rail, so it costs twice again. At 21.6 mA on each of ±5 V:
-
-```
-VOUT+ load  = 21.6 mA (positive chain) + 21.6 mA (into VIN_N) = 43 mA
-input       = 2 x 43 mA                                       = 86 mA
-+ quiescent, constant frequency mode, both pumps               ~ 4 mA
-                                                              = 90 mA from 5 V
-```
-
-against power.md's 51 mA, which assumed four amplifiers and an 85 % pump.
-Six amplifiers and the physics of doubling account for the difference. The
-module lands near 182 mA and the board near 416 mA: inside the 900 mA declared
-at enumeration, and inside a USB 2.0 host's 500 mA, which is the case 0009
-says the line module has to fit. It is no longer comfortable there, and a
-headphone module — already excluded by 0009 — is further out of reach than
-that page's arithmetic suggests.
+**What it cost while it was there**, recorded because it is the size of the
+prize that paid for decision 5: 73 mA of conversion overhead, a third of the
+module's draw, for a stage that consumes 66 mA. A doubler costs about twice
+its output at the input and the negative rail was inverted from the
+already-doubled one, so it was paid for twice over. That is also what made
+negative-rail current expensive enough to force the difference network to
+604 Ω, forfeiting 2.1 dB — both now recovered.
 
 ## Positive and negative post-regulators — LT3045 (U14) and LT3094 (U8)
 
@@ -606,7 +481,21 @@ powers up, enumerates, clocks, converts, and is silent. It is the right failure
 direction — silence rather than 90 mA the host has not granted, or a thump into
 somebody's amplifier — but only if something eventually asserts it.
 
-**What the pin does now.** It drives `EN+` and `EN−` on the LTC3265 through a
+**What the pin does now.** With the charge pump deleted it drives `EN/UV` on
+the two analog regulators, U14 and U8, so the behaviour is unchanged: asserting
+it low collapses both analog rails. What changed is the *justification*. 0009
+needed the stage held off to fit one unit load before enumeration and 0014
+retired that rule, so the only remaining reason is the audio one — the element
+lines are undefined until the FPGA configures and the jack has no DC blocking,
+so the stage should not be live before there is a code to convert.
+
+That makes this purely an audio decision now, which it was not before.
+Collapsing the supplies is a blunt mute, and every assertion is a transient
+into an unblocked output; with the current argument gone, an output mute or a
+digital ramp is free to win on merit. It is open item D10.
+
+The original text, when the pin gated a charge pump, read: it drives `EN+` and
+`EN−` through a
 100 kΩ pull-down on the module. Low or undriven means both charge pumps and
 both of the pump's LDOs are off, so `+5V_A` and `−5V_A` do not exist and the
 six OPA1612 channels are unpowered. High means the whole analog stage comes up.
@@ -615,7 +504,8 @@ header's 2.5 V logic clears at both ends.
 
 **When to assert it.** Two conditions, and the order matters:
 
-1. **After the host has configured the device.** One unit load applies until
+1. **After the host has configured the device.** This precondition is retired:
+   one unit load used to apply until
    then — 150 mA on USB 3.0 — and the analog stage does not fit inside it at
    any element value (analog.txt Q1b). This is the same event 0009 already uses
    to release the FPGA rails through the LTM4622 run pins, so the FPGA knows
@@ -674,7 +564,12 @@ a headphone path inherits the filtered signal rather than needing its own.
 headphone module needs a dedicated driver with the current to match. No part
 is named here because none was evaluated for it.
 
-**The charge pump does not scale.** The LTC3265's LDOs are 50 mA each, and its
+**There is no charge pump to scale any more**, which removes this obstacle
+rather than solving it: a headphone module takes its rails from the mezzanine
+and from its own regulators, and if it needs more than the main board's
+inverter delivers, the answer is 0009's deferred option of a module with its
+own supply input. The note that stood here, when the module made its own
+bipolar rail: the LTC3265's LDOs are 50 mA each, and its
 input current is about twice its output current on the positive side and twice
 again through the inverting pump. A stage drawing tens of milliamps more per
 rail leaves this architecture behind entirely, which is the concrete form of
@@ -725,7 +620,7 @@ by assumption: putting `+3V3_REF` on a header pin still fails the build.
 | Clock divider and fanout | **done** — SN74LVC1G74DCUR U1 + LMK1C1104PWR U12, new symbols |
 | Oscillator symbols | **done** — CCHD-957, Y1/Y2, new symbol and new footprint |
 | Element resistor and filter | **done** — 3.34 kΩ split, 180 pF per element, 402 Ω feedback |
-| Charge pump | **done** — LTC3265EDHC#TRPBF, U13, new symbol |
+| Charge pump | **deleted** — decision 5 moved the negative rail to the main board; no switching converter remains on this board |
 | Positive rail post-regulator | **done** — LT3045, U14; LT3094 at U8 now fully wired |
 | Analog output connector | **done** — SJ1-3523N, J2 |
 | Difference network | **604 Ω, not 200** — a supply-current finding, 2.1 dB of noise paid for 28 mA of USB current |

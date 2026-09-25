@@ -47,8 +47,12 @@ contract across the header is [interface.md](../interface.md).
   2.5 V toward the connector and `VCC(B)` at 3.3 V toward the module, carrying
   `MCLK` out and the two oscillator enables in. Its partial power-down
   behaviour earns its place on a mezzanine where a module may be absent.
-- **Regulate its own rails from the +5 V it is handed.** The header carries
-  unregulated bus voltage and nothing else. See [power.md](power.md).
+- **Regulate its own rails from what the header hands it.** The mezzanine
+  carries **+5V and −6V** and nothing else. Four LT3045s make the reference,
+  clock, translator and positive analog rails from the 5 V; an LT3094 makes
+  −5 V from the −6 V. There is no switching converter on this board
+  ([0014](../../docs/decisions/0014-wall-wart-power.md)). See
+  [power.md](power.md).
 - **Identify itself.** `ID0`/`ID1` strapped 0b01, line output only.
 
 ## What it deliberately does not do
@@ -75,24 +79,41 @@ contract across the header is [interface.md](../interface.md).
 
 ## Where the board actually is
 
-The netlist generator runs and emits `lyrebird-dac.net`. As generated on
-2026-09-12 it contains 28 components — 4 register stand-ins, 2 oscillators, 4
-resistor arrays, 3 LT3045/LT3094 regulators, the translator, a divider
-stand-in, an op amp stand-in, one 2x40 header, 10 capacitors and one
-pull-down — and leaves **57 of 293 pins unconnected**.
+The netlist generator runs clean and emits `lyrebird-dac.net`: **112
+components, 133 nets**, with 12 pins deliberately open and each of them
+tabulated with a reason in [parts-notes.md](parts-notes.md).
 
-Four things are worth knowing before reading it. Two put 3.3 V on the 2.5 V
-mezzanine: the element reference rail is tied straight to the `ID0` strap, and
-the divided clock reaches the header from the 3.3 V divider rather than through
-the translator's 2.5 V side, which has no signal connections at all. The
-summing nodes `SUM_P` and `SUM_N` are one net, because the stock
-`R_Network08` is a bussed array rather than eight isolated resistors. And the
-registers' clock inputs are open, so the element clock leaves the board without
-ever reaching a flip-flop.
+Every part is chosen, and every one against a datasheet rather than by
+resemblance: OPA1612AID amplifiers, SN74ALVCH16374DGGR registers, an
+SN74LVC1G74 divider with an LMK1C1104 fanout, Crystek CCHD-957 oscillators,
+LT3045 and LT3094 regulators, an SJ1-3523N jack, and 3.34 kΩ elements as
+1.69 k + 1.65 k split around 180 pF. What could not be verified says so.
 
-Three of the four placeholder symbols named in
-[../netlist/README.md](../netlist/README.md) are on this board, and the fanout
-divider, the 16-bit register, the op amp, the charge pump and the element
-resistor value have never been chosen at all
-([open-items.md](../../docs/open-items.md)). [missing.md](missing.md) is the
-full list, generated from a fresh netlist run rather than from this page.
+The four wiring defects the first pass found are fixed, and they are worth
+listing because they are the class of error a netlist review exists for: the
+element reference rail was tied to the `ID0` strap and the divided clock
+reached the header without passing through the translator, both putting 3.3 V
+on 2.5 V pins; the two summing nodes were one net, because the stock
+`R_Network08` is a bussed array rather than isolated resistors, which made the
+whole thing a mono mixer; and the registers' clock inputs were open, so the
+element clock left the board without ever reaching a flip-flop. A build-time
+assertion now fails on the overvoltage class of that list, and it is
+tamper-tested.
+
+**The charge pump is gone.** It was chosen, verified and wired, and decision 5
+deleted it before it was ever built — the negative rail now crosses the
+mezzanine from the main board, where 12 V makes an inverter cheap. That took
+16 parts off this board and recovered the 2.1 dB the 604 Ω difference network
+had cost.
+
+Two things remain open on this board specifically. The **Crystek footprint's
+pad numbering is rotated 90°** against the datasheet's bottom view, which is
+the one defect here that would stop a board working; the pad geometry is
+confirmed correct and only the numbering is wrong, and the two candidate fixes
+differ by a mirror, so it wants the drawing in front of a person. And the
+**difference amplifier loads the two halves unequally**, measured at 1.499 : 1
+in output current with the positive half crossing zero inside the signal —
+open item D3, a decision for 0008 rather than a fix.
+
+**What is not done: layout.** Zero tracks. [missing.md](missing.md) records the
+original gap list and how it closed.

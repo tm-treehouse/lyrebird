@@ -60,47 +60,51 @@ What is known, and what is not:
 Source: [model/results/reference-current.txt](../model/results/reference-current.txt),
 section H of [model/notes-idle.md](../model/notes-idle.md).
 
-## Agreed but not yet implemented: wall-wart power, isolated USB 2.0
+## Wall-wart power: built. Isolated USB: not yet
 
-Decided in conversation, no decision record written yet, nothing in the
-netlists. This supersedes [0009](decisions/0009-usb-bus-power.md) and amends
-0005 and 0012.
+[0014](decisions/0014-wall-wart-power.md) supersedes 0009 and amends 0005 and
+0012. The supply half is in both netlists; the isolator is not.
 
-- **A single 12 V wall wart replaces USB bus power.** One new buck stage to
-  5 V feeds the existing tree unchanged; the negative rail comes from a
-  discrete inverter into the LT3094 instead of a charge pump.
-- **USB carries data only, galvanically isolated** with an ADuM4165/4166.
-- **This forces USB 2.0 High Speed**, because no isolator exists for 5 Gbps
-  SuperSpeed. 192/24 stereo needs 9.216 Mbit/s against High Speed's 480, so
-  utilisation is 1.9 % and the FT601Q does not change — it supports High
-  Speed natively. The SuperSpeed pairs simply go unrouted, which removes the
-  hardest layout constraint on the main board.
+**Done.** A 12 V barrel jack feeds a resettable fuse, a series Schottky for
+reverse polarity, a Schottky clamp holding the reversed rail out of the
+converter's negative limit, and an 18 V TVS. An LMR33630 takes 12 V to 5 V and
+everything downstream of `+5V` is unchanged. A second LMR33630, wired as an
+inverting buck-boost, makes −6 V and sends it to the module across two
+mezzanine pins taken from the ground allocation. USB's `VBUS` now reaches one
+pin, the bridge's own sense input.
 
-What it retires: the 472 mA against 500 mA USB 2.0 margin, the 150 mA
-pre-enumeration rule, the 4.43 V worst case on `VIN_P`, `MUTE_N`'s
-pre-enumeration role, the LTM4622 run-pin gating and its `WAKEUP_N` NMOS, and
-the LTC3265 with its flying-capacitor ground return.
+The module's charge pump is deleted with all of its support parts, so **the
+analog board now contains no switching converter at all** — which was the
+reason for choosing this arrangement over the three alternatives, each of
+which relocated a switcher rather than removing one. The difference network is
+back to 200 Ω and the **2.1 dB is recovered**, not merely recoverable.
 
-What it recovers: **2.1 dB.** The 604 Ω difference network was chosen only
-because the charge pump's internal LDO is rated 50 mA and 200 Ω wanted 63.
-A discrete inverter into an LT3094 handles 500 mA, so 200 Ω is affordable
-again and the stage returns to about 125.6 dB.
+What it retired, all of it confirmed gone from the netlists: the 472 mA
+against 500 mA margin, the 150 mA pre-enumeration rule, the 4.43 V worst case
+on `VIN_P`, the LTM4622 run-pin gating and its NMOS, and the flying-capacitor
+ground return.
 
-What it adds: a barrel jack with reverse-polarity and overvoltage protection;
-input filtering, because a switching wall wart becomes the primary noise
-source where `VBUS` used to be; the isolator's upstream supply drawn from
-`VBUS` at roughly 20 mA, under the 100 mA default so it needs no enumeration;
-and a decision on whether supply ground ties to chassis.
+**Still to do.** The ADuM4165/4166 is not fitted and the SuperSpeed pairs are
+still routed. Isolation forces USB 2.0 High Speed, which costs nothing —
+192/24 stereo is 1.9 % of it — and removes two 5 Gbps pairs from the layout.
+Whether supply ground ties to chassis is undecided.
 
-What it does **not** fix: the reference-rail item above. That is transition
-current into rail impedance and is indifferent to where the rail's power
-comes from.
+**What it did not fix**, as 0014 said it would not: the reference-rail item
+above. That is transition current into rail impedance and is indifferent to
+where the rail's power comes from.
+
+**A correction worth keeping.** The 604 Ω network was recorded here and in
+parts-notes.md as having been chosen because the charge pump's internal LDO is
+rated 50 mA. That was false — the LT3094 took `VOUT−` directly and `LDO−`
+drove nothing, as the netlist's own comment said. The constraint that actually
+bound was the USB total: 509 mA against 500 at 200 Ω. The conclusion survived
+the correction; the stated reason did not.
 
 ## Flagged in the repo, blocking nothing yet
 
 | Item | Where | Note |
 | --- | --- | --- |
-| LTM4622 run-pin behaviour | [0009](decisions/0009-usb-bus-power.md) | Gating is now designed in and only channel 2, the core rail, is switched: channel 1 feeds the bridge's own `VCCIO`, so gating it would remove the supply for the pin doing the gating. `WAKEUP_N` drives it through an inverting NMOS. The caveat that keeps this open is that `WAKEUP_N` means "bus not suspended", not "enumeration complete", so it releases earlier than the one unit load rule strictly wants. Verify against silicon |
+| ~~LTM4622 run-pin behaviour~~ | [0014](decisions/0014-wall-wart-power.md) | **Closed, by deletion.** The gating existed to keep the board inside one unit load until USB activity released it. It was worse than unnecessary once the board was externally powered: the enable came from the bridge's suspend output, which is asserted whenever no host is present, so the FPGA core rail never came up at all — and a transient showed it starting and collapsing to 319 mV on every power-up besides. Both RUN pins are tied on. Found by `hardware/sim/power_input_transient.py`, not by reading the netlist, where every net was connected exactly as intended |
 | LTM4622 footprint | `hardware/symbols/` | The symbol exists; the LGA-25 land pattern does not. Pad size is a manufacturer number, not a guess |
 | Connector pin assignment | [interface.md](../hardware/interface.md) | Waits on layout by design |
 
@@ -152,10 +156,11 @@ specifications are in
 | Output connector | SJ1-3523N | |
 | Oscillators | CCHD-957, symbol and 9×14 mm footprint drawn | 0012 |
 
-The charge pump (LTC3265) and both post-regulators were also chosen and
-wired, but **the move to a 12 V wall wart deletes the charge pump**, so that
-part of the tree is superseded before it was ever built. See the redesign
-section below.
+Both post-regulators are chosen and wired. The charge pump that used to sit in
+front of them is **deleted** — decision 5 moved the negative rail to the main
+board, so the analog board now contains no switching converter at all. It was
+fully worked out and never built, which is the cheapest way for a part
+selection to end.
 
 ### Still never chosen
 

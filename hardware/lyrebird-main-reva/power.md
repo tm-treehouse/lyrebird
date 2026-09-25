@@ -31,194 +31,119 @@ connector, and the module's translator needs one — taken up on the module side
 
 ## The rails
 
-| Rail | V | Source | Feeds | At the rail | From 5 V |
+| Rail | V | Source | Feeds | At the rail | From 12 V |
 | --- | --- | --- | --- | --- | --- |
-| +5V | 4.45–5.25 | USB VBUS | LT3045 in, LTM4622 in, mezzanine | — | 381 mA |
-| +3V3 | 3.3 | LT3045, U3 | FT601Q `VCC33` ×3, `VDDA`, `AVDD` | 185 mA | 187 mA |
-| +2V5 | 2.5 | LTM4622 ch 1 | FT601Q `VCCIO` ×4, 9 GateMate bank supplies, `VDD_CLK` | 15 mA | 9 mA |
-| +1V0 | 1.0 | LTM4622 ch 2 | GateMate `VDD` ×28, `VDD_PLL`, `VDD_SER` ×2, `VDD_SER_PLL` | 149 mA | 35 mA |
+| +12V | 11.4–12.6 | barrel jack, via F1, D1 | LMR33630 ×2 | — | 219 mA |
+| +5V | 5.02 | LMR33630, U5 | LT3045 in, LTM4622 in, mezzanine | 357 mA | see above |
+| −6V_A | −5.98 | LMR33630, U7, inverting | mezzanine, for the module's LT3094 | 64 mA | see above |
+| +3V3 | 3.32 | LT3045, U3 | FT601Q `VCC33` ×3, `VDDA` | 185 mA | 187 mA of +5V |
+| +2V5 | 2.5 | LTM4622 ch 1 | FT601Q `VCCIO` ×4, 9 GateMate bank supplies, `VDD_CLK` | 15 mA | 9 mA of +5V |
+| +1V0 | 1.0 | LTM4622 ch 2 | GateMate `VDD` ×28, `VDD_PLL`, `VDD_SER` ×2, `VDD_SER_PLL` | 149 mA | 35 mA of +5V |
 
 Pin counts are read out of `lyrebird-main.net`, not assumed.
 
-### +5 V input
+`AVDD` is **not** on +3V3. It is a 1.0 V PLL supply with a 1.4 V absolute
+maximum, fed from the bridge's own internal regulator through `+1V0_FT`. This
+page said otherwise for some time; putting a 3.3 V rail on it destroys the
+part, and that is why `hardware/check_freshness.py` now exists.
 
-USB 3.0 guarantees 4.45 V at the device and the specification's upper limit is
-5.25 V (*via 0009*; the 5.25 V figure is the USB limit). The LTM4622's 3.6 V
-minimum input sits comfortably below the guarantee.
+### 12 V input
 
-The 5 V net in the netlist has **no bulk or bypass capacitance and no ferrite**
-— zero capacitors on `+5V` against 80 elsewhere on the board.
+A 2.1 × 5.5 mm barrel jack, centre positive, feeding a resettable fuse, a
+series Schottky for reverse polarity, a Schottky clamp and an 18 V TVS
+(0014). The adapter is not chosen, so its tolerance is assumed at ±5 %.
 
-### +3.3 V, LT3045
+Every part of the chain is sized in `hardware/verify_power.py`, which runs the
+arithmetic rather than asserting it, and exercised in
+`hardware/sim/power_input_transient.py`, which covers inrush, reverse polarity,
+the wrong adapter and the order the rails arrive in. Both are tamper-tested.
+The summary:
 
-Load is the FT601Q in active SuperSpeed: **185 mA** (*datasheet typical, via
-[0009](../../docs/decisions/0009-usb-bus-power.md)*).
+    input           11.4 to 12.6 V, 219 mA worst case, 2.42 W
+    losses          245 mW  (77 mW diode, 177 mW buck, 68 mW inverter)
+    buck junction   about 33 C at 25 C ambient
+    inrush          7.1 to 23.0 A over 24 parasitic corners, 0.35-1.12 mJ
+                    against 6.3 J to trip F1
 
-An LDO is a series pass element, so its input current is its output current
-plus its own ground-pin current — no reflection ratio applies:
+**F1 is a 1812L050/30**, and the three constraints that picked it are worth
+keeping together: 30 Vdc clears the TVS clamping at 29.2 V, 100 A of Imax
+clears the inrush, and 0.50 A of hold derates to 0.33 A at 70 °C — still above
+the 219 mA drawn. The obvious smaller part, 1812L035/30, derates to 0.20 A at
+70 °C, *below* the board's own draw, and would nuisance-trip in a warm
+enclosure.
 
-```
-I(5V) = 185 mA + I_GND
-I_GND = 2 mA                        (estimate; confirm against the datasheet)
-I(5V) = 187 mA
-```
+**Reverse polarity is held by D3, not by D1 alone.** D1 blocks, but its own
+leakage then drags the protected node negative and something has to stop it.
+D2's forward drop got it to −0.399 V against the converter's −0.3 V minimum;
+the BAT54 at D3 holds −0.233 V, and it holds the same value at 12, 19 and 24 V
+reversed because the clamp sets the level and the adapter does not.
 
-Dissipation, which drives the thermal-via note in 0009:
+**A 19 V laptop brick fits this barrel and the board simply runs on it.** The
+LMR33630 is a 36 V part. An SMAJ15A was fitted first and conducted there
+indefinitely — 41 mA at a junction near 117 °C, without ever tripping the fuse,
+because a TVS breakdown has a positive tempco and the fault settles rather than
+running away. The 18 V part does not conduct at 19 V at all.
 
-```
-P = (5.00 - 3.30) x 0.185 = 315 mW        nominal          (calculation)
-P = (5.25 - 3.30) x 0.185 = 361 mW        at the USB max   (calculation)
-```
+## Totals at the input
 
-0009 says "roughly 400 mW". That is conservative by 11 % against the worst
-case, so its guidance stands unchanged.
-
-Note that the FT601Q's own core runs from an internal 1.0 V regulator off
-`VCC33`; its current is already inside the 185 mA. Its `VD10`/`DV10` pins are
-unconnected in the netlist, so that regulator has no decoupling today.
-
-### +2.5 V, LTM4622 channel 1
-
-No datasheet figure covers this rail, because it is set by what the board
-switches. Built from CMOS dynamic current, `I = C x V x f`, where `f` is full
-cycles per second:
-
-**Element lines**, 28 driven, each loaded by the FPGA pad, a mezzanine trace, a
-connector contact and a register input. `C = 10 pF` (*estimate*). Dynamic
-element matching changes a given line on roughly half of element clocks, so
-`f = 24.576 MHz / 2 = 12.29 MHz` (*estimate*):
-
-```
-10 pF x 2.5 V x 12.29 MHz = 307 uA per line
-307 uA x 28               = 8.6 mA                        (calculation)
-```
-
-**FIFO clock**, one line, free-running at 66.67 MHz, short on-board trace,
-`C = 5 pF` (*estimate*). Sourced by the FT601Q from `VCCIO`:
-
-```
-5 pF x 2.5 V x 66.67 MHz  = 0.83 mA                       (calculation)
-```
-
-**FIFO data**, 36 lines (`DATA[31:0]` plus `BE[3:0]`). Two channels of 32-bit
-padded samples at 192 kHz is 1.536 MB/s against 266.7 MB/s of bus capacity at
-66.67 MHz by 4 bytes, a duty of 0.58 %, and lines toggle on about half of the
-active clocks:
-
-```
-f_eff = 66.67 MHz x 0.5 x 0.0058 = 193 kHz
-5 pF x 2.5 V x 193 kHz x 36      = 0.09 mA                (calculation)
-```
-
-**Handshakes and leakage.** Four FPGA-driven control lines are effectively
-static, under 0.1 mA. Static and leakage current across nine bank supplies and
-four `VCCIO` pins: **5 mA** (*estimate*, and the least supported term here).
-
-```
-8.6 + 0.83 + 0.09 + 0.1 + 5 = 14.6 mA, call it 15 mA
-```
-
-Reflected through the buck at 85 % (*estimate*):
-
-```
-I(5V) = 2.5 V x 15 mA / (5.0 V x 0.85) = 8.8 mA, call it 9 mA
-```
-
-15 mA is 0.75 % of the LTM4622's 2 A channel rating, where efficiency is well
-below the headline figure. At 50 % it would cost 15 mA from 5 V instead of 9.
-Neither number changes any conclusion below.
-
-### +1.0 V, LTM4622 channel 2
-
-**This is the weakest number in the budget.** 0009 allows 35 mA from 5 V.
-Reflected back to the rail at the same 85 %:
-
-```
-I(rail) = 5.0 V x 35 mA x 0.85 / 1.0 V = 149 mA           (calculation)
-```
-
-149 mA at 1.0 V in economy mode is an *estimate* with no datasheet behind it.
-It is almost entirely static current: the design places under 3 multipliers at
-the element clock and 62 coefficient words
-([model](../../model/README.md)), 25 of 32 block RAMs
-([0011](../../docs/decisions/0011-pack-three-samples-per-fifo-word.md)), and
-the two modules built so far sit under 1 % of the fabric
-([0013](../../docs/decisions/0013-simulation-and-build-toolchain.md)). Dynamic
-current on a design that small, clocked at 24.576 and 66.67 MHz, is small
-against the part's quiescent draw. Read the economy-mode figure off the Cologne
-Chip datasheet, or measure it, before trusting this line.
-
-## Totals at the USB input
-
-| Item | From 5 V | Provenance |
+| Item | Current | Provenance |
 | --- | --- | --- |
-| Bridge 3.3 V, active SuperSpeed, through the LT3045 | 187 mA | datasheet typical + estimate |
-| FPGA core 1.0 V, through the buck | 35 mA | estimate |
-| Bridge I/O and FPGA banks 2.5 V, through the buck | 9 mA | calculation |
-| LTM4622 quiescent, both channels | 3 mA | estimate |
-| **Main board subtotal** | **234 mA** | |
-| Output module, all rails, across the mezzanine | 147 mA | see the module's power.md |
-| **Total** | **381 mA** | |
+| Bridge 3.3 V, High Speed, through the LT3045 | 187 mA of +5V | datasheet typical + estimate |
+| FPGA core 1.0 V, through the buck | 35 mA of +5V | estimate |
+| Bridge I/O and FPGA banks 2.5 V, through the buck | 9 mA of +5V | calculation |
+| LTM4622 quiescent, both channels | 3 mA of +5V | estimate |
+| **Main board subtotal** | **234 mA of +5V** | |
+| Output module, +5V across the mezzanine | 123 mA of +5V | see the module's power.md |
+| **+5V total** | **357 mA** | |
+| Output module, −6V across the mezzanine | 64 mA of −6V | see the module's power.md |
+| **At the jack** | **219 mA at 12 V, 2.42 W** | verify_power.py |
 
-Series losses between the connector and the module are negligible and were
-checked rather than assumed: a ferrite at 50 mΩ DCR drops 19 mV at 381 mA, and
-five parallel header contacts at 20 mΩ drop 0.6 mV at 147 mA (*estimates* for
-both resistances, *calculation* for the drops). At the 4.45 V guarantee the
-module's LT3045s still see 4.43 V against a 3.3 V output.
+The input current is *lower* than the 236 mA the same board drew before the
+module's charge pump was deleted, even though a rail was added. The doubling
+overhead was larger than the rail it was making.
+
+Series losses were checked rather than assumed: the fuse at its 1.0 Ω R1max
+drops 219 mV at full load and the Schottky 350 mV, so the buck sees 10.83 V at
+the bottom of the adapter range against the 5 V it makes. Five parallel header
+contacts at 20 mΩ drop 2 mV at 123 mA.
 
 ## Margin
 
-| Against | Limit | Drawn | Spare | Utilisation |
-| --- | --- | --- | --- | --- |
-| USB 3.0, configured | 900 mA | 381 mA | 519 mA | 42 % |
-| USB 2.0 host | 500 mA | 381 mA | 119 mA | 76 % |
-
-The 381 mA is the SuperSpeed figure, so it bounds the USB 2.0 case from above:
-falling back to High Speed lowers the bridge's own draw, by an amount 0009 does
-not quantify and neither does this page.
-
-**Declare 900 mA in the descriptor** regardless of the module fitted. Current
-is fixed at enumeration and cannot be renegotiated when a module is swapped
-(0009).
-
-## Before enumeration, and what does not fit
-
-A device may draw one unit load before it is configured: **150 mA on a USB 3.0
-port, 100 mA on USB 2.0**. 0009 answers this by gating the FPGA rails with the
-LTM4622 run pins. That is necessary and it is not sufficient, because **the
-module's rails are not gated**: they take VBUS at the header and its three
-LT3045s have their `EN/UV` pins unconnected in the netlist.
-
-With the FPGA rails held off and the bridge idling near 70 mA (*via 0009*):
-
-```
-bridge idle 70 mA + LT3045 ground pin 2 mA        =  72 mA
-module clock rail, oscillator already running     =  40 mA
-module element reference, 14 elements high at 1k  =  56 mA
-                                                     ------
-                                                     168 mA   over 150 mA
-```
-
-The element reference term is what decides this, and it is set by a resistor
-value nobody has chosen. The same sum at other values:
-
-| Element resistor | Reference rail | Pre-enumeration total | Against 150 mA |
+| Against | Limit | Drawn | Spare |
 | --- | --- | --- | --- |
-| 1 kΩ, the netlist placeholder | 56 mA | 168 mA | over by 18 mA |
-| 2 kΩ | 33 mA | 145 mA | 5 mA spare |
-| 3.1 kΩ, what 0009's 25 mA line implies | 25 mA | 137 mA | 13 mA spare |
+| A 12 V, 1 A adapter | 1000 mA | 219 mA | 781 mA |
+| F1 hold at 70 °C | 330 mA | 219 mA | 111 mA |
+| LMR33630 output, +5V | 3000 mA | 357 mA | 2643 mA |
 
-With the flip-flop state undefined at power-on, all 28 elements high at 1 kΩ
-gives 214 mA, and adding 0009's op amp stage and charge pump — 51 mA, not in
-the netlist — puts every case over.
+**There is no USB current budget any more.** The figures this section used to
+carry — 381 mA against 500, 76 % of a USB 2.0 host — belonged to a bus-powered
+board and are retired with 0009. The board no longer negotiates for current and
+the descriptor no longer has to declare it.
 
-**On a USB 2.0 host nothing fits at any element value.** The bridge alone takes
-72 mA of a 100 mA allowance, and the module's clock rail is 40 mA on its own.
+## Before enumeration — retired
 
-So the honest statement is that the enumeration gating in 0009 covers half the
-board. Either the module's rails gate too, or the element outputs are held low
-until the FPGA is configured. Both are design questions, and this page only
-records that the arithmetic requires one of them.
+This section used to size the board against a device drawing one unit load
+until the host configures it: 150 mA on a USB 3.0 port, 100 mA on USB 2.0. 0009
+answered it by gating the FPGA rails with the LTM4622 run pins.
+
+**All of it is retired.** 0014 replaced bus power with a 12 V supply, so no
+part of either board waits on enumeration for current, and every rail comes up
+when the adapter is plugged in.
+
+The gating is worth a paragraph of its own, because deleting it turned out to
+matter more than adding it ever did. `RUN2` was pulled down by an NMOS driven
+from the bridge's `WAKEUP_N`, which is asserted whenever the FT601Q is not
+seeing bus
+activity — including with no cable in the socket at all. On an externally
+powered board that is always, so **the FPGA core rail never came up**. A
+transient found worse: `CORE_RUN` reached its pull-up before the NMOS gate
+crossed threshold, so channel 2 soft-started into a 1.2 ms window and was
+killed mid-ramp, `+1V0` reaching about 319 mV and collapsing on every power-up
+whether a host was present or not.
+
+Both RUN pins are tied on now. The lesson is in
+`hardware/sim/power_input_transient.py`: a netlist review could not have found
+this, because every net was connected exactly as intended.
 
 ## Against 0009's budget
 

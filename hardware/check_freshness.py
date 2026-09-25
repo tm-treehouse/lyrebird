@@ -67,14 +67,19 @@ SUPERSEDED = {
     "one unit load": "retired with bus power; no enumeration current rule now",
     "WAKEUP_N": "the core-rail gating is removed; it never came up without a host",
     "AVDD on +3V3": "AVDD is a 1.0 V PLL supply; this was a destroy-the-part bug",
-    # " + " means every term must appear on the same line. DFN-12 alone is a
-    # false positive: it is the right package for the LT3094 and only wrong
-    # when it is attached to an LT3045.
-    "LT3045 + DFN-12": "LT3045 is a 10-lead part; DFN-12 belongs to the LT3094",
 }
 # Files where a superseded string is expected, because they are the record of
 # the change rather than a description of the board.
 SUPERSEDED_OK = ("docs/decisions/", "docs/review/", "CHANGELOG", "notes-")
+
+# Markers that put a line in the past tense. Deliberately narrow: the point is
+# to let a document record what changed without the record itself reading as
+# stale, not to give prose a way to opt out of being checked.
+HISTORICAL = ("~~", "no longer", "used to", "superseded", "closed",
+              "retired", "deleted", "was chosen", "that was false",
+              "before decision", "historical", "removed (was",
+              "stood here", "was fitted", "there is no ",
+              "deleting", "removing", "used to be", "never came up")
 
 FAIL, WARN, OK = "FAIL", "WARN", "ok"
 rows: list[tuple[str, str, str]] = []
@@ -178,6 +183,46 @@ def check_bom() -> None:
                 f"{len(interesting)} checked")
 
 
+# Parts whose lead count fixes their footprint. Grepping prose for these was
+# the first attempt and it matched the BOM note explaining the very error it
+# was looking for -- a string match doing a structural job. The netlist knows
+# the answer, so ask it.
+FOOTPRINT_RULE = {
+    "LT3045": ("DFN-10", "11 pins: ten leads and an exposed pad"),
+    "LT3094": ("DFN-12", "13 pins: twelve leads and an exposed pad"),
+}
+
+
+def check_footprints() -> None:
+    for name, b in BOARDS.items():
+        net = b["dir"] / b["net"]
+        if not net.exists():
+            continue
+        text = net.read_text(errors="replace")
+        bad = []
+        n = 0
+        for block in text.split("(comp")[1:]:
+            if "(nets" in block:
+                break
+            ref = re.search(r'\(ref "([^"]+)"\)', block)
+            val = re.search(r'\(value "([^"]+)"\)', block)
+            fp = re.search(r'\(footprint "([^"]+)"\)', block)
+            if not (ref and val and fp):
+                continue
+            for part, (want, why) in FOOTPRINT_RULE.items():
+                if part in val.group(1):
+                    n += 1
+                    if want not in fp.group(1):
+                        bad.append(f"{ref.group(1)} ({part}) on "
+                                   f"{fp.group(1).split(':')[-1]} -- {why}")
+        if bad:
+            add(FAIL, f"{name}: footprint contradicts the part's lead count",
+                "; ".join(bad))
+        elif n:
+            add(OK, f"{name}: regulator footprints match their lead counts",
+                f"{n} checked")
+
+
 def check_superseded() -> None:
     try:
         tracked = subprocess.run(["git", "ls-files"], cwd=ROOT,
@@ -198,10 +243,30 @@ def check_superseded() -> None:
             except OSError:
                 continue
             terms = [t.strip().lower() for t in old.split(" + ")]
-            for i, line in enumerate(text.splitlines(), 1):
+            lines = text.splitlines()
+            for i, line in enumerate(lines, 1):
                 low = line.lower()
-                if all(t in low for t in terms):
-                    hits.append(f"{f}:{i}")
+                if not all(t in low for t in terms):
+                    continue
+                # A passage may name a superseded thing in order to say it is
+                # superseded, and that is the opposite of stale. The marker is
+                # rarely on the same line as the mention, because prose wraps
+                # and a paragraph explains itself over several lines -- so
+                # look at the paragraph, not the line. The window walks back
+                # to the last blank line and forward one, which is where an
+                # explanation of "this used to be X" actually lives.
+                start = i - 1
+                while start > 0 and lines[start - 1].strip():
+                    start -= 1
+                context = " ".join(lines[start:i + 1]).lower()
+                if any(m in context for m in HISTORICAL):
+                    continue
+                # A block quote is a quotation. In this repository that means
+                # superseded text being shown as superseded, which is the one
+                # form of staleness worth preserving deliberately.
+                if line.lstrip().startswith(">"):
+                    continue
+                hits.append(f"{f}:{i}")
         if hits:
             add(FAIL, f'"{old}" still described as current',
                 f"now {new}\n           " + "\n           ".join(hits[:6])
@@ -212,6 +277,7 @@ def check_superseded() -> None:
 def main() -> int:
     check_timestamps()
     check_bom()
+    check_footprints()
     check_superseded()
 
     print("=" * 74)
