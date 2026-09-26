@@ -406,7 +406,7 @@ headroom, because the module made both polarities symmetrically from one 5 V
 input. But the output swings ±2.83 V peak and the OPA1612 reaches within
 600 mV of its rails, so the positive supply wants about 3.5 V — and the
 mezzanine had carried 5 V all along. Only the negative rail ever needed help
-from outside. An LT3045 straight off the header gives +4.94 V, which is U14
+from outside. An LT3045 straight off the header gives +4.53 V, which is U14
 below.
 
 **What it cost while it was there**, recorded because it is the size of the

@@ -527,7 +527,7 @@ def build():
     vpos_raw = v5                       # the rail that was always there
 
     pos = Part("Regulator_Linear", "LT3045xDD", ref="U14",
-               value="LT3045 op amp positive rail, +4.94 V from mezzanine 5 V",
+               value="LT3045 op amp positive rail, +4.53 V from mezzanine 5 V",
                footprint="Package_DFN_QFN:DFN-10-1EP_3x3mm_P0.5mm_EP1.65x2.38mm")
     for p in pos.pins:
         nm = str(p.name)
@@ -549,7 +549,24 @@ def build():
     # supplies is a blunt mute and every assertion is a transient into an
     # unblocked output; with the budget argument gone, a proper output mute
     # or a digital ramp is free to win on merit.
-    lp.lt3045_housekeeping(pos, vpos_raw, gnd, "49.9k 0.1%", _res, _cap,
+    #
+    # 45.3k, not the 49.9k this carried when the charge pump fed it. 100 uA
+    # through SET sets the output, so 49.9k programs 4.99 V -- and the input
+    # is now the header's 5.02 V rather than the pump's 5.69 V, which leaves
+    # 30 mV against a part whose datasheet dropout is 260 mV at 500 mA. The
+    # rail would not have come up to its programmed voltage, and nothing in
+    # the repository was checking: verify_power.py tests the main board's
+    # LT3045, which has 1.7 V of headroom, and none of the module's.
+    #
+    # 45.3k gives 4.53 V and 490 mV of headroom. That is still far more than
+    # the stage needs: the output swings +/-2.83 V peak and the OPA1612
+    # reaches within 600 mV of its rails, so 3.43 V would do and this leaves
+    # 3.93 V available.
+    #
+    # The rails are deliberately asymmetric now, +4.53 and -4.99, and it is
+    # harmless -- both clear the swing with room, and matching the negative
+    # one down would add 30 mW of dissipation in the LT3094 for nothing.
+    lp.lt3045_housekeeping(pos, vpos_raw, gnd, "45.3k 0.1%", _res, _cap,
                            en=ctrl["MUTE_N"])
     _cap(vpos, gnd, "10uF")
 

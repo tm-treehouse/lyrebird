@@ -38,7 +38,7 @@ referenced to that rail and **never to 3.3 V**. The module therefore needs a
 | --- | --- | --- | --- | --- | --- |
 | `+3V3_REF` | 3.32 | LT3045, U5 | 2 register packages, 28 elements, 8× 100 nF | 58 mA | 60 mA of +5V |
 | `+3V3_CLK` | 3.3 | LT3045, U6 | Y1, Y2, U1 divider, U12 buffer, translator `VCC(B)` | 33.5 mA | 35.5 mA of +5V |
-| `+5V_A` | +4.94 | LT3045, U14, **straight off the header's +5V** | op amp `V+` | 21.6 mA | 23.6 mA of +5V |
+| `+5V_A` | +4.53 | LT3045, U14, **straight off the header's +5V** | op amp `V+` | 21.6 mA | 23.6 mA of +5V |
 | `-5V_A` | −5 | LT3094, U8, from the mezzanine's **−6V** | op amp `V−`, **and all the signal current** | 56.5–63.5 mA | 64 mA of −6V |
 | `+2V5` | 2.5 | LT3045, U9 | translator `VCC(A)` | <1 mA | 3 mA of +5V |
 
@@ -52,8 +52,11 @@ removing one.
 because the module made both polarities symmetrically from one 5 V input. The
 output swings ±2.83 V peak and the OPA1612 reaches within 600 mV of its rails,
 so the positive analog supply wants about 3.5 V — and the header had carried
-5 V all along. U14 drops tens of millivolts at 22 mA and gives +4.94 V, which
-leaves 4.34 V of swing available against 2.83 V needed.
+5 V all along. U14 is programmed to **+4.53 V**, which leaves 3.93 V of swing
+available against the 2.83 V needed — and 490 mV of headroom over its input,
+which matters more than the swing does. It was 4.99 V until a review caught
+that: the SET resistor still held the value that suited the charge pump's
+5.69 V, leaving 30 mV against a part whose published dropout is 260 mV.
 
 **The two analog rails are not symmetric**, and that is the most consequential
 fact on this page. The negative one carries the op amps' quiescent current

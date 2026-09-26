@@ -22,6 +22,8 @@ failure mode this project keeps hitting is a confident number nobody checked.
 
 from __future__ import annotations
 
+import pathlib
+import re
 from dataclasses import dataclass, field
 
 # ----------------------------------------------------------------- sources
@@ -113,6 +115,74 @@ V_5V = Fact(5.02, "V", CALC, "1.0 V x (1 + 100k/24.9k)")
 # Ramp: the SET pin sources 100 uA into C_SET with fast-start disabled.
 SET_I = Fact(100e-6, "A", DS, "LT3045 SET pin current")
 RAMP_K = 2.3  # t_ss ~ 2.3 * R_SET * C_SET
+
+# Pin numbers, because the generated netlist carries no pin *names* at all --
+# only (ref) and (pin N). An earlier version of this reader looked for
+# pinfunction fields and silently returned nothing, which is its own small
+# lesson: a check that finds no subjects passes.
+LDO_PINS = {
+    "LT3045": {"IN": "2", "SET": "7", "OUT": "10"},
+    "LT3094": {"IN": "2", "SET": "8", "OUT": "11"},
+}
+
+
+def ldo_rails(netname):
+    """(ref, Vin, Vout, value) for every LT3045/LT3094 in a netlist.
+
+    Vout comes from the SET resistor, because that is what actually programs
+    the part; Vin from the rail its IN pin sits on. A rail this file does not
+    know a voltage for is skipped rather than guessed at.
+
+    Reading it from the netlist is the point. The fault this exists for was a
+    SET resistor left at the value that suited a supply the board no longer
+    has, and a constant restated here would have been left behind identically.
+    """
+    path = pathlib.Path(__file__).resolve().parent / netname
+    if not path.exists():
+        return []
+    text = path.read_text(errors="replace")
+    val = {}
+    for blk in text.split("(comp")[1:]:
+        r = re.search(r'\(ref "([^"]+)"\)', blk)
+        v = re.search(r'\(value "([^"]+)"\)', blk)
+        if r:
+            val[r.group(1)] = v.group(1) if v else ""
+    family = {ref: fam for ref, v in val.items()
+              for fam in LDO_PINS if fam in v}
+    known = {"+5V": V_5V.value, "-6V_A": V_N6V.value}
+    set_r, in_rail = {}, {}
+    for blk in re.split(r"\n      \(name ", text[text.index("(nets"):])[1:]:
+        name = blk.split('"')[1]
+        nodes = [n for n in blk.split("(node") if '(ref "' in n]
+        here = []
+        for nd in nodes:
+            ref = re.search(r'\(ref "([^"]+)"\)', nd).group(1)
+            pin = re.search(r'\(pin "([^"]+)"\)', nd)
+            if not pin or ref not in family:
+                continue
+            pins = LDO_PINS[family[ref]]
+            if pin.group(1) == pins["SET"]:
+                here.append(ref)
+            elif pin.group(1) == pins["IN"]:
+                in_rail[ref] = name
+        for rg in here:
+            for nd in nodes:
+                ref = re.search(r'\(ref "([^"]+)"\)', nd).group(1)
+                if ref.startswith("R"):
+                    m = re.match(r"([\d.]+)k", val.get(ref, ""))
+                    if m:
+                        set_r[rg] = float(m.group(1)) * 1e3
+    out = []
+    for rg, ohms in sorted(set_r.items()):
+        rail = in_rail.get(rg)
+        if rail not in known:
+            continue
+        vout = 100e-6 * ohms
+        if family.get(rg) == "LT3094":
+            vout = -vout
+        out.append((rg, known[rail], vout, val.get(rg, "")))
+    return out
+
 
 # -------------------------------------------------------------- checking
 @dataclass
@@ -221,12 +291,30 @@ def main() -> int:
           f"= {p_u3*1000:.0f} mW",
           "", assumed=True)
 
-    # ---- 5. LDO headroom
-    check("LT3045 dropout",
-          (V_5V.value - V_3V3.value) > U3_DROPOUT.value,
-          f"{(V_5V.value-V_3V3.value)*1000:.0f} mV across the part against "
-          f"{U3_DROPOUT.value*1000:.0f} mV of dropout",
-          f"{((V_5V.value-V_3V3.value)-U3_DROPOUT.value)*1000:.0f} mV spare")
+    # ---- 5. LDO headroom, every regulator in the design rather than one.
+    #
+    # This check used to test the main board's LT3045 alone, which has 1.7 V of
+    # headroom and could not fail. Meanwhile the module's positive analog rail
+    # was programmed to 4.99 V from a 5.02 V input -- 30 mV against a 260 mV
+    # dropout figure -- because its SET resistor was left at the value that
+    # suited a 5.69 V input from a charge pump that no longer exists. A check
+    # over one instance of a part is not a check over the design.
+    #
+    # Read from the netlists rather than restated here, so a SET resistor
+    # changing cannot silently pass. 100 uA through SET programs the output.
+    for board, netname in (("main", "lyrebird-main-reva/lyrebird-main.net"),
+                           ("module", "lyrebird-dac-reva/lyrebird-dac.net")):
+        for ref, vin, vout, load in ldo_rails(netname):
+            head = abs(vin) - abs(vout)
+            check(f"{board} {ref}: dropout on a {abs(vout):.2f} V rail",
+                  head > U3_DROPOUT.value,
+                  f"{head*1000:.0f} mV across the part, {abs(vin):.2f} V in to "
+                  f"{abs(vout):.2f} V out, against {U3_DROPOUT.value*1000:.0f} "
+                  f"mV of dropout at 500 mA",
+                  f"{(head - U3_DROPOUT.value)*1000:+.0f} mV against the "
+                  f"500 mA figure; the low-current dropout is smaller and is "
+                  f"not published in anything fetched here",
+                  assumed=True)
 
     # ---- 6. buck output current
     check("Inverter output current",
