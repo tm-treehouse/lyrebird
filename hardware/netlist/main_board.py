@@ -282,8 +282,15 @@ def build():
     # EN to VIN: the part has its own UVLO and nothing here sequences ahead
     # of it.
     buck5["EN"] += v["+12V"]
-    buck5["PG"] += Net("PG_5V")
-    pullup(Net("PG_5V"), v["+5V"], "100k")
+    # One Net object, reused. Net("PG_5V") called twice creates two nets and
+    # SKiDL uniquifies the second name, which is how both power-good pins and
+    # both of their pull-ups ended up on four separate single-node nets --
+    # resistors placed with a lead floating and flags that read a permanent
+    # low. Nothing in the netlist generation complains; KiCad ERC would have,
+    # on import, eventually.
+    pg_5v = Net("PG_5V")
+    buck5["PG"] += pg_5v
+    pullup(pg_5v, v["+5V"], "100k")
     # VCC is the internal rail's own bypass, datasheet value.
     decouple(buck5["VCC"], v["GND"], "1uF", "0603")
     sw = Net("SW_5V")
@@ -332,8 +339,12 @@ def build():
         p_ += v["-6V_A"]            # the device's ground IS the negative rail
     inv["VIN"] += v["+12V"]
     inv["EN"] += v["+12V"]
-    inv["PG"] += Net("PG_N6V")
-    resistor(Net("PG_N6V"), v["GND"], "100k")
+    # Same idiom, same fault, and this one mattered more: U7's GND pin *is*
+    # -6V_A, so 100 k to system ground is a pull-up relative to the device and
+    # the only way this flag can be read at all. It was connected to nothing.
+    pg_n6v = Net("PG_N6V")
+    inv["PG"] += pg_n6v
+    resistor(pg_n6v, v["GND"], "100k")
     decouple(inv["VCC"], v["-6V_A"], "1uF", "0603")
     sw_n = Net("SW_N6V")
     inv["SW"] += sw_n

@@ -229,6 +229,42 @@ def check_footprints() -> None:
                 f"{n} checked")
 
 
+# Nets deliberately brought to a connector and left for the other board to
+# drive. interface.md requires the main board to drive ELEM[31:28] low; on the
+# module they are header pins with nothing on them, which is correct.
+SINGLE_NODE_OK = {"dac": {"ELEM28", "ELEM29", "ELEM30", "ELEM31"}}
+
+
+def check_single_node_nets() -> None:
+    """A net with one node connects nothing, and nothing here complained.
+
+    This found two real faults: both LMR33630 power-good pins and both of
+    their pull-up resistors sat on four separate single-node nets, because
+    `Net("PG_5V")` was called twice and SKiDL creates a new net each time,
+    uniquifying the second name. Two resistors placed with a lead floating
+    and two flags reading a permanent low. KiCad ERC would have reported it
+    on import; nothing in the generation path did, and nothing runs ERC.
+    """
+    for name, b in BOARDS.items():
+        net = b["dir"] / b["net"]
+        if not net.exists():
+            continue
+        text = net.read_text(errors="replace")
+        bad = []
+        for blk in re.split(r"\n      \(name ", text[text.index("(nets"):])[1:]:
+            nm = blk.split('"')[1]
+            nodes = re.findall(r'\(ref "([^"]+)"\)', blk)
+            if len(nodes) == 1 and nm not in SINGLE_NODE_OK.get(name, set()):
+                bad.append(f"{nm} ({nodes[0]} alone)")
+        if bad:
+            add(FAIL, f"{name}: nets with a single node",
+                "; ".join(bad) + " -- each connects nothing. A repeated "
+                "Net(\"literal\") is the usual cause")
+        else:
+            add(OK, f"{name}: every net connects at least two nodes",
+                "single-node nets are either a typo or a floating lead")
+
+
 def check_superseded() -> None:
     try:
         tracked = subprocess.run(["git", "ls-files"], cwd=ROOT,
@@ -284,6 +320,7 @@ def main() -> int:
     check_timestamps()
     check_bom()
     check_footprints()
+    check_single_node_nets()
     check_superseded()
 
     print("=" * 74)
