@@ -1,4 +1,22 @@
 (footprint "Analog_LGA-25_6.25x6.25mm_Layout5x5_P1.27mm"
+  (descr "LTM4622 LGA-25, 6.25 x 6.25 mm, 1.27 mm pitch. Hand drawn.
+
+   AXIS CONVENTION, and read this before editing: from Rev G's PIN
+   CONFIGURATION top view, letters run A..E LEFT TO RIGHT and numbers run
+   1..5 BOTTOM TO TOP. KiCad's +Y is down the page, so row 5 sits at the
+   most negative y and A1 is the BOTTOM-LEFT land.
+
+   The drawing does not survive text extraction from the PDF, so the check
+   that settles it is PIN FUNCTIONS, which does: COMP2 (A5), SYNC/MODE (C5)
+   and COMP1 (E5) are the three named balls in row 5, and the drawing prints
+   that row left to right as COMP2 / GND / SYNC-MODE / GND / COMP1. If the
+   letters ran the other way that row would start with COMP1; if the numbers
+   ran the other way the top row would be row 1, which is VOUT2 / VOUT2 /
+   GND / VOUT1 / VOUT1.
+
+   This footprint had the two axes transposed, which put 24 of 25 lands on
+   the wrong ball -- +2V5 and +5V onto VOUT2, the 1.0 V core rail with a
+   1.20 V absolute maximum. Only C3 at the centre was invariant.")
   (version 20240108) (generator "lyrebird") (layer "F.Cu")
   (descr "Analog Devices LGA-25, 6.25x6.25x1.82mm, 1.27mm pitch, 0.635mm lands. Geometry from the LTM4622 datasheet suggested PCB layout.")
   (tags "LGA 25 uModule 1.27mm")
@@ -9,30 +27,30 @@
     (effects (font (size 1 1) (thickness 0.15))))
   (fp_rect (start -3.375 -3.375) (end 3.375 3.375) (stroke (width 0.05) (type solid)) (fill none) (layer "F.CrtYd"))
   (fp_rect (start -3.125 -3.125) (end 3.125 3.125) (stroke (width 0.1) (type solid)) (fill none) (layer "F.Fab"))
-  (fp_circle (center -3.725 -3.725) (end -3.525 -3.725) (stroke (width 0.12) (type solid)) (fill solid) (layer "F.SilkS"))
-  (pad "A1" smd rect (at -2.54 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "A2" smd rect (at -1.27 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "A3" smd rect (at 0 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "A4" smd rect (at 1.27 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "A5" smd rect (at 2.54 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "B1" smd rect (at -2.54 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "B2" smd rect (at -1.27 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "B3" smd rect (at 0 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "B4" smd rect (at 1.27 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "B5" smd rect (at 2.54 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "C1" smd rect (at -2.54 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "C2" smd rect (at -1.27 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (fp_circle (center -3.725 3.725) (end -3.525 -3.725) (stroke (width 0.12) (type solid)) (fill solid) (layer "F.SilkS"))
+  (pad "A5" smd rect (at -2.54 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "B5" smd rect (at -1.27 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "C5" smd rect (at 0 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "D5" smd rect (at 1.27 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "E5" smd rect (at 2.54 -2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "A4" smd rect (at -2.54 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "B4" smd rect (at -1.27 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "C4" smd rect (at 0 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "D4" smd rect (at 1.27 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "E4" smd rect (at 2.54 -1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "A3" smd rect (at -2.54 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "B3" smd rect (at -1.27 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
   (pad "C3" smd rect (at 0 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "C4" smd rect (at 1.27 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "C5" smd rect (at 2.54 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "D1" smd rect (at -2.54 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "D2" smd rect (at -1.27 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "D3" smd rect (at 0 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "D4" smd rect (at 1.27 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "D5" smd rect (at 2.54 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "E1" smd rect (at -2.54 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "E2" smd rect (at -1.27 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "E3" smd rect (at 0 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "E4" smd rect (at 1.27 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (pad "E5" smd rect (at 2.54 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "D3" smd rect (at 1.27 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "E3" smd rect (at 2.54 0) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "A2" smd rect (at -2.54 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "B2" smd rect (at -1.27 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "C2" smd rect (at 0 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "D2" smd rect (at 1.27 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "E2" smd rect (at 2.54 1.27) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "A1" smd rect (at -2.54 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "B1" smd rect (at -1.27 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "C1" smd rect (at 0 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "D1" smd rect (at 1.27 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "E1" smd rect (at 2.54 2.54) (size 0.635 0.635) (layers "F.Cu" "F.Paste" "F.Mask"))
 )

@@ -134,20 +134,51 @@ array gap alone suggests, and a prediction is not a result.
 
 The five real gaps, in the order they matter:
 
-**(a) The 1.20 V core absolute maximum is not guarded at all (T4).** The
-function has one constant, `ABS_MAX_V = 2.75`, and it skips every pin that is
-`PWRIN`/`PWROUT` or whose name matches `_SUPPLY_NAME`. So moving the core rail
-onto `+3V3` — 3.32 V onto 28 `VDD` balls, `VDD_PLL`, two `VDD_SER` and
-`VDD_SER_PLL`, against DS1001 Table 4.1's 1.20 V — builds clean. T15 (below)
-confirms the same blindness from the other direction: swapping the LTM4622's
-two feedback resistors, which the generator's own comment identifies as "the
-worst single assembly error on this board", puts 2.5 V on `+1V0` and the check
-says nothing. Skipping supply pins is deliberate and defensible; the
-consequence is that the *entire* core-rail hazard is outside the only
-automated electrical check either board has. Nothing else covers it either:
-`hardware/verify_power.py` carries `V_1V0 = Fact(1.00, "V", DS, "LTM4622 table
-value 90.9 k")` as a hand-written constant, so changing the netlist's resistor
-does not change its verdict.
+**(a) The 1.20 V core absolute maximum is not guarded at all — and the rail
+that could violate it is already on the board, one resistor away.** This is the
+worst of the five and it is worth the extra cases. DS1001 Table 4.1 gives two
+absolute maxima: `VDDIO` 2.75 V (GPIO banks and `VDD_CLK`) and `VDDcore` 1.20 V
+(`VDD`, `VDD_PLL`, `VDD_SER`, `VDD_SER_PLL`). `assert_below_abs_max` has one
+constant, `ABS_MAX_V = 2.75`, and it skips every pin that is `PWRIN`/`PWROUT`
+or whose name matches `_SUPPLY_NAME` — which is every core ball. Four
+injections, each verified to land:
+
+| # | Injected | Result |
+| --- | --- | --- |
+| T4 | core rail moved to `+3V3` (28 `VDD` + `VDD_PLL` + 2× `VDD_SER` + `VDD_SER_PLL` at 3.32 V) | passes |
+| T4b | core rail moved to the board's **own `+2V5`** | passes |
+| T4c | one 10 k resistor from `+2V5` to a single core `VDD` ball | passes |
+| T4d | dead short, `+2V5` onto one core `VDD` ball (net becomes `+1V0/+2V5`) | passes |
+| T4e | T4c **plus** `+2V5` added to `hv_rails` | fires — on 134 **legitimate** pins, and **not** on the core ball |
+
+T4c and T4d are the cases that matter: 2.5 V is on the same board, one net away,
+and both a resistor bridge and a dead short onto a 1.20 V ball build clean.
+T4d's net carries both names, `+1V0` and `+2V5`, and still passes, because
+`+2V5` is below the single threshold and so is not in `hv_rails`.
+
+T4e shows why this is not fixable by declaring `+2V5`. Doing so makes the whole
+2.5 V logic domain "high voltage": 134 protected pins are reported, 96 on the
+FPGA and 38 on the mezzanine, every one of them a legitimate 2.5 V signal — and
+the core ball that actually has 2.5 V on it is **still not among them**, because
+the supply-pin skip means it is never examined. A single threshold cannot
+express two limits for two pin classes. Guarding the core rail needs a different
+check: an explicit rail-to-pin-class map (which nets may touch `VDD*` versus
+`VDD_<bank>` versus signals), not another entry in a flat list.
+
+T15 confirms the same blindness from the value side: swapping the LTM4622's two
+feedback resistors — which the generator's own comment identifies as "the worst
+single assembly error on this board", because 19.1 k on FB2 puts 2.5 V onto
+`+1V0` and "kills the FPGA on first power-up" — builds clean. The mitigation the
+generator does fit is real and good (the core resistor is deliberately 0603 so
+it cannot be placed on the 0402 land), but it is a process control, not a check.
+
+Nothing else covers it. `hardware/verify_power.py` carries `V_1V0 = Fact(1.00,
+"V", DS, "LTM4622 table value 90.9 k")` as a hand-written constant, so changing
+the netlist's resistor does not change its verdict — which is the one thing that
+file's docstring says it exists to prevent ("so that changing a component value
+changes the verdict instead of only the prose"). Its LDO reading by pin number
+is new and does close part of this for the linear regulators; the LTM4622's two
+feedback resistors are still constants.
 
 **(b) The propagation clause only walks two-terminal parts (T3, T16).** The
 passive step requires `len(pins) != 2: continue`. A pull-up built from a
@@ -211,5 +242,148 @@ and they are worth writing down because two of them are live on this design.
   netlist; `main_board.py` says so and fits 1 k series resistors. See §2.2.
 - **Straps to rails are seen** (T1 and T2 fire), including negative rails when
   declared (T14).
+
+---
+## 2. The custom symbols and footprints
+
+Six symbols and two footprints are hand-drawn. I checked every pin number of
+every custom symbol against the manufacturer's own terminal assignment, and both
+footprints against the manufacturer's own package drawing.
+
+### 2.1 Confirmed fault: the LTM4622 land pattern is rotated 90° against the package
+
+This is a second instance of the defect already known on the Crystek footprint,
+on the only other hand-drawn footprint in the library — so two of two.
+
+**What the datasheet says.** LTM4622 Rev G, PIN CONFIGURATION, LGA package,
+TOP VIEW. I read the drawing geometrically rather than as a text dump, by
+extracting each text run with its position matrix:
+
+```
+ y=468.7 | [133]COMP2 [157]GND [171]SYNC/MODE [190]GND [206]COMP1   <- signal labels
+ y=453.7 | [133]5                                                   <- row labels, left edge
+ y=438.2 | [133]4
+ y=422.8 | [133]3
+ y=407.4 | [133]2
+ y=391.9 | [133]1
+ y=377.1 | [146]A [162]B [178]C [194]D [211]E                       <- column labels, bottom edge
+```
+
+So in TOP VIEW the **letters run left to right** (A leftmost) and the **numbers
+run bottom to top** (1 at the bottom). Both axes are fixed unambiguously by the
+top row of labels: the five signals printed above row 5 are, left to right,
+COMP2 / GND / SYNC-MODE / GND / COMP1, and PIN FUNCTIONS gives COMP2 = A5,
+B5 = GND, SYNC/MODE = C5, D5 = GND, COMP1 = E5. If the letters ran the other way
+that row would read COMP1 first; if the numbers ran the other way the top row
+would be row 1, which is VOUT2/VOUT2/GND/VOUT1/VOUT1. Neither is what is
+printed. I then checked all twenty-odd remaining labels against the same
+hypothesis and every one lands on the right ball.
+
+**What the footprint does.** In
+`Analog_LGA-25_6.25x6.25mm_Layout5x5_P1.27mm.kicad_mod`, with KiCad's +Y pointing
+down the page:
+
+```
+A1 (-2.54,-2.54)  A2 (-1.27,-2.54) ... A5 (+2.54,-2.54)   <- numbers run left to right
+B1 (-2.54,-1.27)                                           <- letters run top to bottom
+```
+
+The letters and the numbers are on the opposite axes from the datasheet. Working
+in top view with x right and y up, the land named `(L,N)` sits where the package
+has ball `(letter index 4−w, number index u)` — the package's map rotated by a
+quarter turn. Composing the two maps, **24 of the 25 lands carry the wrong ball's
+net**; only `C3`/INTVCC at the centre is invariant. The destructive ones:
+
+| Package ball at that spot | its function | Land name there | net the netlist wires to it |
+| --- | --- | --- | --- |
+| A1, B1 | VOUT2 (the 1.0 V core rail) | E1, E2 | `+2V5`, `+5V` |
+| A2, B3 | VIN2 | D1, C2 | `+2V5`, `GND` |
+| C1, C2 | GND | E3, D3 | TRACK/SS1 capacitor, `+5V` |
+| D1, E1 | VOUT1 (the 2.5 V rail) | E4, E5 | FB1 divider, open |
+| E2, D3 | VIN1 | D5, C4 | `GND`, FREQ resistor |
+| B5, D5 | GND | A2, A4 | `+5V`, FB2 divider |
+
+On first power-up that is `+5V` shorted to the module's GND balls, `+2V5` driven
+into its VOUT2 power stage, and both VIN balls sitting on ground. The part and
+very likely the FPGA core rail do not survive it.
+
+**It is a rotation, not a reflection, and that matters.** The linear part of the
+index map is `[[0,−1],[1,0]]`, determinant **+1**, so it is a pure 90° rotation.
+Rotating the physical part one quarter turn clockwise relative to the footprint's
+silkscreen makes all 25 connections correct. So the board is recoverable at
+assembly by *ignoring* the pin-1 marker — which is exactly the trap, because the
+marker (`fp_circle` at −3.725,−3.725, beside `A1`) says the opposite. Same
+character as the known Crystek defect: geometry right, numbering rotated,
+silently wrong if trusted.
+
+**The geometry itself is correct.** Datasheet LGA table: D = E = 6.25 mm,
+e = 1.27 mm, F = G = 5.08 mm, suggested PCB layout `Øb (25 PLACES)` at radius
+0.3175 mm. The footprint has a 6.25 mm body outline, 1.27 mm pitch, 5.08 mm
+outer-centre span and 0.635 mm lands. One minor deviation: the lands are drawn
+**square** where the suggested layout specifies **round** Ø0.635 — 27 % more
+copper and paste per land, which affects self-alignment slightly on a 25-land
+module and is worth matching rather than arguing about.
+
+### 2.2 The Crystek CCHD-957 footprint is *not* oversized — settled from Rev N
+
+The documentation review's additional claim that this footprint is drawn twice
+the size of the part is **not supported**. Crystek CCHD-957 spec sheet Rev N,
+25-Aug-2026, fetched from `crystek.com/Specification/CCHD-957`:
+
+- Body: `0.560 ±0.005 (14.2 ±0.127)` × `0.360 ±0.005 (9.14 ±0.127)` mm, 5.3 mm
+  max height.
+- The four numbers printed under SUGGESTED PAD LAYOUT are, verbatim:
+  `0.280 (7.11)`, `0.050 (1.27)`, `0.090 (2.28)`, `0.200 (5.08)`.
+
+The footprint's body outline is `±7.1, ±4.57` = 14.2 × 9.14 mm, which is the
+datasheet body to the tenth of a millimetre. Its pads are `2.28 × 1.27 mm` on
+`7.11 × 5.08 mm` centres — the four datasheet numbers used directly. Nothing is
+doubled. For completeness, the part's own metallisation in the BOTTOM VIEW is
+`0.040 (1.01)` × `0.070 (1.77)` on `0.200 (5.08)` centres, so the suggested land
+is 26 % longer and 29 % wider than the part's own pad, which is the normal
+fillet allowance and confirms the two sets of numbers are not being confused for
+each other.
+
+What I could **not** settle from the text layer is which axis the elongated
+2.28 mm dimension runs along, because that is carried by the drawing's geometry
+rather than by a label. The footprint runs it along the 14.2 mm axis. Someone
+should put eyes on the drawing. The pad *numbering* rotation is the known
+defect and I did not re-derive it.
+
+### 2.3 Custom symbol pin numbering, part by part
+
+| Symbol | Checked against | Verdict |
+| --- | --- | --- |
+| `SN74ALVCH16374` | TI SCES021L, `DGG/DGV/DL` package top view, all 48 pins | **exact match**, pin for pin |
+| `LTM4622` | ADI Rev G PIN FUNCTIONS, all 25 balls | **exact match** |
+| `CCHD-957` | Crystek Rev N Pad Connection table | **exact match** (1 E/D, 2 GND, 3 OUT, 4 Vcc) |
+| `MX25R6435F` | not fetched — see §5 | unverified |
+| `SN74LVC1G74` | not fetched — see §5 | unverified |
+| `LMK1C1104` | not fetched — see §5 | unverified |
+| `LTC3265` | — | dead symbol, see below |
+
+The `SN74ALVCH16374` check is worth spelling out because it is the substitution
+the netlist README calls "the one that matters". The datasheet's package view
+gives pins 1–24 down the left as `1OE, 1Q1, 1Q2, GND, 1Q3, 1Q4, VCC, 1Q5, 1Q6,
+GND, 1Q7, 1Q8, 2Q1, 2Q2, GND, 2Q3, 2Q4, VCC, 2Q5, 2Q6, GND, 2Q7, 2Q8, 2OE` and
+48 down to 25 on the right as `1CLK, 1D1, 1D2, GND, 1D3, 1D4, VCC, 1D5, 1D6,
+GND, 1D7, 1D8, 2D1, 2D2, GND, 2D3, 2D4, VCC, 2D5, 2D6, GND, 2D7, 2D8, 2CLK`.
+The symbol reproduces all 48 exactly, including the eight GND and four VCC
+positions. Two independent clocks (`1CLK` pin 48, `2CLK` pin 25) and two
+independent output enables (`1OE` pin 1, `2OE` pin 24) exist as the generator
+assumes.
+
+`LTC3265` is still in `lyrebird.kicad_sym` (19 pins) but the charge pump it
+described was deleted with decision 5 and no generator references it. Dead
+weight, not a fault.
+
+**The stock GateMate symbol is correct, all 324 balls.** I extracted DS1001's
+Table 5.3 pin list (September 2026 revision) and compared it against the symbol
+programmatically, normalising KiCad's overbar syntax and the combined
+first/second-function names: **324 balls, zero mismatches, none missing on
+either side**, including every dual-function name (`CLK0/IO_SB_A8` at N14,
+`POR_EN/IO_WA_A3` at U1, `IO_WA_A2/~{CFG_FAILED}` at V2, and so on) and
+`N16 = N.C.`, which the datasheet says "must be left open". The generator's
+claim that bank allocation is "against the real ball map, not invented" holds.
 
 ---
