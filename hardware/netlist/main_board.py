@@ -309,7 +309,7 @@ def build():
     resistor(buck5["FB"], v["GND"], "24.9k 1%")
     decouple(v["+5V"], v["GND"], "47uF", "1210")
 
-    # ---- -6 V for the module's analog stage (decision 5, option B).
+    # ---- -6 V for the module's analog stage (0015).
     #
     # The module used to make both analog rails itself, doubling 5 V and then
     # inverting the doubled rail. That cost 73 mA of pure conversion overhead

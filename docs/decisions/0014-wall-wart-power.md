@@ -34,7 +34,10 @@ the design does not have to accept.
 **Power comes from an external 12 V supply. USB carries data only.**
 
 A 2.1 × 5.5 mm barrel jack, centre positive, feeds a resettable fuse, a series
-Schottky for reverse polarity, and a 15 V TVS. An LMR33630 takes 12 V to 5 V,
+Schottky for reverse polarity, a Schottky clamp, and an **18 V** TVS — 15 V
+when this was written, changed because a 15 V part conducts on a 19 V adapter at
+41 mA and 117 °C indefinitely without ever tripping the fuse. An LMR33630 takes
+12 V to 5 V,
 and **everything downstream of +5V is unchanged** — the LTM4622, the LT3045 and
 the mezzanine all see the rail they were designed against. That is deliberate:
 the point of this change is to remove a constraint, not to revisit work that
@@ -69,20 +72,26 @@ pre-enumeration role; the LTM4622 run-pin gating and its `WAKEUP_N` NMOS.
 **Recoverable, once the module follows.** 2.1 dB, by returning the difference
 network to 200 Ω.
 
-**And a second 1.1 dB nobody was looking for.** `analog.txt` Q1c measures the
-noise-optimal element resistor at **2585 Ω**, giving 133.5 dB, and records
-3.32 kΩ as costing 1.1 dB against it. One of the three reasons given for
-choosing 3.32 kΩ is that "the whole board has to fit one unit load before
-enumeration with the flip-flops in an undefined state. That needs R ⩾ 3312 Ω."
-**That constraint is gone.** The other two reasons both argue *downward* — the
-optimum is at 2585 Ω and everything past 3 kΩ buys resistor noise for less
-current — so nothing now holds the element above the optimum. It costs about
-4 mA of extra element current, which was the entire objection and is no longer
-a budget anyone is defending.
+**~~And a second 1.1 dB nobody was looking for.~~ Struck — I misread
+`analog.txt`.** The claim was that Q1c measures a *noise-optimal* element
+resistor at 2585 Ω and that 3.32 kΩ costs 1.1 dB against it. Both halves are
+wrong, and a validation pass caught it:
 
-Not acted on here, because `analog.py` prices four amplifiers where the board
-has six, so the model that would size it is measuring a circuit that was not
-built. Fix that first, then re-run the element sweep.
+- **2585 Ω is not an optimum.** `run_analog.py:299` computes it as
+  `1 kΩ × 10^((S_elem(1 kΩ) − floor)/10)` — a break-even solve for where the
+  element resistors' own thermal noise equals the measured digital floor. There
+  is no derivative and no argmax, and `snr_elem_db` is *monotone* in R:
+  137.60 dB at 1 kΩ falling to 130.88 dB at 4.7 kΩ. Lower is always quieter and
+  always costs more current. There is nothing to be at an optimum of.
+- **The figure is 0.67 dB, not 1.1.** The 1.1 dB is the element resistors
+  measured *alone*. Through the stage, 2585 Ω gives 126.50 dB against 3.34 kΩ's
+  125.83 — recomputed from the model rather than read off a log.
+
+What survives is smaller and still real: the one-unit-load rule that was one of
+three reasons for 3.32 kΩ *is* retired, so the value can be revisited, and
+doing so buys about **0.67 dB for roughly 4 mA**. That is a trade worth making
+on a board with no current budget, but it is not a dB nobody was looking for and
+it is not an optimum.
 
 **New obligations.** A switching wall wart is now the primary noise source
 where `VBUS` used to be, and it arrives through a connector a person can plug
@@ -108,20 +117,19 @@ unaffected and the SuperSpeed pairs simply go unrouted — which also removes th
 hardest constraint in the main board's layout, two 5 Gbps impedance-controlled
 differential pairs.
 
-## What this does not yet do
+## What this did not do, and what has since
 
 Stated plainly, because a half-implemented power change is worse than either
-end of it:
+end of it. Three of the four items below were closed by
+[0015](0015-negative-rail-across-the-mezzanine.md).
 
-- **The module is untouched.** The mezzanine still carries +5V, the LTC3265
-  charge pump is still fitted, and the difference network is still 604 Ω. The
-  2.1 dB is recoverable but not recovered.
-- **The isolator is not fitted.** The SuperSpeed pairs are still routed and the
-  ADuM4166 is not in the netlist.
-- **Neither board's `power.md` reflects any of this.** Both were already
-  describing superseded netlists before this change.
-
-The natural next step is to carry a negative rail across the mezzanine from the
-main board, where 12 V makes it cheap, and delete the charge pump entirely.
-That changes the mezzanine contract in `interface.md` and deserves its own
-pass.
+- ~~**The module is untouched.**~~ **Done by 0015.** The mezzanine carries −6V,
+  the LTC3265 is deleted, the difference network is 200 Ω and the 2.1 dB is
+  recovered rather than recoverable.
+- **The isolator is not fitted.** Still true. The SuperSpeed pairs are routed
+  and the ADuM4165/4166 is not in the netlist. This is 0014's unfinished half.
+- ~~**Neither board's `power.md` reflects any of this.**~~ **Done.** Both were
+  rewritten against the current netlists, and
+  `hardware/check_freshness.py` now exists to notice when they drift again.
+- ~~**Whether supply ground ties to chassis is undecided.**~~ Still undecided,
+  and still only a decision rather than work.

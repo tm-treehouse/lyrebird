@@ -89,7 +89,7 @@ U4_EFF_10 = Fact(0.80, "", ASSUMED, "not read off the efficiency curve")
 # found those pages stale in other respects; these totals are the ones the
 # module's page reached after every part was chosen, and they are the most
 # current numbers in the repository.
-# Decision 5 moved the module's negative rail to the main board and deleted
+# 0015 moved the module's negative rail to the main board and deleted
 # its charge pump. The module's draw from 5 V falls by the pump's overhead;
 # the negative rail becomes a separate load on a separate rail.
 I_MODULE_5V = Fact(0.123, "A", CALC, "element 60.6 + clock 35.5 + op amp "

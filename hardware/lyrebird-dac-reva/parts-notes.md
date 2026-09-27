@@ -72,7 +72,7 @@ Two details of the wiring are deliberate and worth not undoing:
 
 The finding here is not in analog.txt's model, because that model has no
 supply in it. It changed two component values once and has since been partly
-undone by decision 5, so both states are recorded.
+undone by 0015, so both states are recorded.
 
 **Every milliampere of element current ends up in the negative supply.** The
 elements push current into a node held at 0 V; it leaves through the
@@ -93,7 +93,7 @@ while its own noise scales as √R, so the value is a genuine trade:
 **200 Ω is fitted, and the 2.1 dB is recovered.** It was 604 Ω for one round
 because the module made its own negative rail with a charge pump, which cost
 about twice its output current at the input and made 63 mA unaffordable.
-Decision 5 moved that rail to the main board; the current is ordinary again
+0015 moved that rail to the main board; the current is ordinary again
 and the noise-optimal value is affordable. Pole 3 follows the resistance:
 3.9 nF across 200 Ω is 204 kHz, the same corner 1.3 nF across 604 Ω gave.
 
@@ -387,7 +387,7 @@ and its own amplifiers.
 ## Charge pump — removed (was LTC3265EDHC#TRPBF, U13)
 
 **There is no charge pump on this board any more, and no switching converter
-of any kind.** Decision 5 moved the negative rail to the main board, where
+of any kind.** 0015 moved the negative rail to the main board, where
 12 V makes an inverter cheap, and the pump went with everything that supported
 it: two flying capacitors, two ADJ dividers, two reference bypasses and their
 bulk. Sixteen parts.
@@ -410,7 +410,7 @@ from outside. An LT3045 straight off the header gives +4.53 V, which is U14
 below.
 
 **What it cost while it was there**, recorded because it is the size of the
-prize that paid for decision 5: 73 mA of conversion overhead, a third of the
+prize that paid for 0015: 73 mA of conversion overhead, a third of the
 module's draw, for a stage that consumes 66 mA. A doubler costs about twice
 its output at the input and the negative rail was inverted from the
 already-doubled one, so it was paid for twice over. That is also what made
@@ -419,16 +419,26 @@ negative-rail current expensive enough to force the difference network to
 
 ## Positive and negative post-regulators — LT3045 (U14) and LT3094 (U8)
 
-The LT3045 was already the part on this board; U14 is a fourth one, sitting on
-the pump's +5.69 V LDO output and programmed to +4.99 V by 49.9 kΩ on SET. Its
-housekeeping is the same shared helper the other three use.
+The LT3045 was already the part on this board; U14 is a fourth one. It sits on
+the header's **+5V** — the charge pump whose LDO output used to feed it is
+deleted — and is programmed to **+4.53 V by 45.3 kΩ** on SET. Its housekeeping
+is the same shared helper the other three use, with `EN/UV` taken from
+`MUTE_N` rather than tied to IN.
+
+> **It was 49.9 kΩ, and that was a fault.** 49.9 kΩ programs 4.99 V, which
+> suited the pump's 5.69 V and leaves 30 mV against a 260 mV dropout figure
+> from the header's 5.02 V. The rail would not have reached its programmed
+> voltage. The SET resistor was simply left behind when the input changed, and
+> nothing caught it because `verify_power.py` checked the one LT3045 with 1.7 V
+> of headroom and none of the module's five. It now reads all six out of the
+> netlists.
 
 The **LT3094** at U8 was in the netlist with only OUT and GND connected — the
 netlist README lists its input as one of two genuinely open things on the
 module. It is now wired against its own datasheet rather than by analogy:
 
-- `SET`: 49.9 kΩ to ground. "The regulator's output voltage is determined by
-  VSET = ISET • RSET" with a precision 100 µA reference, and 49.9 kΩ is the
+- `SET`: 45.3 kΩ to ground, for 4.53 V. "The regulator's output voltage is determined by
+  VSET = ISET • RSET" with a precision 100 µA reference, and 45.3 kΩ is the
   value its own Table 1 lists for −5 V. 4.7 µF of SET bypass, which is what
   the quoted noise figure is measured with.
 - `EN/UV`: tied to IN. "If unused, tie EN/UV to IN. Do not float the EN/UV
@@ -620,7 +630,7 @@ by assumption: putting `+3V3_REF` on a header pin still fails the build.
 | Clock divider and fanout | **done** — SN74LVC1G74DCUR U1 + LMK1C1104PWR U12, new symbols |
 | Oscillator symbols | **done** — CCHD-957, Y1/Y2, new symbol and new footprint |
 | Element resistor and filter | **done** — 3.34 kΩ split, 180 pF per element, 402 Ω feedback |
-| Charge pump | **deleted** — decision 5 moved the negative rail to the main board; no switching converter remains on this board |
+| Charge pump | **deleted** — 0015 moved the negative rail to the main board; no switching converter remains on this board |
 | Positive rail post-regulator | **done** — LT3045, U14; LT3094 at U8 now fully wired |
 | Analog output connector | **done** — SJ1-3523N, J2 |
 | Difference network | **604 Ω, not 200** — a supply-current finding, 2.1 dB of noise paid for 28 mA of USB current |

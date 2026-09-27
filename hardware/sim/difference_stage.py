@@ -93,7 +93,7 @@ C_TIA = 2.0e-9
 
 R_DIFF = 200.0          # RN16/RN17, four per channel, one array.
                         # Was 604 while a charge pump on the module made
-                        # negative-rail current expensive; decision 5 moved
+                        # negative-rail current expensive; 0015 moved
                         # that rail to the main board and 200 is affordable
                         # again, which is where analog.txt wanted it.
 C_DIFF = 3.9e-9         # two discrete C0G parts, 2 % -- holds pole 3 at

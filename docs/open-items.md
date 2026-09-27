@@ -157,7 +157,7 @@ specifications are in
 | Oscillators | CCHD-957, symbol and 9×14 mm footprint drawn | 0012 |
 
 Both post-regulators are chosen and wired. The charge pump that used to sit in
-front of them is **deleted** — decision 5 moved the negative rail to the main
+front of them is **deleted** — 0015 moved the negative rail to the main
 board, so the analog board now contains no switching converter at all. It was
 fully worked out and never built, which is the cheapest way for a part
 selection to end.

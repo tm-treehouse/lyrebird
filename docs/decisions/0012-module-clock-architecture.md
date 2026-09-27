@@ -19,7 +19,7 @@
 > working.
 >
 > **The 3.3 V element rail this record establishes is unchanged**, but the
-> analog rails around it are: [0014](0014-wall-wart-power.md) and decision 5
+> analog rails around it are: [0014](0014-wall-wart-power.md) and [0015](0015-negative-rail-across-the-mezzanine.md)
 > deleted the module's charge pump, so the negative analog rail arrives from the
 > main board and the positive one regulates down from the header's 5 V.
 

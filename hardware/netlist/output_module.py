@@ -442,7 +442,7 @@ def build():
         # arithmetic wants. It was 604 ohm for one round, because the network
         # loads the negative supply -- 21 mA here against 7 at 604 -- and a
         # charge pump on the module made that current cost twice over. That
-        # pump is gone (decision 5): the negative rail now arrives from the
+        # pump is gone (0015): the negative rail now arrives from the
         # main board, where 12 V makes an inverter cheap, and the current is
         # ordinary again. The 2.1 dB the compromise cost is recovered.
         #
@@ -497,7 +497,7 @@ def build():
         _res(o, lo, "100R")
         line_out[ch] = lo
 
-    # ---- The bipolar rail (decision 5, option B; supersedes 0009's
+    # ---- The bipolar rail (0015, superseding 0009's
     # arrangement and the LTC3265 that implemented it).
     #
     # The module used to make both polarities here, doubling the mezzanine's

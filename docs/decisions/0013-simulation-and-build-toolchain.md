@@ -133,9 +133,8 @@ here, which is too thin to commit to.
 | nextpnr-himbaechel, with CCGM1A1 and CCGM1A2 databases | installed via OSS CAD Suite |
 | gmpack, gmunpack | installed via OSS CAD Suite |
 | openFPGALoader 1.1.1 | installed |
-| git-lfs 3.8.0 | installed, repository not yet configured to use it |
+| git-lfs 3.8.0 | installed. The **repository** is not configured to use it, and whether it should be is open — much cheaper to decide before `hardware/datasheets/` fills with multi-megabyte PDFs than after |
 | FTDI D3XX library | universal dylib, arm64 native confirmed; not yet vendored |
-| git-lfs | **missing**, worth deciding before `hardware/datasheets/` fills |
 
 Homebrew has no generic nextpnr, only `nextpnr-ice40`, so the OSS CAD Suite is
 the only practical route to the GateMate target. Its build recipes include

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import csv
 import re
+import pathlib
 import subprocess
 import sys
 from pathlib import Path
@@ -58,7 +59,7 @@ BOARDS = {
 # Things that were true once. Each maps to what replaced it, so the report
 # can say what to write instead rather than only that something is wrong.
 SUPERSEDED = {
-    "LTC3265": "deleted by decision 5; the negative rail crosses the mezzanine",
+    "LTC3265": "deleted by 0015; the negative rail crosses the mezzanine",
     "SMAJ15A": "SMAJ18A -- the 15 V part conducted on a 19 V adapter forever",
     "1812L110": "1812L050/30 -- the 110 is rated 6 Vdc on a 12 V rail",
     "604R": "200R; the 2.1 dB compromise was recovered with the charge pump",
@@ -70,7 +71,25 @@ SUPERSEDED = {
 }
 # Files where a superseded string is expected, because they are the record of
 # the change rather than a description of the board.
-SUPERSEDED_OK = ("docs/decisions/", "docs/review/", "CHANGELOG", "notes-")
+# Paths exempt from the superseded-string scan because they are the record of
+# a change rather than a description of the board.
+#
+# docs/decisions/ used to be here wholesale, which was wrong: it exempted the
+# fourteen records that *define* the design from the only content check in this
+# file. A validation pass ran the scan against them anyway and found one real
+# hit among five legitimate historical references. So the exemption is now
+# earned per file rather than granted by directory -- a record whose Status
+# says it is superseded is history and is skipped; a live one is checked.
+SUPERSEDED_OK = ("docs/review/", "CHANGELOG", "notes-")
+
+
+def is_superseded_record(path: pathlib.Path) -> bool:
+    """A decision record that says it is superseded describes the past."""
+    try:
+        head = path.read_text(errors="replace")[:1200].lower()
+    except OSError:
+        return False
+    return "superseded by" in head
 
 # Markers that put a line in the past tense. Deliberately narrow: the point is
 # to let a document record what changed without the record itself reading as
@@ -265,6 +284,15 @@ def check_single_node_nets() -> None:
                 "single-node nets are either a typo or a floating lead")
 
 
+def in_context(lines, lineno) -> bool:
+    """Is line `lineno` (1-based) under a "## Context" heading?"""
+    for k in range(lineno - 1, -1, -1):
+        stripped = lines[k].strip()
+        if stripped.startswith("## "):
+            return stripped.lower().startswith("## context")
+    return False
+
+
 def check_superseded() -> None:
     try:
         tracked = subprocess.run(["git", "ls-files"], cwd=ROOT,
@@ -275,7 +303,8 @@ def check_superseded() -> None:
         return
     docs = [f for f in tracked
             if f.endswith((".md", ".csv"))
-            and not any(k in f for k in SUPERSEDED_OK)]
+            and not any(k in f for k in SUPERSEDED_OK)
+            and not is_superseded_record(ROOT / f)]
     for old, new in SUPERSEDED.items():
         hits = []
         for f in docs:
@@ -307,6 +336,13 @@ def check_superseded() -> None:
                 # superseded text being shown as superseded, which is the one
                 # form of staleness worth preserving deliberately.
                 if line.lstrip().startswith(">"):
+                    continue
+                # A decision record's Context section exists to recount the
+                # situation the record changed, so naming a superseded thing
+                # there is the section doing its job. Structural rather than
+                # per-line: the alternative was wedging past-tense markers
+                # into prose that was already correct.
+                if f.startswith("docs/decisions/") and in_context(lines, i):
                     continue
                 hits.append(f"{f}:{i}")
         if hits:

@@ -42,7 +42,7 @@ referenced to that rail and **never to 3.3 V**. The module therefore needs a
 | `-5V_A` | −5 | LT3094, U8, from the mezzanine's **−6V** | op amp `V−`, **and all the signal current** | 56.5–63.5 mA | 64 mA of −6V |
 | `+2V5` | 2.5 | LT3045, U9 | translator `VCC(A)` | <1 mA | 3 mA of +5V |
 
-**There is no charge pump.** Decision 5 moved the negative rail to the main
+**There is no charge pump.** 0015 moved the negative rail to the main
 board, where 12 V makes an inverter cheap, so this board now contains no
 switching converter of any kind — which was the point of choosing that
 arrangement over three alternatives that each relocated a switcher instead of
@@ -238,7 +238,7 @@ It is signal current, not quiescent, and it is a third of the analog stage.
 That is why the 200 Ω difference network was once 604 Ω. While the module made
 its own negative rail by inverting an already-doubled 5 V, 63.5 mA cost about
 four times that at the input; 604 Ω brought it to 44.8 mA and cost 2.1 dB of
-stage noise. Decision 5 made the current ordinary and the 2.1 dB came back.
+stage noise. 0015 made the current ordinary and the 2.1 dB came back.
 
 One measured caveat on the asymmetry, from `hardware/sim/difference_stage.py`:
 the two halves do not merely draw different currents, they *swing* differently
@@ -258,7 +258,7 @@ distortion question rather than a supply one, and it is open item D3.
 | Op amp negative, incl. element and network current | 56.5–63.5 mA | **64 mA of −6V** | datasheet + calculation |
 
 **123 mA of +5V and 64 mA of −6V**, against 238 mA of +5V alone before
-decision 5. The difference is not the rail that was added — it is the 73 mA of
+0015. The difference is not the rail that was added — it is the 73 mA of
 conversion overhead that went away with the pump. A doubler costs about twice
 its output at the input, and the negative rail was inverted from the
 already-doubled one, so it was paid for twice over.
@@ -327,9 +327,13 @@ one now stands or falls on its own merits rather than on a budget:
   DC blocking. That makes it open item D10 rather than a requirement.
 - **The element resistor at 3.32 kΩ.** One of its three justifications is now
   retired: it had to fit one unit load at power-on with the flip-flops in an
-  undefined state.
-  With that gone, `analog.txt`'s noise optimum at 2585 Ω is available and worth
-  1.1 dB. Open item, blocked on `analog.py` pricing six amplifiers rather than
+  undefined state. With that gone the value can be revisited, and moving to
+  2585 Ω buys about **0.67 dB** of stage SNR for roughly 4 mA. Note that
+  2585 Ω is **not** an optimum — it is where the element resistors' own thermal
+  noise equals the digital floor, and that noise falls monotonically as R does,
+  so lower is always quieter and always costs more current. An earlier version
+  of this page called it a noise optimum worth 1.1 dB; both were wrong. Open
+  item, and still blocked on `analog.py` pricing six amplifiers rather than
   four.
 - **Rejecting the single-chip divider.** The Si53308 was rejected for drawing
   65 mA. It is still the wrong choice, but now because 65 mA to replace two
@@ -359,7 +363,7 @@ four times their estimate.
 
 Every rail on this board is sourced, and the arrangement changed twice since
 this section was first written — once when the parts were chosen, once when
-decision 5 moved the negative rail off the board.
+0015 moved the negative rail off the board.
 
 | Rail | Source | Note |
 | --- | --- | --- |
@@ -371,7 +375,7 @@ decision 5 moved the negative rail off the board.
 
 **The charge pump is deleted**, with its two flying capacitors, two ADJ
 dividers and two reference bypasses. This board has no switching converter on
-it at all, which is the property decision 5 was chosen for — the three
+it at all, which is the property 0015 was chosen for — the three
 alternatives each relocated a switcher rather than removing one.
 
 Both final regulators stay where they always were, and deliberately: their

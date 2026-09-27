@@ -100,7 +100,7 @@ element clock left the board without ever reaching a flip-flop. A build-time
 assertion now fails on the overvoltage class of that list, and it is
 tamper-tested.
 
-**The charge pump is gone.** It was chosen, verified and wired, and decision 5
+**The charge pump is gone.** It was chosen, verified and wired, and [0015](../../docs/decisions/0015-negative-rail-across-the-mezzanine.md)
 deleted it before it was ever built — the negative rail now crosses the
 mezzanine from the main board, where 12 V makes an inverter cheap. That took
 16 parts off this board and recovered the 2.1 dB the 604 Ω difference network
