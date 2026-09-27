@@ -98,6 +98,10 @@ Consequences, in order of seriousness:
 
 This is a two-line fix in the generator and I have not made it (read-only).
 
+**Status:** fixed while this review was in progress, and `check_freshness.py` now
+reports single-node nets on both boards with the module's four reserved element
+lines exempted — so the class is closed and checked, not just this instance.
+
 ### 1.2 What the overvoltage assertion covers, tested rather than read
 
 Sixteen cases, one process each, injection verified in every case. `hv_rails`
@@ -316,6 +320,9 @@ marker (`fp_circle` at −3.725,−3.725, beside `A1`) says the opposite. Same
 character as the known Crystek defect: geometry right, numbering rotated,
 silently wrong if trusted.
 
+**Status:** fixed while this review was in progress — 24 lands renamed, the pin-1
+marker moved, and the derivation recorded in the footprint's own `descr` field.
+
 **The geometry itself is correct.** Datasheet LGA table: D = E = 6.25 mm,
 e = 1.27 mm, F = G = 5.08 mm, suggested PCB layout `Øb (25 PLACES)` at radius
 0.3175 mm. The footprint has a 6.25 mm body outline, 1.27 mm pitch, 5.08 mm
@@ -527,8 +534,8 @@ capacitor named anywhere in the netlist**:
 | `VDD_SER_PLL` | T16 | `+1V0` | SerDes PLL supply |
 | `VDD_CLK` | T14 | `+2V5` | Supplies `SER_CLK`, `SER_CLK_N`, `RST_N`, `POR_ADJ` |
 
-Three of the four are on rails that carry 28 and 50 other capacitors, so at the
-board level they are bypassed; but none of them has a *local* part, and none of
+All five sit on rails that carry 28 and 50 other capacitors respectively, so at
+the board level they are bypassed; but none of them has a *local* part, and none of
 the four core-domain supplies has the **filter** — a ferrite or an RC, not a
 capacitor — that §2.10 asks for by name. `VDD_CLK` is the one I would fix first
 regardless of the SerDes: it supplies `RST_N` and `POR_ADJ`, i.e. the reset
