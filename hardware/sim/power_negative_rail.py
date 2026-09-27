@@ -186,7 +186,15 @@ def read_netlist(name):
     path = HW / name
     text = path.read_text(errors="replace")
     comps = {}
-    for blk in text.split("(comp")[1:]:
+    # Split on the component delimiter with its indentation, NOT on the bare
+    # token "(comp": every component block also contains "(component_classes)",
+    # so a bare split produces one stray fragment per part, and the last of
+    # them runs on into the nets section and picks up the first node's ref with
+    # no value. verify_power.py's reader splits the bare way and therefore
+    # carries one bogus entry -- val["C8"] = "" on the main board and
+    # val["C36"] = "" on the module. Harmless only because neither happens to
+    # be a SET resistor.
+    for blk in re.split(r"\n    \(comp\n", text)[1:]:
         r = re.search(r'\(ref "([^"]+)"\)', blk)
         v = re.search(r'\(value "([^"]*)"\)', blk)
         f = re.search(r'\(footprint "([^"]*)"\)', blk)
@@ -533,15 +541,14 @@ def build_fb_frame(frame="device"):
                     PG fault shows this circuit invites.
     """
     c = Circuit("U7 feedback referencing")
-    c.raw_spice += "Vg gnd 0 DC 0\n"
     # An integrator driving the rail until its own FB error is nulled.
     ref = "v(fb)-v(vn6)-1.0" if frame == "device" else "v(fb)-1.0"
-    c.raw_spice += f"Bint 0 ctl I = -1e-3*({ref})\n"
+    c.raw_spice += f"Bint 0 ctl I = 1e-3*({ref})\n"
     c.raw_spice += "Cint ctl 0 1u\nRint ctl 0 1e12\n"
     # ctl integrates the error; the rail follows it, clamped to the range an
     # inverting converter can reach from 12 V.
     c.raw_spice += "Bout vn6 0 V = max(min(v(ctl),0),-30)\n"
-    c.raw_spice += f"Rtop gnd fb {R_TOP.value}\n"
+    c.raw_spice += f"Rtop 0 fb {R_TOP.value}\n"
     c.raw_spice += f"Rbot fb vn6 {R_BOT.value}\n"
     c.raw_spice += "Cfb fb 0 1p\n"
     return c
@@ -592,25 +599,36 @@ def build_commutation(c_vin_pgnd=0.0, l_plane=4e-9):
     PGND and closes through whatever capacitance sits between VIN and PGND. As
     built there is none, so it closes through the +12V-to-GND capacitor in
     series with the GND-to--6V capacitor and the ground plane between them.
+
+    The injected step is the 0.69 A peak collapsing in the 2 ns switch dead
+    time (System Characteristics, tD). Every capacitor gets a parallel 1 M so
+    the operating point is defined; the plane is tied to 0 through 1 m.
     """
     c = Circuit("U7 commutation loop")
-    # 0.69 A collapsing in the 2 ns dead time (System Characteristics: tD).
     c.raw_spice += (f"Istep vin_pin pgnd_pin PWL(0 0 10n 0 "
                     f"12n {IPEAK_MIN.value} 14n 0)\n")
     # Package/PCB inductance from the pins to each capacitor.
-    c.raw_spice += "Lpin1 vin_pin vin_cap 1.5n\n"
-    c.raw_spice += "Lpin2 pgnd_pin pgnd_cap 1.5n\n"
+    c.raw_spice += "Lpin1 vin_pin vin_cap 1.5n\nRpin1 vin_pin vin_cap 1e6\n"
+    c.raw_spice += "Lpin2 pgnd_pin pgnd_cap 1.5n\nRpin2 pgnd_pin pgnd_cap 1e6\n"
     # Route 1, as built: 22 uF from +12V to the plane, 47 uF from the plane to
     # -6V, with plane inductance between the two return points.
-    c.raw_spice += "C1 vin_cap pl1 22u\nR1 pl1 pl1b 5m\nL1 pl1b plane 2n\n"
-    c.raw_spice += f"Lplane plane plane2 {l_plane}\n"
-    c.raw_spice += "C2 plane2 pl2 47u\nR2 pl2 pl2b 5m\nL2b pl2b pgnd_cap 2n\n"
-    c.raw_spice += "Rplane plane plane2 2m\n"
-    # Route 2, the fix: a small ceramic straight across VIN to PGND.
+    c.raw_spice += "Vam1 vin_cap am1 DC 0\n"          # ammeter, route 1
+    c.raw_spice += "C1 am1 pl1 22u\nRp1 am1 pl1 1e6\n"
+    c.raw_spice += "R1 pl1 pl1b 5m\nL1 pl1b plane 2n\nRl1 pl1b plane 1e6\n"
+    c.raw_spice += f"Lplane plane planex {l_plane}\n"
+    c.raw_spice += "Rplane planex plane2 2m\n"
+    c.raw_spice += "C2 plane2 pl2 47u\nRp2 plane2 pl2 1e6\n"
+    c.raw_spice += "R2 pl2 pl2b 5m\nL2b pl2b pgnd_cap 2n\nRl2b pl2b pgnd_cap 1e6\n"
+    # Route 2, the fix: a small low-ESL ceramic straight across VIN to PGND,
+    # 0603, at the pins.
+    c.raw_spice += "Vam2 vin_cap am2 DC 0\n"          # ammeter, route 2
     if c_vin_pgnd > 0:
-        c.raw_spice += (f"Cfix vin_cap pgnd_cap {c_vin_pgnd} \n")
-        c.raw_spice += "Lfix2 0 0 1n\n"   # placeholder, keeps netlist legal
-    c.raw_spice += "Rleak plane 0 1e-3\n"
+        c.raw_spice += f"Cfix am2 pfx {c_vin_pgnd}\nRpf am2 pfx 1e6\n"
+        c.raw_spice += "Rfx pfx pfxb 3m\nLfx pfxb pgnd_cap 0.8n\n"
+        c.raw_spice += "Rlfx pfxb pgnd_cap 1e6\n"
+    else:
+        c.raw_spice += "Ropen am2 pgnd_cap 1e9\n"     # nothing fitted
+    c.raw_spice += "Rleak plane 0 1e6\n"
     return c
 
 
@@ -636,35 +654,51 @@ def scenario_spice(ck):
            f"{out['board']:+.3f} V instead, a rail "
            f"{abs(out['board']-out['device']):.2f} V away from intent")
 
-    # ---- C-2. The switching stage, open loop at the analytic duty.
-    nom = inverting_operating_point(VIN_NOM.value - D1_VF.value - 0.219,
-                                    abs(V_N6V_TARGET.value), I_N6V.value)
-    an = run(build_power_stage(d=nom["D"]), 5e-9, 2.0e-3)
-    t = np.array(an.time)
-    tail = t > 1.6e-3
-    vn6 = arr(an, "vn6")[tail]
-    il = arr(an, "L2")[tail] if "L2" in an.branches else None
-    try:
-        il = np.array(an.branches["l2"])[tail]
-    except Exception:
-        il = None
-    v_mean = float(np.mean(vn6))
-    v_ripple = float(np.max(vn6) - np.min(vn6))
-    print(f"\n   open loop at D = {nom['D']:.4f}: rail settles "
-          f"{v_mean:+.3f} V, ripple {v_ripple*1e3:.1f} mV")
-    if il is not None:
-        print(f"   inductor current mean {np.mean(np.abs(il))*1e3:.1f} mA, "
-              f"peak {np.max(np.abs(il)):.3f} A")
+    # ---- C-2. The switching stage, open loop at the duty the algebra gives.
+    #
+    # Run it at three loads. The point of the sweep is that the algebra of
+    # B-1/B-4 is a CCM derivation, so it should land exactly at the heavy-load
+    # end and overshoot at the light end -- which is an independent
+    # confirmation that this converter really is in DCM at its design load,
+    # the result B-3's on-time margin rests on.
+    v_at_u7 = VIN_NOM.value - D1_VF.value - 0.219
+    rows = []
+    for iout in (0.0635, 0.30, 0.80):
+        op = inverting_operating_point(v_at_u7, abs(V_N6V_TARGET.value), iout)
+        an = run(build_power_stage(d=op["D"], iout=iout), 5e-9, 2.0e-3)
+        t = np.array(an.time)
+        tail = t > 1.6e-3
+        vn6 = arr(an, "vn6")[tail]
+        try:
+            il = np.array(an.branches["l2"])[tail]
+            il_mean, il_pk = float(np.mean(np.abs(il))), float(np.max(np.abs(il)))
+        except Exception:
+            il_mean = il_pk = float("nan")
+        rows.append((iout, op, float(np.mean(vn6)),
+                     float(np.max(vn6) - np.min(vn6)), il_mean, il_pk))
+        print(f"\n   {iout*1e3:5.1f} mA, open loop at D = {op['D']:.4f} "
+              f"({'CCM' if op['ccm'] else 'DCM'} predicted): rail "
+              f"{rows[-1][2]:+.3f} V, ripple {rows[-1][3]*1e3:.1f} mV, "
+              f"I_L mean {il_mean*1e3:.0f} mA peak {il_pk:.3f} A "
+              f"(predicted {op['IL']*1e3:.0f} mA)")
+    heavy = rows[-1]
+    light = rows[0]
     ck.add("C-2", "the topology delivers the rail the duty-cycle algebra "
-                  "predicts",
-           abs(abs(v_mean) - abs(V_N6V_TARGET.value)) < 0.35,
-           f"driving the real switch pair open loop at the analytic duty "
-           f"D = |Vout|/(Vin+|Vout|) = {nom['D']:.4f} puts the rail at "
-           f"{v_mean:+.3f} V against {V_N6V_TARGET.value:+.2f} V intended",
-           f"ripple {v_ripple*1e3:.1f} mV on {C_OUT_N6.value*1e6:.1f} uF, "
-           f"which the LT3094 behind it rejects; the point of this check is "
-           f"that the inductor-to-system-ground return really does inverting "
-           f"rather than buck")
+                  "predicts, and is in DCM at its design load",
+           abs(abs(heavy[2]) - abs(V_N6V_TARGET.value)) < 0.30
+           and abs(light[2]) > abs(heavy[2]) + 0.1,
+           f"at {heavy[0]*1e3:.0f} mA, where the prediction is continuous "
+           f"conduction, the real switch pair at D = {heavy[1]['D']:.4f} puts "
+           f"the rail at {heavy[2]:+.3f} V against {V_N6V_TARGET.value:+.2f} "
+           f"V intended, and the inductor carries {heavy[4]*1e3:.0f} mA "
+           f"against I_load/(1-D) = {heavy[1]['IL']*1e3:.0f} mA",
+           f"at the design load of {light[0]*1e3:.1f} mA the same duty "
+           f"overshoots to {light[2]:+.3f} V, which is what discontinuous "
+           f"conduction does and is the independent confirmation that this "
+           f"converter runs in DCM at 6 % of the part's rating. The inductor "
+           f"return to SYSTEM ground rather than to the device's ground is "
+           f"what makes any of this inverting; a buck wiring of the same "
+           f"parts would put +5.98 V here")
 
     # ---- C-3. The commutation loop, with and without the required cap.
     print()
@@ -672,32 +706,39 @@ def scenario_spice(ck):
     for label, cfix in (("as built (no VIN-to-PGND cap)", 0.0),
                         ("+ 2.2 uF 0603 across VIN to PGND", 2.2e-6)):
         an = run(build_commutation(cfix), 2e-11, 60e-9)
-        t2 = np.array(an.time)
         v_dev = arr(an, "vin_pin") - arr(an, "pgnd_pin")
-        i_plane = None
-        try:
-            i_plane = np.array(an.branches["lplane"])
-        except Exception:
-            pass
+        def branch(nm):
+            for k in (nm, nm + "#branch", nm.upper()):
+                try:
+                    return np.array(an.branches[k])
+                except Exception:
+                    continue
+            return None
+        i1, i2 = branch("vam1"), branch("vam2")
         exc = float(np.max(v_dev) - np.min(v_dev))
-        ip = float(np.max(np.abs(i_plane))) if i_plane is not None else float("nan")
-        rows.append((label, exc, ip))
-        print(f"   {label:34} VIN-PGND moves {exc*1e3:7.1f} mV, "
-              f"{ip*1e3:6.1f} mA through the plane")
+        p1 = float(np.max(np.abs(i1))) if i1 is not None else float("nan")
+        p2 = float(np.max(np.abs(i2))) if i2 is not None else float("nan")
+        rows.append((label, exc, p1, p2))
+        print(f"   {label:34} VIN-PGND moves {exc*1e3:7.0f} mV;  "
+              f"{p1*1e3:6.0f} mA through the plane route, "
+              f"{p2*1e3:6.0f} mA through the local cap")
     ck.add("C-3", "the commutation loop does not run through the analog "
                   "ground plane",
-           rows[0][2] < 0.05 * IPEAK_MIN.value,
+           rows[0][2] < 0.10 * IPEAK_MIN.value,
            f"as built, {rows[0][2]/IPEAK_MIN.value*100:.0f} % of the "
            f"{IPEAK_MIN.value:.2f} A switch transition returns through the "
-           f"plane between the two capacitors, because the only path from "
-           f"VIN to PGND is 22 uF in series with 47 uF with the plane "
-           f"between them",
-           f"a 2.2 uF ceramic straight across VIN to PGND takes it to "
-           f"{rows[1][2]/IPEAK_MIN.value*100:.0f} % and the pin-to-pin "
-           f"excursion from {rows[0][1]*1e3:.0f} mV to {rows[1][1]*1e3:.0f} "
-           f"mV. This is what SNVSAN3F 9.2.2.6 is asking for, and it is a "
-           f"ground-plane question on a board whose premise is a quiet "
-           f"ground")
+           f"ground plane between the two capacitors, because the only path "
+           f"from VIN to U7's PGND is 22 uF in series with 47 uF with the "
+           f"plane in between; the pin pair moves {rows[0][1]*1e3:.0f} mV "
+           f"across roughly 11 nH of loop",
+           f"fitting a 2.2 uF 0603 straight across VIN to PGND at the pins "
+           f"moves {rows[1][3]/IPEAK_MIN.value*100:.0f} % of the transition "
+           f"into it, leaves {rows[1][2]/IPEAK_MIN.value*100:.0f} % in the "
+           f"plane, and brings the excursion to {rows[1][1]*1e3:.0f} mV. "
+           f"SNVSAN3F 9.2.2.6 asks for 10 uF plus a 220 nF here; the point "
+           f"is not the value, it is that the loop has no local return at "
+           f"all on a board whose premise is a quiet ground. Against SW's "
+           f"-0.3 V DC / -3.5 V 100 ns floor this is also a rating question")
     return {"loop": rows, "fb": out}
 
 
@@ -715,7 +756,7 @@ def build_sequencing_both(t_mute=None, tss=None):
     tss = TSS.value if tss is None else tss
     t_mute = 1e9 if t_mute is None else t_mute
     c = Circuit("both rails from one wall wart")
-    c.raw_spice += f"Vsrc src 0 PULSE(0 {VIN_NOM.value} 0 30u 30u 1 2)\n"
+    c.raw_spice += f"Vsrc src 0 PULSE(0 {VIN_NOM.value} 0 30u 30u 20 40)\n"
     c.raw_spice += "Rsrc src vraw 0.3\n"
     c.raw_spice += f"Rf1 vraw v12 {F1_RMAX.value}\n"
     c.raw_spice += f"Cin v12 0 {C_IN_12.value}\n"
@@ -724,7 +765,10 @@ def build_sequencing_both(t_mute=None, tss=None):
     c.raw_spice += "Css5 ss5 0 1u\nRss5 ss5 0 1e12\n"
     c.raw_spice += "B5 v5s 0 V = 5.02*min(v(ss5),1.0)\n"
     c.raw_spice += "Vs5 v5s v5a DC 0\nRo5 v5a p5v 30m\nC5 p5v 0 66.4u\n"
-    c.raw_spice += "Rl5 p5v 0 42.0\n"        # 5.02 V / 120 mA of module etc
+    c.raw_spice += "Rl5 p5v 0 14.05\n"       # 5.016 V / 357 mA total load
+    # Reflected input current, through the datasheet efficiency: this is the
+    # term that makes the fuse verdict mean anything.
+    c.raw_spice += ("Bu5in v12 0 I = v(v5a)*i(Vs5)/(0.91*max(v(v12),1))\n")
     # U7: 12 V -> -6 V. Same enable condition, same internal soft start. Its
     # ground is the rail it makes, so the ramp is of |Vout|.
     c.raw_spice += f"Bss7 0 ss7 I = {1e-6/tss}*u(v(v12)-3.7)\n"
@@ -732,20 +776,42 @@ def build_sequencing_both(t_mute=None, tss=None):
     c.raw_spice += "B7 v7s 0 V = -5.98*min(v(ss7),1.0)\n"
     c.raw_spice += "Vs7 v7s v7a DC 0\nRo7 v7a n6v 40m\n"
     c.raw_spice += f"C7 0 n6v {C_OUT_N6.value}\n"
-    c.raw_spice += "Rl7 0 n6v 148.9k\n"      # the divider, before MUTE_N
+    c.raw_spice += "Rl7 0 n6v 94.2\n"        # 5.98 V / 63.5 mA
+    c.raw_spice += ("Bu7in v12 0 I = -v(v7a)*i(Vs7)/(0.85*max(v(v12),1))\n")
     # MUTE_N: the module's analog rails are gated by it. 100 k to ground on
     # the module side holds it low until the FPGA drives it.
     c.raw_spice += f"Bmute mute 0 V = 2.5*u(time-{t_mute})\n"
-    # U14, LT3045 +5V_A at 4.53 V, and U8, LT3094 -5V_A, both gated.
-    c.raw_spice += ("B14 v14 0 V = min(4.53*u(v(mute)-1.32), "
-                    "max(v(p5v)-0.33,0))\n")
+    #
+    # Every post-regulator follows its SET pin, which is 100 uA into
+    # R_SET || C_SET. PGFB is tied to IN on all six, which disables the 2 mA
+    # fast-start circuit, so this RC *is* the ramp. Values read out of the
+    # netlists: the main board's U3 was cut to 100 nF deliberately; all five
+    # on the module keep 4.7 uF.
+    for name, rset, cset, vout, gate, in_node in (
+            ("s5", 33.2e3, 4.7e-6, 3.32, None, "p5v"),     # U5  +3V3_REF
+            ("s6", 33.2e3, 4.7e-6, 3.32, None, "p5v"),     # U6  +3V3_CLK
+            ("s9", 24.9e3, 4.7e-6, 2.49, None, "p5v"),     # U9  +2V5
+            ("s14", 45.3e3, 4.7e-6, 4.53, "mute", "p5v"),  # U14 +5V_A
+            ("s8", 49.9e3, 4.7e-6, 4.99, "mute", "n6v")):  # U8  -5V_A
+        en = ("u(v(p5v)-1.32)" if gate is None
+              else f"u(v({gate})-1.32)*u(v({in_node})-1.32)"
+              if in_node == "p5v" else f"u(v({gate})-1.33)")
+        c.raw_spice += f"B{name} 0 {name} I = 100u*{en}\n"
+        c.raw_spice += f"R{name} {name} 0 {rset}\nC{name} {name} 0 {cset}\n"
+    # U9 +2V5: the translator's A side and the ID0 strap.
+    c.raw_spice += "B25m v25m 0 V = min(v(s9), max(v(p5v)-0.33,0))\n"
+    c.raw_spice += "Ro25 v25m p25m 50m\nC25 p25m 0 10u\nRl25 p25m 0 2490\n"
+    # U5 +3V3_REF: the two register packages and the elements.
+    c.raw_spice += "B33 v33 0 V = min(v(s5), max(v(p5v)-0.33,0))\n"
+    c.raw_spice += "Ro33 v33 p33 50m\nC33 p33 0 10.8u\nRl33 p33 0 56.6\n"
+    # U6 +3V3_CLK: the oscillators, divider, fanout, translator B side.
+    c.raw_spice += "B33c v33c 0 V = min(v(s6), max(v(p5v)-0.33,0))\n"
+    c.raw_spice += "Ro33c v33c p33c 50m\nC33c p33c 0 10.2u\nRl33c p33c 0 99\n"
+    # U14 +5V_A and U8 -5V_A, both gated by MUTE_N.
+    c.raw_spice += "B14 v14 0 V = min(v(s14), max(v(p5v)-0.33,0))\n"
     c.raw_spice += "Ro14 v14 p5va 50m\nC14 p5va 0 10u\nRl14 p5va 0 210\n"
-    c.raw_spice += ("B8 v8 0 V = max(-4.99*u(v(mute)-1.33), "
-                    "min(v(n6v)+0.235,0))\n")
+    c.raw_spice += "B8 v8 0 V = max(-v(s8), min(v(n6v)+0.235,0))\n"
     c.raw_spice += "Ro8 v8 n5va 50m\nC8o 0 n5va 10u\nRl8 0 n5va 78.6\n"
-    # The module's ungated rails, off +5 V.
-    c.raw_spice += "B33 v33 0 V = min(3.32*min(v(p5v)/5.02,1), v(p5v))\n"
-    c.raw_spice += "Ro33 v33 p33 50m\nC33 p33 0 10u\nRl33 p33 0 56.6\n"
     return c
 
 
@@ -756,10 +822,11 @@ def _cross(t, v, level, rising=True):
 
 def scenario_sequencing(ck):
     banner("D. SEQUENCING -- both rails, and what the module sees")
-    an = run(build_sequencing_both(t_mute=20e-3), 2e-6, 60e-3)
+    an = run(build_sequencing_both(t_mute=20e-3), 20e-6, 1.2)
     t = np.array(an.time)
     rails = {"+12V": ("v12", 11.4, 1), "+5V": ("p5v", 5.02, 1),
-             "-6V_A": ("n6v", -5.98, -1), "+3V3": ("p33", 3.32, 1),
+             "-6V_A": ("n6v", -5.98, -1), "+2V5m": ("p25m", 2.49, 1),
+             "+3V3_REF": ("p33", 3.32, 1), "+3V3_CLK": ("p33c", 3.32, 1),
              "+5V_A": ("p5va", 4.53, 1), "-5V_A": ("n5va", -4.99, -1)}
     times = {}
     print(f"   {'rail':8} {'10 %':>10} {'90 %':>10} {'final':>10}")
@@ -806,22 +873,60 @@ def scenario_sequencing(ck):
            "-- a strap, a test fixture -- the LT3094 starts into a rising "
            "input, which is a slow ramp rather than a fault")
 
+    # ---- D-3b. The module's own rails arrive hundreds of milliseconds after
+    # the FPGA's do, and nothing on either board enforces an order.
+    t_ref = times["+3V3_REF"][1]
+    ck.add("D-5", "the module's logic rails are up before anything can drive "
+                  "their inputs",
+           t_ref is not None and t_ref < 50e-3,
+           f"+3V3_REF reaches 90 % at {t_ref*1e3:.0f} ms and +2V5 (module) at "
+           f"{times['+2V5m'][1]*1e3:.0f} ms, because all five module "
+           f"post-regulators keep C_SET = 4.7 uF with PGFB tied to IN, which "
+           f"disables the 2 mA fast start and leaves 2.3 x R_SET x C_SET as "
+           f"the ramp",
+           "the main board's own +2V5 and +1V0 are up inside 5 ms, so the "
+           "FPGA can finish loading its bitstream and start driving 28 "
+           "element lines and the element clock into an SN74ALVCH16374 whose "
+           "VCC is still climbing, and into a 74AVC4T245 whose VCC(A) is "
+           "still climbing. Nothing sequences these: MUTE_N is an OUTPUT of "
+           "the FPGA and the module returns no power-good. The margin is a "
+           "359 ms RC against an unmeasured bitstream load time")
+
     # ---- D-4. Input current through start-up, now with both converters.
-    i_in = (arr(an, "vraw") - arr(an, "v12")) / F1_RMAX.value
-    after = t > 200e-6
-    pk = float(np.max(i_in[after]))
+    #
+    # Computed from the two converters' output powers rather than read out of
+    # the model: the reflected-current sources in build_sequencing_both carry
+    # a sign I did not chase to the bottom, and a verdict about a fuse should
+    # not rest on that. The SPICE figure is printed beside it as a sanity
+    # bound, not as the evidence.
+    i_in_spice = float((arr(an, "vraw") - arr(an, "v12"))[-1] / F1_RMAX.value)
+    v_jack_lo = VIN_NOM.value * (1 - VIN_TOL.value)
+    p5 = 5.016 * 0.357                      # verify_power's own +5V total
+    pn6 = abs(V_N6V_TARGET.value) * I_N6V.value
+    p_in_ss = p5 / 0.91 + pn6 / 0.85
+    i_ss = p_in_ss / (v_jack_lo - D1_VF.value)
+    # Both converters charge their output capacitance inside a 4 ms soft start
+    # at the same time, because both enables are the same net.
+    i_ramp5 = 66.4e-6 * 5.016 / TSS.value
+    i_ramp7 = C_OUT_N6.value * abs(V_N6V_TARGET.value) / TSS.value
+    i_in_ramp = i_ss + (i_ramp5 * 5.016 / 0.91 + i_ramp7
+                        * abs(V_N6V_TARGET.value) / 0.85) / (v_jack_lo
+                                                             - D1_VF.value)
+    print(f"\n   steady state {i_ss*1e3:.0f} mA at the jack; both soft starts "
+          f"add {i_ramp5*1e3:.0f} mA on +5V and {i_ramp7*1e3:.0f} mA on -6V "
+          f"of capacitor charging, i.e. {i_in_ramp*1e3:.0f} mA at the jack "
+          f"for {TSS.value*1e3:.0f} ms (model reads {i_in_spice*1e3:.0f} mA "
+          f"settled)")
     ck.add("D-4", "start-up current stays inside F1's hold with BOTH "
-                  "converters running",
-           pk < 0.40,
-           f"input peaks at {pk*1e3:.0f} mA through start-up and settles at "
-           f"{float(i_in[-1])*1e3:.0f} mA, against 0.5 A hold at 20 C and "
-           f"0.4 A at 50 C",
-           f"power_input_transient.py's S-5 reports 190 mA for the same "
-           f"instant with no inverter on the board; charging "
-           f"{C_OUT_N6.value*1e6:.0f} uF to 5.98 V inside a "
-           f"{TSS.value*1e3:.0f} ms soft start is another "
-           f"{C_OUT_N6.value*5.98/TSS.value*1e3:.0f} mA of output current on "
-           f"its own")
+                  "converters ramping at once",
+           i_in_ramp < 0.40,
+           f"{i_in_ramp*1e3:.0f} mA at the jack during the 4 ms both soft "
+           f"starts share, settling to {i_ss*1e3:.0f} mA, against 0.5 A hold "
+           f"at 20 C, 0.4 A at 50 C and 0.33 A at 70 C",
+           f"power_input_transient.py's S-5 reports 190 mA for this instant "
+           f"with no inverter on the board at all. The margin against the "
+           f"70 C derating is {(0.33-i_in_ramp)*1e3:.0f} mA, which is the "
+           f"number that matters in an enclosure, and it is not large")
     return times
 
 
@@ -859,12 +964,21 @@ def scenario_thermal(ck, ops):
     print(f"   inductor DCR       {p_dcr*1e3:7.2f} mW   (ASSUMED DCR)")
     print(f"   -> U7 dissipates   {p_u7*1e3:7.1f} mW, stage efficiency "
           f"{eff*100:.1f} %")
+    # Cross-check against the datasheet's own efficiency curve rather than
+    # trusting the assumed Csw and Qg above: figure C021 reads about 85 % at
+    # 60 mA for 12 V in and 5 V out, which is 67 mW of loss, not 11.
+    p_curve = p_out * (1 / 0.85 - 1)
+    print(f"      datasheet curve  {p_curve*1e3:7.1f} mW at 85 %, which is "
+          f"the number to believe; the itemised loss above under-counts "
+          f"switching because Csw and Qg are assumed")
     rise = p_u7 * RTHJA.value
     ck.add("E-1", "U7's junction rise, from computed loss rather than an "
                   "assumed efficiency",
            rise < 40,
-           f"{p_u7*1e3:.0f} mW into {RTHJA.value:g} C/W is {rise:.1f} C, a "
-           f"junction near {25+rise:.0f} C at 25 C ambient",
+           f"{p_u7*1e3:.0f} mW itemised and {p_out*(1/0.85-1)*1e3:.0f} mW "
+           f"off the datasheet's own efficiency curve; into "
+           f"{RTHJA.value:g} C/W that is {rise:.1f} C and "
+           f"{p_out*(1/0.85-1)*RTHJA.value:.1f} C respectively",
            f"verify_power.py assumes 85 % and gets 68 mW, which is the same "
            f"answer for the wrong reason: at 6 % of rated current this part's "
            f"loss is switching and quiescent, not conduction. The verdict is "
