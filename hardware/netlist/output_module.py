@@ -527,7 +527,7 @@ def build():
     vpos_raw = v5                       # the rail that was always there
 
     pos = Part("Regulator_Linear", "LT3045xDD", ref="U14",
-               value="LT3045 op amp positive rail, +4.53 V from mezzanine 5 V",
+               value="LT3045 op amp positive rail, +4.02 V from mezzanine 5 V",
                footprint="Package_DFN_QFN:DFN-10-1EP_3x3mm_P0.5mm_EP1.65x2.38mm")
     for p in pos.pins:
         nm = str(p.name)
@@ -550,23 +550,29 @@ def build():
     # unblocked output; with the budget argument gone, a proper output mute
     # or a digital ramp is free to win on merit.
     #
-    # 45.3k, not the 49.9k this carried when the charge pump fed it. 100 uA
-    # through SET sets the output, so 49.9k programs 4.99 V -- and the input
-    # is now the header's 5.02 V rather than the pump's 5.69 V, which leaves
-    # 30 mV against a part whose datasheet dropout is 260 mV at 500 mA. The
-    # rail would not have come up to its programmed voltage, and nothing in
-    # the repository was checking: verify_power.py tests the main board's
-    # LT3045, which has 1.7 V of headroom, and none of the module's.
+    # 40.2k, and the value is the solution of two inequalities rather than a
+    # round number. This has now been wrong twice, so both bounds are written
+    # out.
     #
-    # 45.3k gives 4.53 V and 490 mV of headroom. That is still far more than
-    # the stage needs: the output swings +/-2.83 V peak and the OPA1612
-    # reaches within 600 mV of its rails, so 3.43 V would do and this leaves
-    # 3.93 V available.
+    # It was 49.9k, programming 4.99 V, which suited the charge pump's 5.69 V
+    # and left 30 mV once the input became the header's 5 V. Then 45.3k, which
+    # is comfortable at nominal and still negative stacked: the LMR33630's own
+    # VFB tolerance plus 1 % divider resistors put +5V as low as 4.86 V, the
+    # LT3045's ISET spans 98 to 102 uA, and its dropout at this current is
+    # 220/275/330 mV rather than the 260 mV headline figure at 500 mA.
     #
-    # The rails are deliberately asymmetric now, +4.53 and -4.99, and it is
-    # harmless -- both clear the swing with room, and matching the negative
-    # one down would add 30 mW of dissipation in the LT3094 for nothing.
-    lp.lt3045_housekeeping(pos, vpos_raw, gnd, "45.3k 0.1%", _res, _cap,
+    #   dropout:  Vout_max <= Vin_min - 330 mV  ->  R_SET <= 45.2k
+    #   swing:    Vout_min >= 2.83 V peak + 600 mV to the rail  ->  R >= 35.0k
+    #
+    # 40.2k sits at the midpoint and leaves +510 mV on each bound. The reason
+    # there is room to move at all is that this rail is an amplifier supply
+    # and not a reference: unlike +3V3_REF it does not set full scale, so its
+    # absolute value is uncritical and only the two margins matter.
+    #
+    # A part in dropout does not fail loudly. It stops regulating and passes
+    # its input's ripple through, on the rail feeding six amplifiers whose
+    # supply rejection is the whole reason a regulator is there.
+    lp.lt3045_housekeeping(pos, vpos_raw, gnd, "40.2k 0.1%", _res, _cap,
                            en=ctrl["MUTE_N"])
     _cap(vpos, gnd, "10uF")
 

@@ -762,3 +762,101 @@ Vishay table, and the file's own tamper shows that this single constant is the
 entire difference between a part that survives the 19 V case and one that does
 not. It should be re-read from the 18 V row.
 
+---
+
+## Cross-section flags
+
+Every inconsistency this review found between the documentation, the schematic
+as generated, and the checks. Each is tagged, says which side I believe, and
+names the file and place. The netlists are treated as the authority on what is
+built; `hardware/lyrebird-*/​*.net` is what I actually read.
+
+### Schematic defects — the netlist itself is wrong
+
+| Tag | Where | What |
+| --- | --- | --- |
+| **PWR-S1** | `main_board.py:278` and `:337`, both LMR33630s | Footprint `Package_SO:HTSSOP-8-1EP_3x3mm_P0.65mm_EP1.5x2.1mm` on an HSOIC-8 part. The datasheet's Device Information gives HSOIC (8), 5.00 × 4.00 mm; the KiCad symbol's own `fplist` names `Package_SO:Texas_HSOP-8-1EP_3.9x4.9mm_P1.27mm_ThermalVias`. A 0.65 mm-pitch 3 × 3 land cannot take a 1.27 mm-pitch 5 × 4 body. **Build-stopping.** Same class as the LTM4622 land-transposition found this round; that makes two footprint faults in the power tree. |
+| **PWR-S2** | `main_board.py`, U7's input | **No capacitor from +12 V to −6V_A.** U7's PGND *is* −6V_A, so SNVSAN3F 9.2.2.6's "minimum of 10 µF … required on the input" and pin 2's "directly to this pin and PGND" are unsatisfied: 22.10 µF is fitted +12 V to system ground, 0.00 µF to U7's ground. Measured consequence: 100 % of the 0.69 A switch transition returns through the ground plane, 7.6 V across the pin pair. Fix is one BOM line: 10 µF + 220 nF, or at least 2.2 µF X7R 50 V 0603, at U7's pins 1–2. |
+| **PWR-S3** | `output_module.py:671–673` | `hv_rails` omits `-6V_A` — the board's most dangerous net is invisible to `assert_below_abs_max` on the module side — and still declares four nets deleted with the charge pump: `PUMP_P`, `PUMP_N`, `+5V7_A`, `-5V7_A`. 0014 records this exact mechanism in its own words. |
+| **PWR-S4** | `lyrebird_parts.py`, `assert_below_abs_max` | The guard is **one-sided**: `ABS_MAX_V = 2.75` with no lower limit and no notion of sign anywhere in it. The design now carries a −6 V rail across a connector whose adjacent pin is a 2.5 V GPIO with a −0.3 V floor, and the guard cannot express the question. |
+| **PWR-S5** | mezzanine pin map, both boards | Pins 71/72 (−6V_A) sit in the column immediately beside 69/70 (ID0/ID1), and pins 65–70 contain **no ground pin at all**. One bridge between 70 and 71 puts −6 V onto a GateMate GPIO through nothing but two 10 kΩ pull-downs. Moving the pair into the alternating tail flanked by ground costs nothing electrically but changes `interface.md` and both netlists. |
+| **PWR-S6** | `output_module.py`, U14 SET = 45.3 k | The fix from 49.9 k is in the right direction and stops 213 mV short. At the +5 V rail's low tolerance corner (4.863 V, see PWR-D6) the headroom is 333 mV against an LT3045 dropout of **330 mV over temperature at this load**. 43.2 k / 4.32 V restores real margin; the stage needs about 3.5 V. |
+| **PWR-S7** | both `bom.csv` | U5 and U7 rows carry the wrong footprint in the Package column *and* are marked **VERIFIED**. Separately, **no capacitor in either BOM carries a voltage rating or dielectric** — they are grouped by value alone — on a 12 V rail whose TVS clamps at 29.2 V, where the datasheet asks for "at least the maximum input voltage, preferably twice". |
+
+### Decision record 0014 versus what is built
+
+| Tag | Where | What |
+| --- | --- | --- |
+| **PWR-D1** | `0014` Decision section | "a 15 V TVS" — the netlist fits an **SMAJ18A**, and 0014's own reasoning about the 19 V brick was reversed by a simulation. `open-items.md` already says 18 V. |
+| **PWR-D2** | `0014` Decision, and "What this does not yet do" | Says the negative-rail second stage "is not built yet", "the module is untouched", "the mezzanine still carries +5V", "the LTC3265 charge pump is still fitted", "the difference network is still 604 Ω". **All five are now false** and `open-items.md` records them as done. 0014 needs an amendment note, not a rewrite. |
+| **PWR-D3** | `0014` Consequences | "everything downstream of +5V is unchanged — the LTM4622, the LT3045 and the mezzanine all see the rail they were designed against." The mezzanine now carries −6 V on two pins taken from the ground and +5 V allocations. |
+
+### `main_board.py` comments versus `main_board.py` output
+
+| Tag | Where | What |
+| --- | --- | --- |
+| **PWR-C1** | `main_board.py:157–159` | "That part is not built yet: the mezzanine still carries +5V and the module still has its charge pump" — U7, the inverter it is describing as unbuilt, is 60 lines further down the same function. |
+| **PWR-C2** | `main_board.py`, MUTE_N pull-down note | "MUTE_N … is a direct input to the charge pump's enables rather than a translator input." The charge pump is deleted; MUTE_N now drives U14's and U8's EN/UV. |
+| **PWR-C3** | `main_board.py`, mezzanine power allocation | "Two pins … taken from the ground allocation. 37 returns for 28 switching lines is generous; 35 still is." The netlist has **36** grounds, and one of the two pins came from the **+5 V** allocation, not from ground — taking 71/72 shifted the tail's parity, so +5 V went 5 → 4 pins and ground 37 → 36. The conclusion (generous) survives; the arithmetic does not. |
+
+### `output_module.py` comments versus `output_module.py` output
+
+| Tag | Where | What |
+| --- | --- | --- |
+| **PWR-C4** | `output_module.py`, the LT3094 block | A full paragraph about "the inverting pump's output", "LDO− is a 50 mA part", "the doubled-then-inverted rail … at the bottom of the USB range". None of those parts or constraints exist. |
+| **PWR-C5** | `output_module.py`, LT3094 ILIM note | "151 mA … well above the **22 mA** this rail carries and below what the pump's LDO can deliver into a fault." This rail carries **63.5 mA** worst case — 22 mA is the *positive* rail's figure — and there is no pump. The 151 mA value itself is correct and datasheet-verified. |
+
+### `lyrebird-main-reva/power.md`
+
+| Tag | Where | What |
+| --- | --- | --- |
+| **PWR-M1** | opening line | "Bus powered, no external input ([0009])". The board is externally powered from 12 V; 0009 is superseded. |
+| **PWR-M2** | "Where the boundary sits" | "+5 V pins … J2 pins 71, 73, 75, 77 and 79" — the netlist says **73, 75, 77, 79**; 71 and 72 are `-6V_A`. Also "downstream of the VBUS ferrite", which no longer supplies anything. |
+| **PWR-M3** | same section | "The header carries **unregulated bus voltage and ground, and no other rail**." It carries a regulated 5.016 V from a buck, and it carries −6 V. |
+| **PWR-M4** | rail table | +3V3 at **185 mA**, +2V5 at **15 mA**, +1V0 at **149 mA** against `verify_power.py`'s 60 / 90 / 80 mA. Reflected to +5 V these give 231 mA and 136 mA respectively, while both files state a 234 mA subtotal. Unresolved; needs the FT601Q's VCC33 figure from its datasheet. |
+| **PWR-M5** | "12 V input" summary block | "against **6.3 J** to trip F1" — `power_input_transient.py` computes **31.9 J** from the same model it cites. |
+| **PWR-M6** | "Totals at the input" | "**Five** parallel header contacts at 20 mΩ drop 2 mV at 123 mA" — four contacts, and the drop is 0.6 mV. |
+| **PWR-M7** | "What has no source today" (final section) | Claims the LTM4622 is absent from `main_board.py`, that +2V5 and +1V0 "exist as nets with loads and no regulator", that the VBUS ferrite is absent and that there is no USB connector. **All four are false** — the netlist has U4 sourcing both rails, and `open-items.md` records the gap as closed. Delete the section. |
+| **PWR-M8** | Margin table | "F1 hold at 70 °C / 330 mA / 219 mA" omits the **305 mA** peak while both converters soft-start simultaneously. Not a trip risk (a PPTC integrates over seconds) but the table's own criterion is nearly met. |
+
+### `lyrebird-dac-reva/power.md`
+
+| Tag | Where | What |
+| --- | --- | --- |
+| **PWR-A1** | opening line | "regulates its own rails from the +5 V the main board hands it ([0009], interface.md)". The negative rail arrives pre-inverted at −6 V; `interface.md` already documents that. |
+| **PWR-A2** | "Where the boundary sits" | "J1 pins 71, 73, 75, 77 and 79 … **five pins** of unregulated bus voltage downstream of the main board's VBUS ferrite" and "**Nothing else crosses.**" Four pins; regulated; and −6V_A crosses on 71/72. |
+| **PWR-A3** | "Reflected to the USB input, and margin" | Still reads main 234 + module **238** = **472 mA**, with USB 3.0/2.0 utilisation tables and "the USB 2.0 line is no longer comfortable … 94 %". The same page's own totals are 123 mA of +5 V and 64 mA of −6 V. 0014 retired the whole budget. |
+| **PWR-A4** | "Against 0009's budget" | Module subtotal **238 mA**, from the same retired era. |
+| **PWR-A5** | "What is still uncertain here" | Two rows are about the deleted charge pump: "3 mA of pump quiescent" and "4.43 V at the header … it decides whether the charge pump is inside its input range". |
+| **PWR-A6** | "Headroom at the worst input" | "**five** parallel header contacts"; and the paragraph reasons from a 5.02 V header without the ±1.5 % that makes U14 marginal (PWR-S6). |
+| **PWR-A7** | "The op amp rails" / open item D10 | The page treats MUTE_N gating as an open audio question with no numbers. It now has numbers: 511 ms of ramp on `+5V_A`, 561 ms on `-5V_A`, and **51 ms of asymmetry** between them into a jack with no DC blocking. |
+
+### The checks, as documentation of the circuit
+
+| Tag | Where | What |
+| --- | --- | --- |
+| **PWR-V1** | `verify_power.py`, `ldo_rails` | Three silent-skip paths, each tamper-demonstrated: a SET value spelled in ohms rather than kilohms, an IN rail not in the two-entry `known` dict, or a part whose `value` string loses the family name — each drops a regulator and reports "17/17 checks pass". **Assert the subject count: the design has six post-regulators.** |
+| **PWR-V2** | `verify_power.py`, `U3_DROPOUT` | 260 mV is the LT3045's headline at 500 mA, and the margin line says "the low-current dropout is smaller and is not published in anything fetched here". Both halves are wrong: 3045f publishes **220 typ / 275 max / 330 over temperature at 1 mA and 50 mA** — larger, not smaller. The same constant is also applied to U8, which is an LT3094 with its own 235 mV. |
+| **PWR-V3** | `verify_power.py`, FT601Q skew check | The only check no perturbation of any constant can flip. Its two inputs, 33.2 k and 100 nF, are bare literals in a `ramps` list rather than `Fact`s, and the threshold is 6.6× the value. `power_input_transient.py`'s S-2 tests the same property properly and does fail on the C_SET tamper. |
+| **PWR-V4** | `verify_power.py`, TVS clamp check | Compares 29.2 V to 36 V and reports 6.8 V of margin. For U7 the stress is `V_clamp + \|Vout\|` = **35.18 V**, leaving 0.82 V against the recommended maximum — and U7 is not in the check. |
+| **PWR-V5** | `verify_power.py`, inverter current check | Compares 63.5 mA to 0.3 × 3 A. The 3 A does not apply in inversion: the topology limit is `(I_SC − ΔI_L/2)(1 − D)` = **2.21 A**. Right verdict, wrong number. |
+| **PWR-V6** | `verify_power.py`, `I_3V3` note | "FT601Q VCC33 + flash" — the flash (U6) is on **+2V5**, verified from the netlist. |
+| **PWR-V7** | `power_input_transient.py`, `F1_NETLIST_VALUE` | Still `"1.1 A hold, 2.2 A trip"`, printed at the top of every run as *"NOTE: main_board.py says …"* with a warning that no 1812L part matches. `main_board.py` says `1812L050/30 PPTC 0.5A hold 30V 100A`. A passing run emits a false warning about a fault that was fixed. |
+| **PWR-V8** | `power_input_transient.py`, load constants | `I_LOAD_5V = 0.472 A` sourced to "verify_power.py: 238 mA module + 234 mA main" (now 357 mA, 123 mA module) and `I_MEZZ = 0.238 A`, which sets `Rmezz`, the load the sequencing model actually drives. |
+| **PWR-V9** | `power_input_transient.py`, docstring | "all twelve of its checks pass" (now 18); the ASCII art still shows `D2 SMAJ15A`; scenario 4 still promises "the WAKEUP_N core gating that 0014 says was retired **and the netlist still builds**" — the netlist has not built it for two rounds, and the model is correctly ungated by default. |
+| **PWR-V10** | `power_input_transient.py`, `D2_ALPHA` | 0.088 %/°C annotated "%/C column of the **SMAJ15A** row", applied to an SMAJ18A. That column varies with standoff voltage, and the file's own tamper shows this one constant is the entire difference between surviving the 19 V case and not. |
+| **PWR-V11** | `power_input_transient.py`, F1 thermal model | `F1_TTRIP_8A` is assigned twice (0.15 s then 0.50 s, both marked `datasheet`); the comment block above derives τ from "I_hold = 1.10 A", the superseded part; and the fitted τ = 128 s implies C_th = 0.30 J/K for an 1812 body, an order of magnitude high. No verdict in the file depends on τ — every trip verdict is decided by current being below the hold current — so this is a record, not a fix. |
+| **PWR-V12** | `power_input_transient.py`, S-4 | "the core rail does not start and then collapse" is `glitch_peak < 0.05 or t90 is not None`. Demonstrated: a rail that reaches 998 mV at 4.9 ms and collapses to 0 V at 40 ms passes S-1, S-3, S-4 and S-6 together. |
+| **PWR-V13** | `power_input_transient.py`, S-6 | The verdict is computed from the no-host run; the detail string prints `rows_h['+1V0']['peak']` from the host run. Latent mismatch between verdict and evidence. |
+| **PWR-V14** | both checkers, netlist parsing | Both split on the bare token `(comp`, which also matches `(component_classes)` inside every component block. The final fragment runs into the nets section and takes the first node's ref with no value, so `verify_power.py` carries `val["C8"] = ""` (main) and `val["C36"] = ""` (module). Harmless only because neither is a SET resistor. |
+| **PWR-V15** | both checkers, scope | Neither can express "does this rail reach the right ball of the right package". Rails are strings and voltages are constants. That assumption has now failed twice in the power tree — the LTM4622 land, and PWR-S1. |
+
+### Open questions this review could not close
+
+| Tag | What |
+| --- | --- |
+| **PWR-O1** | The +3V3 / +2V5 / +1V0 currents (PWR-M4). Needs the FT601Q datasheet and a GateMate figure that depends on a bitstream. |
+| **PWR-O2** | Bitstream load time against the module's 271–362 ms rail ramps (Part 4.2). Nothing on either board sequences this; `MUTE_N` is an FPGA output and the module returns no power-good. Needs a measurement, or C_SET cut on `+2V5` and `+3V3_CLK` — never on `+3V3_REF`, where the 4.7 µF buys the noise specification. |
+| **PWR-O3** | SN74ALVCH16374 and 74AVC4T245 input current with VCC below the driven input level. Datasheets not fetched; this is what PWR-O2's severity turns on. |
+| **PWR-O4** | Loop stability of U7. The LMR33630's compensation is internal and specified for buck operation; the inverting plant has a right-half-plane zero (about 2 MHz at this light load, but 64 kHz at 2 A). TI's inverting application note is the authority and the design cites none. Benign at 63.5 mA; not transferable if this rail's load grows. |
+| **PWR-O5** | LTM4622: efficiencies `ASSUMED`, RUN and feedback figures reaching the repo through a review rather than a datasheet, and a land pattern just found transposed. Wants its own datasheet pass, which this review did not do. |

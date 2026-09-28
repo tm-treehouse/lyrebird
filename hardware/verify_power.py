@@ -77,7 +77,13 @@ U5_EFF = Fact(0.91, "", DS, "typical, 12 V in / 5 V out, ~0.5 A")
 U5_RTHJA = Fact(45.0, "C/W", DS, "HTSSOP-8 with thermal pad, JEDEC board")
 
 # U3, LT3045, 5 V -> 3.32 V.
-U3_DROPOUT = Fact(0.26, "V", DS, "LT3045 at 500 mA; less at our load")
+# 330 mV, not the 260 mV headline. The headline is at 500 mA; at the 1-50 mA
+# these rails actually carry, 3045f gives 220/275/330 mV, and the maximum is
+# what a worst-case check has to use. Checking against 260 mV passed a rail
+# that was 90 mV short once every tolerance stacked.
+U3_DROPOUT = Fact(0.330, "V", DS, "LT3045 max at 1-50 mA, not the 500 mA figure")
+U3_ISET_TOL = Fact(0.02, "", DS, "SET reference current, 98-102 uA")
+V5_TOL_LO = Fact(0.0157, "", CALC, "LMR33630 VFB 0.985 V min with 1% divider")
 U3_IQ = Fact(2.0, "mA", DS, "ground pin current")
 
 # U4, LTM4622 dual, 5 V -> 2.5 V and 1.0 V.
@@ -305,15 +311,24 @@ def main() -> int:
     for board, netname in (("main", "lyrebird-main-reva/lyrebird-main.net"),
                            ("module", "lyrebird-dac-reva/lyrebird-dac.net")):
         for ref, vin, vout, load in ldo_rails(netname):
-            head = abs(vin) - abs(vout)
-            check(f"{board} {ref}: dropout on a {abs(vout):.2f} V rail",
-                  head > U3_DROPOUT.value,
-                  f"{head*1000:.0f} mV across the part, {abs(vin):.2f} V in to "
-                  f"{abs(vout):.2f} V out, against {U3_DROPOUT.value*1000:.0f} "
-                  f"mV of dropout at 500 mA",
-                  f"{(head - U3_DROPOUT.value)*1000:+.0f} mV against the "
-                  f"500 mA figure; the low-current dropout is smaller and is "
-                  f"not published in anything fetched here",
+            # The corner, not the nominal. A rail can be comfortable at
+            # nominal and short once the regulator feeding it sits at its
+            # tolerance minimum while the SET reference sits at its maximum --
+            # which is exactly how a 45.3k SET resistor passed this check at
+            # 490 mV and was 90 mV short in reality.
+            vin_lo = abs(vin) * (1 - V5_TOL_LO.value)
+            vout_hi = abs(vout) * (1 + U3_ISET_TOL.value)
+            head_nom = abs(vin) - abs(vout)
+            head_worst = vin_lo - vout_hi
+            check(f"{board} {ref}: dropout on a {abs(vout):.2f} V rail, "
+                  f"stacked corner",
+                  head_worst > U3_DROPOUT.value,
+                  f"{head_worst*1000:.0f} mV at the corner "
+                  f"({vin_lo:.3f} V in against {vout_hi:.3f} V out) versus "
+                  f"{head_nom*1000:.0f} mV nominal, against a "
+                  f"{U3_DROPOUT.value*1000:.0f} mV maximum dropout",
+                  f"{(head_worst - U3_DROPOUT.value)*1000:+.0f} mV of margin "
+                  f"at the corner",
                   assumed=True)
 
     # ---- 6. buck output current
