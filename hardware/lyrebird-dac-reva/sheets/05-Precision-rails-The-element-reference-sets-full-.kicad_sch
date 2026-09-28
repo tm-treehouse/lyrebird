@@ -68,7 +68,7 @@
 		(uuid "00000000-0000-0000-0000-000000000007")
 		(property "Reference" "C35" (at 45.72 197.97 0)
 			(effects (font (size 1.27 1.27))))
-		(property "Value" "4.7uF" (at 45.72 218.59 0)
+		(property "Value" "10uF" (at 45.72 218.59 0)
 			(effects (font (size 1.27 1.27))))
 		(instances (project "" (path "/" (reference "C35") (unit 1))))
 	)

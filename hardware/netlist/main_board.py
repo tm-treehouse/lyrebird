@@ -133,17 +133,30 @@ def build():
 
     Net("USB_DP").connect(usb["D+"], lp.pin_named(ftdi, "DP"))
     Net("USB_DM").connect(usb["D-"], lp.pin_named(ftdi, "DM"))
-    # Host transmits into the device receiver: no capacitors on this leg,
-    # the host already has them.
-    Net("USB_SSRX_P").connect(usb["SSRX+"], lp.pin_named(ftdi, "RIDP"))
-    Net("USB_SSRX_N").connect(usb["SSRX-"], lp.pin_named(ftdi, "RIDN"))
-    # AC coupling on the transmitter is mandatory, 75 nF to 265 nF per the
-    # USB 3.2 specification. 100 nF, matched, as close to the connector as
-    # the layout allows.
-    for leg, tod in (("SSTX+", "TODP"), ("SSTX-", "TODN")):
-        c = Part("Device", "C", value="100nF", footprint=FP_C["0402"])
-        c[1] += lp.pin_named(ftdi, tod)
-        c[2] += usb[leg]
+    # ---- The SuperSpeed pairs are deliberately not connected (0014).
+    #
+    # Isolating the data link is worth more than SuperSpeed is, and no
+    # galvanic isolator exists for 5 Gbps -- the ADuM4165/4166 tops out at
+    # USB 2.0 High Speed. That costs nothing here: 192 kHz / 24-bit stereo is
+    # 9.216 Mbit/s against High Speed's 480, so 1.9 % utilisation, and the
+    # FT601Q supports High Speed natively. Leaving the pairs unrouted also
+    # removes the hardest constraint in this board's layout, two 5 Gbps
+    # impedance-controlled differential pairs.
+    #
+    # They were wired, and wired wrongly, which is what settled it. A review
+    # found USB_SSRX_P/N were the only multi-node nets on the board with an
+    # INPUT at every pin: the receptacle's SSRX pins are inputs and so are the
+    # bridge's RIDP/RIDN, so nothing drove them. The comment here asserted a
+    # crossover inside the cable as fact and reasoned from it; USB 3.0 cables
+    # have no such crossover, and the transmit pair was mirrored the same way.
+    # SuperSpeed would never have trained and the link would have fallen back
+    # to 480 Mb/s silently -- which is, ironically, the speed the design now
+    # runs at on purpose.
+    #
+    # If SuperSpeed is ever wanted back, the host's transmit pair goes to the
+    # device's receiver (SSTX on the connector to RIDP/RIDN on the bridge, no
+    # capacitors, the host has them) and the device's transmitter goes to the
+    # connector's SSRX through 100 nF. That is the opposite of what was here.
 
     # ---- Wall wart input (0014, superseding 0009).
     #
@@ -361,6 +374,17 @@ def build():
     resistor(inv["FB"], v["-6V_A"], "24.9k 1%")
     decouple(v["GND"], v["-6V_A"], "47uF", "1210")
     decouple(v["GND"], v["-6V_A"], "100nF", "0603")
+    # Input bypass across the device's OWN terminals, which in this topology
+    # are +12V and -6V_A rather than +12V and system ground. U7's GND pin is
+    # the negative output, so the loop the switching current actually takes
+    # runs between those two nets and nothing spanned them -- the input caps
+    # near U5 are referenced to system ground and are not in this loop at all.
+    # SNVSAN3F's VIN description says to bypass directly to the device's GND.
+    #
+    # This is the third fault found in U7 and all three are the same mistake:
+    # reasoning about it as though its ground were the board's.
+    decouple(v["+12V"], v["-6V_A"], "10uF", "1210")
+    decouple(v["+12V"], v["-6V_A"], "100nF", "0603")
 
     # ---- 3.3 V regulator from bus voltage
     for p in ldo.pins:
@@ -832,6 +856,11 @@ def build():
         hv_rails={"+3V3", "+5V", "USB_VBUS", "VIN_RAW", "VIN_FUSED", "+12V",
                   "-6V_A"},
         protected={fpga: set(), mez: {"+5V", "-6V_A"}})
+    # The core's 1.20 V maximum, which the check above cannot see: it compares
+    # against 2.75 V and skips supply pins, so +2V5 on a VDD ball passes. This
+    # asks the other question -- a core ball may touch +1V0 and ground and
+    # nothing else, whatever the voltage of whatever else arrives.
+    lp.assert_core_rail(builtins.default_circuit, [fpga], core_rails={"+1V0"})
 
     return fpga, ftdi, elem_nets
 

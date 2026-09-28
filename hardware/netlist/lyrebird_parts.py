@@ -168,6 +168,77 @@ CLOCK_PINS = ["CLK0/IO_SB_A8", "CLK1/IO_SB_A7", "CLK2/IO_SB_A6", "CLK3/IO_SB_A5"
 # reviewed.
 ABS_MAX_V = 2.75
 
+# The core is a second, much lower, absolute maximum and the check above never
+# saw it: it compares against 2.75 V and skips supply pins by construction, so
+# +2V5 landing on a VDD ball -- through a resistor or as a short -- passed
+# silently. That is not hypothetical. The LTM4622 land pattern was found with
+# its two axes transposed, which put +2V5 and +5V directly onto VOUT2, the rail
+# that feeds these 32 balls.
+CORE_ABS_MAX_V = 1.20
+
+# Pin names on the GateMate that sit on the core rail rather than on I/O.
+CORE_SUPPLY_NAMES = ("VDD", "VDD_PLL", "VDD_SER", "VDD_SER_PLL")
+
+
+def assert_core_rail(circuit, protected, core_rails, tolerated=()):
+    """Fail the build if anything but a declared core rail reaches a core ball.
+
+    The signal check asks "is this net above 2.75 V". This asks the opposite
+    question, because for a supply the interesting fault is not how high the
+    rail is but whether it is the *right* rail: a core ball may touch the core
+    rail and ground and nothing else. Any other net there, whatever its
+    voltage, is a fault -- and every other rail on this board is above the
+    1.20 V maximum.
+    """
+    groups = _net_groups(circuit)
+    pin_group = {}
+    for i, (_, pins) in enumerate(groups):
+        for p in pins:
+            pin_group[id(p)] = i
+    allowed = set(core_rails) | {"GND"} | set(tolerated)
+    bad = []
+    core_groups = set()
+    for part in protected:
+        for p in part.pins:
+            if str(p.name) not in CORE_SUPPLY_NAMES:
+                continue
+            g = pin_group.get(id(p))
+            if g is None:
+                continue
+            core_groups.add(g)
+            # ONLY allowed names, not "at least one". A short does not replace
+            # the net, it merges it, so the core rail's own name is still
+            # there -- asking whether an allowed name is present passes every
+            # short there is. The first version of this check did exactly
+            # that and caught nothing.
+            extra = groups[g][0] - allowed
+            if extra:
+                bad.append(f"  {part.ref}.{p.num} ({p.name}) on a net that "
+                           f"also carries {'/'.join(sorted(extra))}")
+
+    # A resistor from another rail to the core does not merge the nets, so the
+    # test above cannot see it. Walk two-terminal parts with one leg on a core
+    # net: whatever is on the other leg is tied to a 1.20 V maximum through an
+    # impedance, which for a supply pin is not a defence.
+    for part in circuit.parts:
+        pins = list(part.pins)
+        if len(pins) != 2:
+            continue
+        gs = [pin_group.get(id(x)) for x in pins]
+        if None in gs:
+            continue
+        for a, b in (gs, gs[::-1]):
+            if a in core_groups and b not in core_groups:
+                other = groups[b][0] - allowed
+                if other:
+                    bad.append(f"  {part.ref} bridges the core rail to "
+                               f"{'/'.join(sorted(other))}")
+    if bad:
+        raise AssertionError(
+            f"nets other than the core rail reach {len(bad)} core supply "
+            f"pin(s), whose absolute maximum is {CORE_ABS_MAX_V} V:\n"
+            + "\n".join(sorted(bad)))
+
 # Pin types that can drive a net up to their part's supply voltage. An input
 # cannot: the 28 element lines legitimately land on 3.3 V register inputs,
 # and that is a threshold question, not a damage one. Neither can an

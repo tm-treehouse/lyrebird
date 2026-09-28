@@ -206,6 +206,15 @@ def build():
     # whose absolute maximum is 2.75 V, and the assertion at the end of this
     # function exists because that is exactly what an earlier revision did.
     tr["1DIR"] += gnd
+    # OE is tied low, and SCES576I says not to: "OE must be tied to VCCA
+    # through a pullup resistor and must not be enabled until VCCA and VCCB
+    # are fully ramped and stable."
+    #
+    # A pull-up is not available here, because nothing on this board could
+    # then pull it down -- there is no spare mezzanine pin and MUTE_N has the
+    # wrong polarity. So the datasheet's *intent* is met by sequencing instead:
+    # VCC(B) is brought up before VCC(A), so by the time the enable exists at
+    # all, the other supply is already stable. See the SET capacitor on U9.
     tr["1~{OE}"] += gnd
     tr["1B1"] += elem_clk_mez
     tr["1A1"] += mclk_out
@@ -217,7 +226,7 @@ def build():
     # DIR and OE are referenced to VCC(A), so they strap to the 2.5 V rail or
     # ground and never to 3.3 V (0012).
     tr["2DIR"] += v2v5
-    tr["2~{OE}"] += gnd
+    tr["2~{OE}"] += gnd                 # same as bank 1, same reason
     tr["2A1"] += ctrl["OSC_EN_48"]
     tr["2B1"] += osc_en["OSC_EN_48"]
     tr["2A2"] += ctrl["OSC_EN_441"]
@@ -340,10 +349,22 @@ def build():
     # full scale but full scale is whatever it is, and what the design cares
     # about is the noise on it. SET was previously left open on all of these,
     # which means they had no programmed output voltage.
-    for ref, out, val, rset in (
-            ("U5", v3v3_ref, "LT3045 element reference", "33.2k 0.1%"),
-            ("U6", v3v3_clk, "LT3045 clock chain", "33.2k 0.1%"),
-            ("U9", v2v5, "LT3045 header-side 2.5 V", "24.9k 0.1%")):
+    #
+    # The SET capacitor also sets the ramp, t ~ 2.3 * R_SET * C_SET, and on
+    # U9 that is used deliberately. The translator's OE is tied low because
+    # nothing here could drive a pull-up, so the part enables the instant its
+    # VCC(A) exists -- and SCES576I says not to enable it before VCC(B) is up
+    # too. Making VCC(A) the LAST rail to arrive satisfies that by
+    # construction: 10 uF on U9 gives about 573 ms against U6's 359 ms for
+    # VCC(B), so the enable cannot precede the supply it switches to.
+    #
+    # It costs nothing. U9 feeds the translator's reference supply and
+    # nothing else, so the 0.8 uVRMS that 4.7 uF buys on the other two rails
+    # is worth nothing on this one.
+    for ref, out, val, rset, cset in (
+            ("U5", v3v3_ref, "LT3045 element reference", "33.2k 0.1%", "4.7uF"),
+            ("U6", v3v3_clk, "LT3045 clock chain", "33.2k 0.1%", "4.7uF"),
+            ("U9", v2v5, "LT3045 header-side 2.5 V", "24.9k 0.1%", "10uF")):
         u = Part("Regulator_Linear", "LT3045xDD", ref=ref, value=val,
                  footprint="Package_DFN_QFN:DFN-10-1EP_3x3mm_P0.5mm_EP1.65x2.38mm")
         for p in u.pins:
@@ -354,7 +375,7 @@ def build():
                 p += out
             elif nm == "GND":
                 p += gnd
-        lp.lt3045_housekeeping(u, v5, gnd, rset, _res, _cap)
+        lp.lt3045_housekeeping(u, v5, gnd, rset, _res, _cap, c_set=cset)
         _cap(out, gnd, "10uF")
 
     # ---- Output stage. Differential to single-ended, which the differential
