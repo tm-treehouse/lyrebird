@@ -20,7 +20,7 @@ result.
 | `MUTE_N` | main to module | Mute the analog output stage |
 | `ID0`, `ID1` | module to main | Module type, strapped on the module |
 | `+5V` | main to module | 5.02 V from the main board's buck, for the module's regulators |
-| `-6V_A` | main to module | −5.98 V, two pins, for the module's negative analog rail |
+| `-6V_A` | main to module | −5.98 V, two pins (73/74), for the module's negative analog rail |
 | `GND` | — | Interleaved between signals |
 
 ## Element allocation
@@ -43,6 +43,17 @@ high at any code. Which specific lines carry the code is chosen by the dynamic
 element matching rotation and must not be assumed stable.
 
 ## Rules
+
+**The negative rail is flanked by ground, deliberately.** `-6V_A` occupies
+pins 73 and 74 — one column of a 2×40 odd/even header — with full ground
+columns at 71/72 and 75/76 either side. The pair is adjacent to itself so a
+half-inserted connector cannot present one pin without the other, and isolated
+from the control block because that block has no ground pin inside it: MCLK,
+both oscillator enables, `MUTE_N` and both ID straps run from pin 65 to 70 with
+returns only at either end. A bridge or a whisker across 1.27 mm from `ID1`
+would otherwise put −6 V on a net that reaches a GateMate GPIO through nothing
+but a 10 kΩ pull-down, with the input's clamp diode conducting and the current
+limited only by the bridge. Four pins out of a ground surplus removes that.
 
 **Logic levels on the header are 2.5 V.** This is set by the GateMate GPIO
 banks, which are LVCMOS up to 2.5 V and are not 3.3 V tolerant. See

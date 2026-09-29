@@ -95,9 +95,18 @@ def build():
     # rails gated off it, means the analog stage stays off until something
     # deliberately turns it on.
     _res(ctrl["MUTE_N"], gnd, "100k")
+    # The negative analog rail, flanked by ground, mirroring the main board
+    # pin for pin -- the two halves of the connector agree or nothing works.
+    # The flanking exists because -6 V immediately beside the ID straps, in a
+    # control block with no ground pin in it, is one whisker away from a
+    # GateMate GPIO that has only a 10 k pull-down between it and the rail.
     mez_neg = Net("-6V_A")
     for _ in range(2):
+        gnd += nxt()
+    for _ in range(2):
         mez_neg += nxt()
+    for _ in range(2):
+        gnd += nxt()
     while idx < len(mez_pins):
         rail = v5 if idx % 2 == 0 else gnd
         rail += nxt()

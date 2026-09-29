@@ -16,13 +16,15 @@ The architecture is sound and the inverting converter is, against expectation,
 wired correctly — the feedback referencing, the enable, the bootstrap, the
 inductor return and the exposed-pad assignment are all right, and I verified
 each against the LMR33630 datasheet rather than against the comment beside it.
-Three things are wrong and one of them stops a build:
+Four things are worth acting on; one stops a build and one was closed while
+this review was running.
 
 | | |
 | --- | --- |
-| **B-1** | Both LMR33630s carry a footprint for the wrong package: `HTSSOP-8 3x3 P0.65mm` against an HSOIC-8, 3.9 × 4.9 mm, 1.27 mm pitch. The KiCad symbol's own `fplist` names the right one. Nothing in either check suite looks at footprints. |
-| **B-2** | U7 has **no input capacitor**. Its PGND is the −6 V rail, so the datasheet's "minimum of 10 µF ... directly to this pin and PGND" means +12 V to −6V_A, and the only capacitors fitted are +12 V to system ground. The high-side commutation loop is closed through two capacitors in series and the ground plane — on a board whose entire premise is a quiet ground. |
-| **B-3** | The +5 V rail's tolerance is nowhere accounted for. `verify_power.py` and both `power.md` files use 5.02 V as if it were exact; the LMR33630's own feedback tolerance (±1.5 %, datasheet 7.5) plus the 1 % divider puts it at **4.86 V to 5.17 V**. Every module dropout margin is computed from the nominal, and U14 — just moved to 4.53 V — has 330 mV at the low corner against a 330 mV over-temperature dropout maximum. |
+| **B-1** | **Open.** Both LMR33630s carry a footprint for the wrong package: `HTSSOP-8 3x3 P0.65mm` against an HSOIC-8, 5.00 × 4.00 mm body on 1.27 mm pitch. The KiCad symbol's own `fplist` names the right land. Nothing in either check suite looks at footprints, and this is now the second footprint fault in the power tree after the LTM4622's transposed axes. |
+| **B-2** | **Closed during this review.** U7 had no input capacitor: its PGND *is* −6V_A, so the datasheet's required 10 µF "directly to this pin and PGND" means +12 V to −6V_A, and only +12 V-to-ground parts were fitted. I measured 100 % of the 0.69 A switch transition returning through the analog ground plane, 7.6 V across the pin pair. 10 µF + 100 nF is now fitted and the same measurement gives 91 % local, 9 % plane, 2.6 V. Retained here because it was the third fault in U7 and all three were the same mistake. |
+| **B-3** | **Narrowed, still open.** `verify_power.py` now tests the stacked tolerance corner and U14 is 40.2 k / 4.02 V, which clears both bounds. What is still unaccounted for anywhere is the **+5 V rail's own spread**: 4.86 V to 5.17 V from the LMR33630's ±1.5 % feedback tolerance (datasheet 7.5) and 1 % divider parts, against the 5.02 V every document states as exact. Every other rail has volts of headroom, so U14 was the only casualty — but the number is still absent from both `power.md` files. |
+| **B-4** | **New.** The translator's supply ordering, relied on in place of the pull-up SCES576I asks for, is sound arithmetic (2.3× of margin, verified below) and **covers only one of the two banks.** Bank 1's outputs are on the A side and are protected by making VCC(A) last; bank 2's outputs are on the B side, powered by the rail that arrives *first*, and they carry both oscillator enables onto a shared net that is only legal with one part enabled. |
 
 ---
 
@@ -244,13 +246,17 @@ At 11.4 V in (the assumed −5 % corner), drawing 219 mA:
 +5V as 5.02 V exactly, and the checks compare typical against typical. The
 consequences run downhill:
 
-- **U14 (+5V_A, just moved to 45.3 k / 4.53 V).** Headroom at nominal is
-  490 mV. At the low corner it is **4.863 − 4.530 = 333 mV**, against an
-  LT3045 dropout of 220 mV typical, 275 mV maximum and **330 mV over
-  temperature at this load** (3045f, I_LOAD = 1 mA and 50 mA rows). That is
-  3 mV of margin at the corner. The fix was in the right direction and did
-  not go far enough; 43.2 k (4.32 V) buys 213 mV more and the stage needs only
-  about 3.5 V.
+- **U14 (+5V_A), now 40.2 k / 4.02 V.** I checked the whole stack
+  independently and it clears, on both bounds. Dropout side: the rail's low
+  corner 4.863 V against U14's high corner (40.2 k × the LT3045's 102 µA SET
+  maximum) = 4.100 V leaves **763 mV, i.e. +433 mV over the 330 mV
+  over-temperature dropout** at this load (3045f, I_LOAD = 1 mA and 50 mA
+  rows — note that the published low-current figure is *larger* than the
+  260 mV headline at 500 mA, not smaller). Swing side: U14's low corner
+  40.2 k × 98 µA = 3.940 V against the 3.43 V the ±2.83 V output needs
+  through an OPA1612 that reaches within 600 mV of its rails, leaving
+  **+510 mV**. An intermediate 45.3 k / 4.53 V, which this review saw
+  briefly, had only 3 mV on the dropout bound. 40.2 k is right.
 - **U9 (+2V5), U5/U6 (3.32 V), U3 (3.32 V)** all have 1.5 V or more and are
   unaffected.
 - **U8 (LT3094, −4.99 V from −5.79 V worst case)** has 793 mV against a
@@ -431,13 +437,15 @@ would hold it 5.98 V off its own reference and inject the whole switching
 excursion of AGND into the control supply. The bootstrap is 100 nF across SW to
 BOOT, datasheet value, correct.
 
-## 3.6 The one real defect: U7 has no input capacitor
+## 3.6 U7 had no input capacitor — found here, fixed, and what it bought
 
-`caps_between()` over the generated netlist:
+`caps_between()` over the generated netlist, when this review first ran:
 
     +12V to GND      22.10 uF     <- U5's input capacitor
     +12V to -6V_A     0.00 uF     <- U7's input capacitor
     GND  to -6V_A    47.10 uF     <- U7's output capacitor
+
+It now reads **10.10 µF** on the middle row. The measurement below is why.
 
 SNVSAN3F 9.2.2.6: *"A minimum of 10 µF of ceramic capacitance is required on
 the input of the LMR33630 … In addition, a small case size, 220-nF ceramic
@@ -452,8 +460,8 @@ VIN/PGND pin pair and measured where it returns:
 
 | | VIN−PGND excursion | through the plane | through a local cap |
 | --- | --- | --- | --- |
-| as built | **7.6 V** | **690 mA (100 %)** | — |
-| + 2.2 µF 0603 at the pins | 2.6 V | 63 mA (9 %) | 627 mA (91 %) |
+| as it was, no VIN-to-PGND cap | **7.6 V** | **690 mA (100 %)** | — |
+| as built now, 10 µF + 100 nF | 2.6 V | 63 mA (9 %) | 627 mA (91 %) |
 
 **The entire switch transition returns through the ground plane** — from the
 +12 V capacitor, across the plane, into the −6 V capacitor — because there is
@@ -467,9 +475,19 @@ A 7.6 V loop excursion also implies SW undershoot beyond the **−3.5 V /
 follows from the same inductance. So this is a rating question as well as an
 EMI one.
 
-**Fix:** 10 µF + 220 nF, or at minimum a 2.2 µF X7R 0603 rated 50 V, from
-+12 V to −6V_A, placed at U7's pin 1 and pin 2. It is one BOM line and it is
-the single highest-value change in this review.
+**Fixed** by fitting 10 µF + 100 nF from +12 V to −6V_A. Two things remain
+worth saying. The datasheet asks specifically for a *small case size* 220 nF
+as well as the bulk, "as close as possible to the regulator"; 100 nF is in the
+right place and is the value the rest of the board uses. And the 9 % that still
+returns through the plane, plus the 2.6 V that remains across the pin pair, are
+set by loop inductance and are therefore a **layout** obligation now rather
+than a schematic one: this is the one place on either board where the
+placement of two specific capacitors is load-bearing for the analog ground.
+
+This was the third fault found in U7, after the feedback-frame assumption and
+the power-good pull-up, and **all three were the same mistake** — reasoning
+about a device whose GND pin is the negative output as though its GND were the
+board's. That is the pattern to carry into layout review.
 
 ## 3.7 Light-load behaviour, recorded not flagged
 
@@ -498,11 +516,11 @@ rather than a time quoted in prose. Ramp times agree with the analytic
 | +2V5 (main) | — | ≈4.9 ms | LTM4622, 1.4 µA into 10 nF |
 | +1V0 (main) | — | ≈4.9 ms | same |
 | +3V3 (main) | — | ≈8 ms | U3, 33.2 k × **100 nF** |
-| **+2V5 (module)** | 13.4 ms | **271 ms** | U9, 24.9 k × **4.7 µF** |
 | **+3V3_CLK** | 17.5 ms | **361 ms** | U6, 33.2 k × 4.7 µF |
 | **+3V3_REF** | 17.6 ms | **362 ms** | U5, 33.2 k × 4.7 µF |
-| **+5V_A** | 42.5 ms | **511 ms** | U14, 45.3 k × 4.7 µF, gated by MUTE_N |
+| **+5V_A** | 39.9 ms | **455 ms** | U14, 40.2 k × 4.7 µF, gated by MUTE_N |
 | **−5V_A** | 44.7 ms | **561 ms** | U8, 49.9 k × 4.7 µF, gated by MUTE_N |
+| **+2V5 (module)** | 27.3 ms | **574 ms** | U9, 24.9 k × **10 µF**, last on purpose |
 
 ## 4.1 The two switchers are correctly not sequenced
 
@@ -531,7 +549,7 @@ So:
   **362 ms**;
 - the module's 2.5 V rail, which powers the **74AVC4T245**'s A side — the
   header-facing domain the FPGA drives directly — does not reach voltage until
-  **271 ms**.
+  **574 ms**, deliberately (§4.4).
 
 The FPGA loads its bitstream from SPI flash before it drives anything, so the
 race is *bitstream load time* against *271–362 ms of RC*. **Nobody has measured
@@ -544,29 +562,99 @@ climbing — current into input protection structures on parts whose datasheets 
 did not fetch and which I therefore cannot clear.
 
 Three things would settle it, cheapest first: measure the configuration time;
-or cut C_SET on `+2V5` and `+3V3_CLK` as the main board's U3 already was (the
-reference rail must keep its 4.7 µF — that capacitor buys the 0.8 µV RMS the
-whole design leans on, so it is the one rail where the ramp is the price of the
-specification); or hold the element outputs in the bitstream until a timer
-expires.
+or hold the element outputs in the bitstream until a timer expires. Cutting
+C_SET is **no longer freely available**: `+3V3_REF` must keep its 4.7 µF
+because that capacitor buys the 0.8 µV RMS the whole design leans on, and
+`+2V5` must stay slow because §4.4 depends on it being the last rail. That
+leaves `+3V3_CLK`, which cannot be cut either without breaking §4.4's ordering
+from the other side. The sequencing is now load-bearing in two directions at
+once, which is worth knowing before anyone tunes one of these capacitors for a
+different reason.
 
 ## 4.3 The two analog rails do not arrive together
 
-`+5V_A` reaches 90 % at 511 ms and `−5V_A` at 561 ms — **51 ms apart**, because
-their SET resistors differ (45.3 k against 49.9 k) while their C_SET does not.
+`+5V_A` reaches 90 % at 455 ms and `−5V_A` at 561 ms — **106 ms apart**,
+because their SET resistors differ (40.2 k against 49.9 k) while their C_SET
+does not. The U14 fix, correct on every other count, widened this gap from
+51 ms to 106 ms as a side effect.
 Both are gated by the same MUTE_N and both inputs are already established, so
 this is not a supply fault: the OPA1612 tolerates ±2.25 V to ±18 V and 36 V
 total, and asymmetric rails are an undefined-output condition rather than a
 damage one.
 
-It matters because **the jack has no DC blocking.** For 51 ms the six
-amplifiers have a positive rail and essentially no negative one, their outputs
+It matters because **the jack has no DC blocking.** For 106 ms the six
+amplifiers have a positive rail well ahead of their negative one, their outputs
 are undefined, and that reaches the line output directly. This is the concrete
 content of open item D10 — "collapsing the supplies is a blunt mute and every
 assertion is a transient into an unblocked output". Now it has a number:
-51 ms of asymmetry on every unmute, plus the 511 ms ramp itself.
+106 ms of asymmetry on every unmute, plus the 455 ms ramp itself. If D10 is
+ever resolved by matching the two ramps, the lever is C_SET on U8 (a 3.8 µF
+against U14's 4.7 µF equalises them), not the SET resistors, which set the
+voltages.
 
-## 4.4 Nothing sees I/O before core, and nothing sees an out-of-window supply
+## 4.4 The translator's supply ordering: the arithmetic holds, the coverage does not
+
+`output_module.py` ties both `~OE` pins low, against SCES576I's instruction to
+pull OE up and not enable before both supplies are fully ramped — and meets the
+datasheet's *intent* instead by making VCC(A) the last rail to arrive, with
+10 µF rather than 4.7 µF on U9's SET. I was asked to check that reasoning. It
+divides cleanly into two halves and only one of them holds.
+
+**The arithmetic is sound and unusually robust.** Both rails are 100 µA into
+`R_SET ‖ C_SET` with the fast-start circuit disabled by PGFB-to-IN, so each is
+a clean exponential `V(t) = 100µ·R·(1 − e^(−t/RC))`:
+
+| | R_SET | C_SET | τ | V(∞) | crosses 1.2 V | 90 % |
+| --- | --- | --- | --- | --- | --- | --- |
+| VCC(B) = `+3V3_CLK`, U6 | 33.2 k | 4.7 µF | 156 ms | 3.32 V | **70 ms** | 359 ms |
+| VCC(A) = `+2V5`, U9 | 24.9 k | 10 µF | 249 ms | 2.49 V | **164 ms** | 573 ms |
+
+Because τ_A > τ_B *and* V_A(∞) < V_B(∞), VCC(A) lags VCC(B) at **every
+instant** — in absolute volts and as a fraction of final — so there is no
+crossing to worry about, not merely a later 90 % point. The ordering inverts
+only if τ_A/τ_B falls below **0.682**; it is **1.596**, a factor of 2.34. That
+survives ±20 % on both capacitors *and* DC-bias derating on both at once. The
+mechanism works and the choice of 10 µF is a good one.
+
+(1.2 V is my assumed minimum operating supply for the part. I did **not** fetch
+SCES576I, so that number is unverified — but the conclusion is insensitive to
+it: the ordering holds for any threshold both rails can reach.)
+
+**The coverage is the problem, and it is a direction question.** The two banks
+run opposite ways:
+
+| Bank | DIR | Direction | Outputs on | Powered by | Arrives |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `1DIR` → GND | B → A | **A side** (`1A1`, element clock to the FPGA) | VCC(A) | **last** ✓ |
+| 2 | `2DIR` → `+2V5` | A → B | **B side** (`2B1`/`2B2`, both oscillator enables) | VCC(B) | **first** ✗ |
+
+For bank 1 the construction does exactly what is claimed: the output cannot
+drive before VCC(A) exists, and VCC(A) is last. For bank 2 the output drivers
+live on the side whose supply comes up *first*, so making VCC(A) late does not
+delay them — it lengthens the window in which they are powered and enabled
+while VCC(A), which controls what they should be driving, is between 0 V and
+its minimum. That window is **70 ms to 164 ms, about 94 ms**, and the
+deliberate 10 µF made it longer rather than shorter.
+
+What sits on those two outputs is the thing that makes it worth writing down:
+both CCHD-957 enables, on a **single shared `OSC_RAW` net that is only legal
+while exactly one oscillator is enabled** — `interface.md` states that rule and
+`output_module.py`'s own comment records that the module's 100 kΩ pull-downs
+"are downstream of a push-pull output that can source milliamps, so they only
+decide the case where the translator is itself high impedance."
+
+I am **not** claiming a fault: `Ioff` / partial-power-down may cover a
+partially-powered VCC(A), and SCES576I was not fetched, so the device's
+behaviour in that region is exactly what I cannot answer. I am claiming the
+remedy does not reach bank 2 and that nobody has checked whether it needs to.
+Three ways to settle it, cheapest first: read SCES576I's Ioff and
+power-sequencing sections; or move `2~OE` to a pull-up after all — it is
+referenced to VCC(A), and `MUTE_N` has the wrong polarity, but `ID1`, already
+strapped low on the module through 10 kΩ, is a spare the main board also pulls
+low; or accept it and record why in `interface.md`, since the exposure is
+bounded and happens once per power-up with the analog stage muted.
+
+## 4.5 Nothing sees I/O before core, and nothing sees an out-of-window supply
 
 Checked explicitly:
 
@@ -776,20 +864,29 @@ built; `hardware/lyrebird-*/​*.net` is what I actually read.
 | Tag | Where | What |
 | --- | --- | --- |
 | **PWR-S1** | `main_board.py:278` and `:337`, both LMR33630s | Footprint `Package_SO:HTSSOP-8-1EP_3x3mm_P0.65mm_EP1.5x2.1mm` on an HSOIC-8 part. The datasheet's Device Information gives HSOIC (8), 5.00 × 4.00 mm; the KiCad symbol's own `fplist` names `Package_SO:Texas_HSOP-8-1EP_3.9x4.9mm_P1.27mm_ThermalVias`. A 0.65 mm-pitch 3 × 3 land cannot take a 1.27 mm-pitch 5 × 4 body. **Build-stopping.** Same class as the LTM4622 land-transposition found this round; that makes two footprint faults in the power tree. |
-| **PWR-S2** | `main_board.py`, U7's input | **No capacitor from +12 V to −6V_A.** U7's PGND *is* −6V_A, so SNVSAN3F 9.2.2.6's "minimum of 10 µF … required on the input" and pin 2's "directly to this pin and PGND" are unsatisfied: 22.10 µF is fitted +12 V to system ground, 0.00 µF to U7's ground. Measured consequence: 100 % of the 0.69 A switch transition returns through the ground plane, 7.6 V across the pin pair. Fix is one BOM line: 10 µF + 220 nF, or at least 2.2 µF X7R 50 V 0603, at U7's pins 1–2. |
+| **PWR-S2** | `main_board.py`, U7's input | **CLOSED during this review.** There was no capacitor from +12 V to −6V_A; U7's PGND *is* −6V_A, so SNVSAN3F 9.2.2.6's "minimum of 10 µF … required on the input" and pin 2's "directly to this pin and PGND" were unsatisfied. Measured: 100 % of the 0.69 A switch transition returned through the ground plane with 7.6 V across the pin pair. 10 µF + 100 nF is now fitted: 91 % local, 9 % plane, 2.6 V. **Residual:** the remaining 9 % and 2.6 V are set by loop inductance, so placement of these two parts is now a layout obligation, and it is the one place on either board where that is load-bearing for the analog ground. |
 | **PWR-S3** | `output_module.py:671–673` | `hv_rails` omits `-6V_A` — the board's most dangerous net is invisible to `assert_below_abs_max` on the module side — and still declares four nets deleted with the charge pump: `PUMP_P`, `PUMP_N`, `+5V7_A`, `-5V7_A`. 0014 records this exact mechanism in its own words. |
 | **PWR-S4** | `lyrebird_parts.py`, `assert_below_abs_max` | The guard is **one-sided**: `ABS_MAX_V = 2.75` with no lower limit and no notion of sign anywhere in it. The design now carries a −6 V rail across a connector whose adjacent pin is a 2.5 V GPIO with a −0.3 V floor, and the guard cannot express the question. |
 | **PWR-S5** | mezzanine pin map, both boards | Pins 71/72 (−6V_A) sit in the column immediately beside 69/70 (ID0/ID1), and pins 65–70 contain **no ground pin at all**. One bridge between 70 and 71 puts −6 V onto a GateMate GPIO through nothing but two 10 kΩ pull-downs. Moving the pair into the alternating tail flanked by ground costs nothing electrically but changes `interface.md` and both netlists. |
-| **PWR-S6** | `output_module.py`, U14 SET = 45.3 k | The fix from 49.9 k is in the right direction and stops 213 mV short. At the +5 V rail's low tolerance corner (4.863 V, see PWR-D6) the headroom is 333 mV against an LT3045 dropout of **330 mV over temperature at this load**. 43.2 k / 4.32 V restores real margin; the stage needs about 3.5 V. |
+| **PWR-S6** | `output_module.py`, U14 SET = 40.2 k | **CLOSED.** Independently rechecked across the full stack: dropout bound +433 mV (rail low corner 4.863 V, U14 high corner 4.100 V at the LT3045's 102 µA SET maximum, against 330 mV of over-temperature dropout) and swing bound +510 mV (U14 low corner 3.940 V against the 3.43 V the ±2.83 V output needs). The intermediate 45.3 k had only 3 mV on the dropout bound. **Side effect, still open:** widening U14's SET resistance from 45.3 k to 40.2 k moved its ramp from 511 ms to 455 ms while U8 stayed at 561 ms, so the two op amp rails now arrive **106 ms apart** rather than 51 ms, into a jack with no DC blocking (open item D10). |
+| **PWR-S8** | `output_module.py`, translator OE and U9's SET capacitor | The 10 µF on U9 makes VCC(A) the last rail so that `~OE` tied low cannot enable before both supplies exist. **The arithmetic holds with 2.34× of margin** (§4.4) — but it protects only bank 1, whose outputs are on the A side. Bank 2 has `2DIR` high, so it runs A→B and **its outputs sit on the B side, powered by the rail that arrives first**; the deliberate delay lengthens rather than shortens the window (≈94 ms) in which those drivers are powered and enabled while VCC(A) is between 0 V and its minimum. Both CCHD-957 enables are on those outputs, sharing one `OSC_RAW` net that is only legal with exactly one part enabled. Not shown to be a fault — SCES576I was not fetched and `Ioff` may cover it — but the remedy does not reach this bank and the comment in `output_module.py` claims it does. |
 | **PWR-S7** | both `bom.csv` | U5 and U7 rows carry the wrong footprint in the Package column *and* are marked **VERIFIED**. Separately, **no capacitor in either BOM carries a voltage rating or dielectric** — they are grouped by value alone — on a 12 V rail whose TVS clamps at 29.2 V, where the datasheet asks for "at least the maximum input voltage, preferably twice". |
 
-### Decision record 0014 versus what is built
+### Decision records 0014 and 0015 versus what is built
+
+0014 has been substantially corrected since this review started — the TVS is
+now recorded as 18 V, the "what this did not do" section is reconciled, and the
+missing record for what everything called "decision 5" now exists as **0015**.
+What is left:
 
 | Tag | Where | What |
 | --- | --- | --- |
-| **PWR-D1** | `0014` Decision section | "a 15 V TVS" — the netlist fits an **SMAJ18A**, and 0014's own reasoning about the 19 V brick was reversed by a simulation. `open-items.md` already says 18 V. |
-| **PWR-D2** | `0014` Decision, and "What this does not yet do" | Says the negative-rail second stage "is not built yet", "the module is untouched", "the mezzanine still carries +5V", "the LTC3265 charge pump is still fitted", "the difference network is still 604 Ω". **All five are now false** and `open-items.md` records them as done. 0014 needs an amendment note, not a rewrite. |
-| **PWR-D3** | `0014` Consequences | "everything downstream of +5V is unchanged — the LTM4622, the LT3045 and the mezzanine all see the rail they were designed against." The mezzanine now carries −6 V on two pins taken from the ground and +5 V allocations. |
+| **PWR-D1** | `0014`, "Why 12 V and not 5 V" | "That second stage **is not built yet** — see 'What this does not yet do'." 0015 built it, and the section it points at has since been retitled "What this did not do, and what has since". One sentence, and the only place in 0014 still asserting the inverter is unbuilt. |
+| **PWR-D2** | `0014`, Decision | "everything downstream of +5V is unchanged — the LTM4622, the LT3045 and **the mezzanine** all see the rail they were designed against." The mezzanine now carries −6 V on two pins taken from the ground and +5 V allocations. 0015 supersedes it, so an amendment marker is enough. |
+| **PWR-D3** | `0014`, "What this did not do" | "**The isolator is not fitted.** Still true. The SuperSpeed pairs **are routed**…" The SuperSpeed pairs are gone: `grep -c 'SSTX\|SSRX'` over `lyrebird-main.net` returns 0. Half of that bullet is now stale in the opposite direction from the rest. |
+| **PWR-D4** | `0014`, the `hv_rails` paragraph | Lists `+12V`, `VIN_RAW` and `VIN_FUSED` as declared, and states the mechanism — "an undeclared rail reaching a protected pin passes silently" — as a general lesson. `-6V_A`, the rail 0015 went on to introduce, is declared on the main board and **not on the module** (PWR-S3). The paragraph should name it. |
+| **PWR-D5** | `0015`, the Decision list | "Two mezzanine pins, **taken from the ground allocation**. All 80 were assigned, **37** of them ground for 28 switching lines; **35** remain." The netlist has **36** ground pins, and one of the two came from the **+5 V** allocation — taking 71/72 shifted the alternating tail's parity, so +5 V went 5 → 4 and ground 37 → 36. Same error as PWR-C3; the two texts share it. |
+| **PWR-D6** | `0015`, Decision and Consequences | "An LT3045 takes the header's 5 V to **+4.53 V**" and "It is **45.3 kΩ and 4.53 V** now." The netlist is **40.2 kΩ / 4.02 V** — 45.3 k was an intermediate value that had 3 mV of margin on the dropout bound at the tolerance corner (PWR-S6). |
 
 ### `main_board.py` comments versus `main_board.py` output
 
@@ -823,6 +920,7 @@ built; `hardware/lyrebird-*/​*.net` is what I actually read.
 
 | Tag | Where | What |
 | --- | --- | --- |
+| **PWR-A0** | rail table (line 41) and the op amp rail paragraph (line 55) | `+5V_A` given as **+4.53 V** with "U14 is programmed to +4.53 V, which leaves 3.93 V of swing". The netlist is 40.2 kΩ, i.e. **4.02 V**, leaving 3.42 V of swing against the 2.83 V needed. Same stale value as PWR-D6. |
 | **PWR-A1** | opening line | "regulates its own rails from the +5 V the main board hands it ([0009], interface.md)". The negative rail arrives pre-inverted at −6 V; `interface.md` already documents that. |
 | **PWR-A2** | "Where the boundary sits" | "J1 pins 71, 73, 75, 77 and 79 … **five pins** of unregulated bus voltage downstream of the main board's VBUS ferrite" and "**Nothing else crosses.**" Four pins; regulated; and −6V_A crosses on 71/72. |
 | **PWR-A3** | "Reflected to the USB input, and margin" | Still reads main 234 + module **238** = **472 mA**, with USB 3.0/2.0 utilisation tables and "the USB 2.0 line is no longer comfortable … 94 %". The same page's own totals are 123 mA of +5 V and 64 mA of −6 V. 0014 retired the whole budget. |
@@ -836,7 +934,9 @@ built; `hardware/lyrebird-*/​*.net` is what I actually read.
 | Tag | Where | What |
 | --- | --- | --- |
 | **PWR-V1** | `verify_power.py`, `ldo_rails` | Three silent-skip paths, each tamper-demonstrated: a SET value spelled in ohms rather than kilohms, an IN rail not in the two-entry `known` dict, or a part whose `value` string loses the family name — each drops a regulator and reports "17/17 checks pass". **Assert the subject count: the design has six post-regulators.** |
-| **PWR-V2** | `verify_power.py`, `U3_DROPOUT` | 260 mV is the LT3045's headline at 500 mA, and the margin line says "the low-current dropout is smaller and is not published in anything fetched here". Both halves are wrong: 3045f publishes **220 typ / 275 max / 330 over temperature at 1 mA and 50 mA** — larger, not smaller. The same constant is also applied to U8, which is an LT3094 with its own 235 mV. |
+| **PWR-V2** | `verify_power.py`, `U3_DROPOUT` | **Closed.** Now 0.330 V, "LT3045 max at 1-50 mA, not the 500 mA figure", which matches 3045f. It is still applied to U8, an **LT3094** whose own figure is 235 mV — conservative, so harmless, but it is the wrong part's number. |
+| **PWR-V16** | `verify_power.py`, `V5_TOL_LO = 0.0157` | Annotated "LMR33630 VFB 0.985 V min **with 1 % divider**", but 1.57 % is the feedback tolerance alone. With 1 % on both 100 k and 24.9 k the ratio spreads to 3.9366–4.0972, so the rail's real low corner is **4.863 V (−3.06 %)**, not 4.941 V. Every corner check is therefore about 79 mV optimistic. No verdict changes — U14 has +432 mV rather than the reported +511 mV — but the constant does not do what its own note says. |
+| **PWR-V17** | `verify_power.py`, the dropout loop | `vin_lo = abs(vin) * (1 - V5_TOL_LO.value)` inside the loop **rebinds the function-scope `vin_lo`** that the summary banner prints afterwards. A passing run now reports **"Input 4.9 to 12.6 V at the jack"** — the +5 V rail's low corner presented as the adapter voltage. No verdict is affected (the checks using the outer `vin_lo` run before the loop), but the file's headline output is wrong. |
 | **PWR-V3** | `verify_power.py`, FT601Q skew check | The only check no perturbation of any constant can flip. Its two inputs, 33.2 k and 100 nF, are bare literals in a `ramps` list rather than `Fact`s, and the threshold is 6.6× the value. `power_input_transient.py`'s S-2 tests the same property properly and does fail on the C_SET tamper. |
 | **PWR-V4** | `verify_power.py`, TVS clamp check | Compares 29.2 V to 36 V and reports 6.8 V of margin. For U7 the stress is `V_clamp + \|Vout\|` = **35.18 V**, leaving 0.82 V against the recommended maximum — and U7 is not in the check. |
 | **PWR-V5** | `verify_power.py`, inverter current check | Compares 63.5 mA to 0.3 × 3 A. The 3 A does not apply in inversion: the topology limit is `(I_SC − ΔI_L/2)(1 − D)` = **2.21 A**. Right verdict, wrong number. |
@@ -856,7 +956,7 @@ built; `hardware/lyrebird-*/​*.net` is what I actually read.
 | Tag | What |
 | --- | --- |
 | **PWR-O1** | The +3V3 / +2V5 / +1V0 currents (PWR-M4). Needs the FT601Q datasheet and a GateMate figure that depends on a bitstream. |
-| **PWR-O2** | Bitstream load time against the module's 271–362 ms rail ramps (Part 4.2). Nothing on either board sequences this; `MUTE_N` is an FPGA output and the module returns no power-good. Needs a measurement, or C_SET cut on `+2V5` and `+3V3_CLK` — never on `+3V3_REF`, where the 4.7 µF buys the noise specification. |
-| **PWR-O3** | SN74ALVCH16374 and 74AVC4T245 input current with VCC below the driven input level. Datasheets not fetched; this is what PWR-O2's severity turns on. |
+| **PWR-O2** | Bitstream load time against the module's 361–574 ms rail ramps (§4.2). Nothing on either board sequences this; `MUTE_N` is an FPGA output and the module returns no power-good. Cutting C_SET is no longer freely available as a remedy: `+3V3_REF` must keep 4.7 µF for the noise specification, `+2V5` must stay slow for PWR-S8's ordering, and cutting `+3V3_CLK` breaks that ordering from the other side. The sequencing is now load-bearing in two directions, which anyone tuning one of these capacitors needs to know. |
+| **PWR-O3** | SN74ALVCH16374 and 74AVC4T245 input current with VCC below the driven input level, and the 74AVC4T245's `Ioff` behaviour with VCC(A) *partially* powered. Datasheets not fetched; PWR-O2's and PWR-S8's severity both turn on these. |
 | **PWR-O4** | Loop stability of U7. The LMR33630's compensation is internal and specified for buck operation; the inverting plant has a right-half-plane zero (about 2 MHz at this light load, but 64 kHz at 2 A). TI's inverting application note is the authority and the design cites none. Benign at 63.5 mA; not transferable if this rail's load grows. |
 | **PWR-O5** | LTM4622: efficiencies `ASSUMED`, RUN and feedback figures reaching the repo through a review rather than a datasheet, and a land pattern just found transposed. Wants its own datasheet pass, which this review did not do. |

@@ -129,7 +129,7 @@ L2_DCR = F(0.043, "ohm", ASSUMED, "a 10 uH 3 A 12x12 mm shielded part; the "
 C_OUT_N6 = F(47.1e-6, "F", CALC, "47 uF 1210 + 100 nF 0603, GND to -6V_A")
 C_IN_12 = F(22.1e-6, "F", CALC, "22 uF 1210 + 100 nF 0603, +12V to GND -- "
                                 "and NOTHING from +12V to -6V_A")
-C_VIN_PGND = F(0.0, "F", CALC, "what is fitted from U7's VIN to its PGND")
+C_VIN_PGND = F(10.1e-6, "F", CALC, "10 uF + 100 nF, +12V to -6V_A, fitted 2026-09-28 after this review flagged it missing")
 I_N6V = F(0.0635, "A", CALC, "module power.md worst case: 21.6 quiescent + "
                              "13.9 element + 21.0 network + 7 margin")
 V_N6V_TARGET = F(-5.98, "V", CALC, "1.0 V x (1 + 124k/24.9k), inverted")
@@ -143,6 +143,7 @@ LT3094_ENUV_TH = F(1.33, "V", DS, "positive trip point rising, MAXIMUM; "
                                   "1.20/1.26/1.33 V, referenced to GND")
 LT3094_ILIM_K = F(3.75, "ohm*A", DS, "ILIM scale factor, kohm x A")
 LT3094_RTHJA = F(34.0, "C/W", DS, "DD 12-lead 3x3 DFN; exposed pad is IN")
+AVC_VCC_MIN = F(1.2, "V", ASSUMED, "74AVC4T245 minimum operating supply per port; SCES576I was NOT fetched for this review")
 LT3045_DROPOUT_50MA = F(0.330, "V", DS, "220 typ / 275 max / 330 over "
                                         "temperature at I_LOAD = 1 mA and "
                                         "50 mA, Electrical Characteristics")
@@ -703,8 +704,9 @@ def scenario_spice(ck):
     # ---- C-3. The commutation loop, with and without the required cap.
     print()
     rows = []
-    for label, cfix in (("as built (no VIN-to-PGND cap)", 0.0),
-                        ("+ 2.2 uF 0603 across VIN to PGND", 2.2e-6)):
+    for label, cfix in (("as it was: no VIN-to-PGND cap", 0.0),
+                        ("as built now: 10 uF + 100 nF",
+                         C_VIN_PGND.value)):
         an = run(build_commutation(cfix), 2e-11, 60e-9)
         v_dev = arr(an, "vin_pin") - arr(an, "pgnd_pin")
         def branch(nm):
@@ -724,17 +726,17 @@ def scenario_spice(ck):
               f"{p2*1e3:6.0f} mA through the local cap")
     ck.add("C-3", "the commutation loop does not run through the analog "
                   "ground plane",
-           rows[0][2] < 0.10 * IPEAK_MIN.value,
-           f"as built, {rows[0][2]/IPEAK_MIN.value*100:.0f} % of the "
-           f"{IPEAK_MIN.value:.2f} A switch transition returns through the "
-           f"ground plane between the two capacitors, because the only path "
-           f"from VIN to U7's PGND is 22 uF in series with 47 uF with the "
-           f"plane in between; the pin pair moves {rows[0][1]*1e3:.0f} mV "
-           f"across roughly 11 nH of loop",
-           f"fitting a 2.2 uF 0603 straight across VIN to PGND at the pins "
-           f"moves {rows[1][3]/IPEAK_MIN.value*100:.0f} % of the transition "
-           f"into it, leaves {rows[1][2]/IPEAK_MIN.value*100:.0f} % in the "
-           f"plane, and brings the excursion to {rows[1][1]*1e3:.0f} mV. "
+           rows[1][2] < 0.10 * IPEAK_MIN.value,
+           f"with {C_VIN_PGND.value*1e6:.1f} uF now fitted across VIN to "
+           f"PGND, {rows[1][3]/IPEAK_MIN.value*100:.0f} % of the "
+           f"{IPEAK_MIN.value:.2f} A switch transition returns locally and "
+           f"{rows[1][2]/IPEAK_MIN.value*100:.0f} % through the ground "
+           f"plane, with the pin pair moving {rows[1][1]*1e3:.0f} mV",
+           f"before that capacitor was fitted the figures were "
+           f"{rows[0][2]/IPEAK_MIN.value*100:.0f} % through the plane and "
+           f"{rows[0][1]*1e3:.0f} mV across the pins, because the only path "
+           f"from VIN to U7's PGND was 22 uF in series with 47 uF with the "
+           f"plane in between. "
            f"SNVSAN3F 9.2.2.6 asks for 10 uF plus a 220 nF here; the point "
            f"is not the value, it is that the loop has no local return at "
            f"all on a board whose premise is a quiet ground. Against SW's "
@@ -790,8 +792,8 @@ def build_sequencing_both(t_mute=None, tss=None):
     for name, rset, cset, vout, gate, in_node in (
             ("s5", 33.2e3, 4.7e-6, 3.32, None, "p5v"),     # U5  +3V3_REF
             ("s6", 33.2e3, 4.7e-6, 3.32, None, "p5v"),     # U6  +3V3_CLK
-            ("s9", 24.9e3, 4.7e-6, 2.49, None, "p5v"),     # U9  +2V5
-            ("s14", 45.3e3, 4.7e-6, 4.53, "mute", "p5v"),  # U14 +5V_A
+            ("s9", 24.9e3, 10.0e-6, 2.49, None, "p5v"),    # U9  +2V5, 10 uF
+            ("s14", 40.2e3, 4.7e-6, 4.02, "mute", "p5v"),  # U14 +5V_A
             ("s8", 49.9e3, 4.7e-6, 4.99, "mute", "n6v")):  # U8  -5V_A
         en = ("u(v(p5v)-1.32)" if gate is None
               else f"u(v({gate})-1.32)*u(v({in_node})-1.32)"
@@ -827,7 +829,7 @@ def scenario_sequencing(ck):
     rails = {"+12V": ("v12", 11.4, 1), "+5V": ("p5v", 5.02, 1),
              "-6V_A": ("n6v", -5.98, -1), "+2V5m": ("p25m", 2.49, 1),
              "+3V3_REF": ("p33", 3.32, 1), "+3V3_CLK": ("p33c", 3.32, 1),
-             "+5V_A": ("p5va", 4.53, 1), "-5V_A": ("n5va", -4.99, -1)}
+             "+5V_A": ("p5va", 4.02, 1), "-5V_A": ("n5va", -4.99, -1)}
     times = {}
     print(f"   {'rail':8} {'10 %':>10} {'90 %':>10} {'final':>10}")
     for nm, (node, nominal, sign) in rails.items():
@@ -891,6 +893,67 @@ def scenario_sequencing(ck):
            "still climbing. Nothing sequences these: MUTE_N is an OUTPUT of "
            "the FPGA and the module returns no power-good. The margin is a "
            "359 ms RC against an unmeasured bitstream load time")
+
+    # ---- D-6. The translator's supply ordering, which output_module.py now
+    # relies on in place of the pull-up SCES576I asks for.
+    #
+    # OE is tied low, so each bank enables the instant its controlling supply
+    # exists. The stated remedy is to make VCC(A) the LAST rail to arrive, via
+    # 10 uF on U9's SET. Both ramps are 100 uA into R_SET || C_SET with the
+    # fast-start circuit disabled by PGFB-to-IN, so each is an exponential:
+    #
+    #     V(t) = 100u*R * (1 - exp(-t / (R*C)))
+    #
+    # and the question is whether VCC(A) crosses the part's minimum operating
+    # supply later than VCC(B) does, at every corner.
+    tau_b, v_b = 33.2e3 * 4.7e-6, 3.32       # U6 -> VCC(B)
+    tau_a, v_a = 24.9e3 * 10.0e-6, 2.49      # U9 -> VCC(A)
+    vmin = AVC_VCC_MIN.value
+
+    def t_cross(tau, vinf, v):
+        return -tau * math.log(1 - v / vinf) if v < vinf else None
+
+    tb, ta = t_cross(tau_b, v_b, vmin), t_cross(tau_a, v_a, vmin)
+    # The ordering survives as long as tau_A/tau_B stays above the ratio at
+    # which the two crossings coincide.
+    ratio_break = math.log(v_b / (v_b - vmin)) / math.log(v_a / (v_a - vmin))
+    ratio = tau_a / tau_b
+    print(f"\n   VCC(B) = +3V3_CLK  tau {tau_b*1e3:.0f} ms, crosses "
+          f"{vmin} V at {tb*1e3:.0f} ms, 90 % at {2.3*tau_b*1e3:.0f} ms")
+    print(f"   VCC(A) = +2V5      tau {tau_a*1e3:.0f} ms, crosses "
+          f"{vmin} V at {ta*1e3:.0f} ms, 90 % at {2.3*tau_a*1e3:.0f} ms")
+    print(f"   ordering holds while tau_A/tau_B > {ratio_break:.3f}; "
+          f"it is {ratio:.3f}, a factor of {ratio/ratio_break:.2f}")
+    ck.add("D-6", "VCC(A) really is the last translator supply to arrive",
+           ta > tb and ratio > ratio_break,
+           f"VCC(A) reaches the {vmin} V minimum at {ta*1e3:.0f} ms against "
+           f"VCC(B) at {tb*1e3:.0f} ms -- {(ta-tb)*1e3:.0f} ms later -- and "
+           f"because tau_A > tau_B and V_A(inf) < V_B(inf), VCC(A) lags at "
+           f"EVERY instant, in absolute volts and as a fraction of final",
+           f"robust: the order only inverts if tau_A/tau_B falls below "
+           f"{ratio_break:.3f} against {ratio:.3f} fitted, so it survives "
+           f"20 % capacitor tolerance and DC-bias derating on both parts at "
+           f"once. The mechanism is sound and the arithmetic behind it holds")
+
+    # ---- D-7. ...but it only covers the bank whose outputs are on the A side.
+    ck.add("D-7", "the ordering covers both translator banks",
+           False,
+           "it covers bank 1 and not bank 2. 1DIR is tied to GND, so bank 1 "
+           "passes B to A and its OUTPUT (1A1, the element clock back to the "
+           "FPGA) is powered by VCC(A) -- the last rail, exactly as intended. "
+           "2DIR is tied to v2v5, so bank 2 passes A to B and its outputs "
+           "(2B1/2B2, both CCHD-957 enables) are powered by VCC(B), the "
+           "FIRST rail",
+           f"so between {tb*1e3:.0f} ms and {ta*1e3:.0f} ms -- "
+           f"{(ta-tb)*1e3:.0f} ms -- bank 2's output drivers are powered and "
+           f"enabled while VCC(A), which controls them, is between 0 V and "
+           f"its minimum: the region no datasheet specifies. Both oscillator "
+           f"enables are on those outputs, sharing one OSC_RAW net that is "
+           f"only legal with exactly one part enabled, and output_module.py "
+           f"already records that the 100 k pull-downs 'only decide the case "
+           f"where the translator is itself high impedance'. Not shown to be "
+           f"a fault -- SCES576I was not fetched, and Ioff may cover it -- "
+           f"but the remedy chosen does not reach this bank")
 
     # ---- D-4. Input current through start-up, now with both converters.
     #
@@ -1050,22 +1113,24 @@ def run_tampers():
         scenario_audit(ck)
     base_a1 = ck.get("A-1").ok
     rec("A-1 run against the netlist as it stands", "A-1, U7's input cap",
-        "fails", base_a1,
-        "0.00 uF against a required 10 uF. The check is only useful if it "
-        "also passes once a capacitor is fitted -- T-2 shows it does")
+        "passes", base_a1,
+        "10.10 uF from +12V to -6V_A. When this review first ran, the answer "
+        "was 0.00 uF and A-1 failed; the capacitor was fitted in response. "
+        "The tamper that matters now is T-2, which removes it again")
 
     # T-2. Same check with the capacitor present, to prove it is not
     # unconditionally failing.
     saved = caps_between
     try:
         globals()["caps_between"] = lambda c, n, a, b: (
-            22e-6 if {a, b} == {"+12V", "-6V_A"} else saved(c, n, a, b))
+            0.0 if {a, b} == {"+12V", "-6V_A"} else saved(c, n, a, b))
         ck2 = Checks()
         with contextlib.redirect_stdout(io.StringIO()):
             scenario_audit(ck2)
-        rec("a 22 uF fitted from +12V to -6V_A", "A-1, U7's input cap",
-            "passes", ck2.get("A-1").ok,
-            "so A-1 discriminates rather than always failing")
+        rec("U7's input capacitor removed again", "A-1, U7's input cap",
+            "fails", ck2.get("A-1").ok,
+            "so A-1 discriminates in both directions rather than reporting "
+            "whichever answer the netlist happens to give")
     finally:
         globals()["caps_between"] = saved
 
@@ -1112,10 +1177,10 @@ def run_tampers():
 
     # T-6. The commutation loop, with the plane inductance taken to zero.
     an0 = run(build_commutation(0.0, 1e-12), 2e-11, 60e-9)
-    i0 = float(np.max(np.abs(np.array(an0.branches["lplane"]))))
-    rec("a perfect ground plane, 1 pH between the capacitors",
-        "C-3, the commutation loop", "passes",
-        i0 < 0.05 * IPEAK_MIN.value,
+    i0 = float(np.max(np.abs(np.array(an0.branches["vam1#branch"]))))
+    rec("the capacitor removed again, with a perfect 1 pH ground plane",
+        "C-3, the commutation loop", "fails",
+        i0 < 0.10 * IPEAK_MIN.value,
         f"{i0*1e3:.0f} mA still returns through the plane -- "
         f"{i0/IPEAK_MIN.value*100:.0f} % of the transition. The current path "
         f"is a topology fact, not a parasitic one: with no capacitor from "

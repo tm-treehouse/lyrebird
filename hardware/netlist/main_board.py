@@ -635,12 +635,29 @@ def build():
         n += ctrl_pool.pop(0)
         n += next_mez()
         ctrl_nets[sig] = n
-    # Two pins for the negative analog rail, taken from the ground
-    # allocation. 37 returns for 28 switching lines is generous; 35 still is.
-    # They are adjacent so the pair can be routed together and so a
+    # The negative analog rail, flanked by ground on both sides.
+    #
+    # Two pins taken from the ground allocation -- 37 returns for 28 switching
+    # lines was generous, 35 still is -- and the pair is adjacent so a
     # half-inserted connector cannot present one without the other.
+    #
+    # The flanking is the part that took a second pass. On a 2x40 odd/even
+    # header pins 2k-1 and 2k share a column, and putting this pair
+    # immediately after the control block put -6 V in the column beside ID1.
+    # The control block has no ground pin inside it, so one bridge or one
+    # whisker across 1.27 mm would have put -6 V on a net that reaches a
+    # GateMate GPIO through nothing but two 10 k pull-downs, with the input's
+    # clamp diode conducting and the current limited only by the bridge.
+    #
+    # A full ground column either side costs four pins out of a surplus and
+    # removes that. The two netlists must agree pin for pin, so the module
+    # does the same thing in the same order.
+    for _ in range(2):
+        v["GND"] += next_mez()
     for _ in range(2):
         v["-6V_A"] += next_mez()
+    for _ in range(2):
+        v["GND"] += next_mez()
     # Remaining pins: supply and ground, alternating.
     while idx < len(mez_pins):
         rail = v["+5V"] if idx % 2 == 0 else v["GND"]
