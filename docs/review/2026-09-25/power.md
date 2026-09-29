@@ -1,10 +1,13 @@
 # Power design review — 12 V wall wart, two boards
 
-Reviewed 2026-09-25/26 against `hardware/netlist/main_board.py`,
+Reviewed 2026-09-25 to 29 against `hardware/netlist/main_board.py`,
 `hardware/netlist/output_module.py` and the generated
 `lyrebird-main.net` / `lyrebird-dac.net`, which are the authority used
 throughout: where a Python comment and the generated netlist disagree, the
-netlist wins and the disagreement is a flag.
+netlist wins and the disagreement is a flag. Four faults were fixed while the
+review was open — U7's missing input bypass, U14's SET resistor, the −6 V pins'
+position on the connector, and the two power-good nets — and the entries for
+those are marked CLOSED rather than deleted, so the record shows what was real.
 
 Two things are out of scope by instruction and are not reported as faults: the
 adapter is unchosen so its tolerance is assumed, and the reference-rail
@@ -682,83 +685,96 @@ nothing about the design.
 # Part 5 — The mezzanine
 
 Both halves read out of the generated netlists and compared pin by pin. **They
-agree exactly: all 80 pins, same net on both sides, no gaps.**
+agree exactly: all 80 pins, same net on both sides, no gaps.** The power and
+ground allocation changed while this review was running, in response to §5.2
+below; what follows is the current map.
 
 | | pins | which |
 | --- | --- | --- |
 | element lines | 32 | odd 1–63 |
-| ground | **36** | even 2–64, plus 74, 76, 78, 80 |
+| ground | **38** | even 2–64, plus 71, 72, 75, 76, 78, 80 |
 | MCLK | 1 | 65 |
 | control | 5 | 66 OSC_EN_441, 67 OSC_EN_48, 68 MUTE_N, 69 ID0, 70 ID1 |
-| **−6V_A** | **2** | **71, 72** |
-| +5V | **4** | 73, 75, 77, 79 |
+| **−6V_A** | 2 | **73, 74** — column 37, with full ground columns either side |
+| +5V | **2** | 77, 79 |
 
-## 5.1 The return path is adequate, and the comment describing it is wrong
+## 5.1 The return path
 
-`main_board.py` says *"Two pins for the negative analog rail, taken from the
-ground allocation. 37 returns for 28 switching lines is generous; 35 still
-is."* The netlist says **36**, and one of the two pins came from the +5 V
-allocation, not from ground: pins 71 and 72 were previously 71 (+5V) and 72
-(GND) in the alternating tail, and taking them shifted the tail's parity so
-+5V went from 5 pins to 4 and ground from 37 to 36. Arithmetic in the comment,
-not in the circuit.
+38 ground pins for 28 switching lines, 32 of them interleaved one per element
+line, which is the structure that matters. DC is trivial either way: +5 V
+carries 123 mA out through 2 contacts and the −6 V rail carries 63.5 mA *in*
+through 2, its return leaving through ground and partially cancelling, so net
+DC in the ground pins is about 59 mA and every contact drop is sub-millivolt.
+AC — 28 lines at 12.29 MHz — is a loop-area question and therefore layout's.
 
-The conclusion survives. DC: +5 V carries 123 mA out through 4 contacts
-(31 mA each) returning through 36; the −6 V rail carries 63.5 mA *in* through
-2 contacts and its return goes *out* through ground, partially cancelling, so
-net DC in the ground pins is about 59 mA. At 20 mΩ per contact that is
-sub-millivolt everywhere. AC is the real question — 28 lines at 12.29 MHz — and
-36 returns interleaved one-per-line for the first 32 is the right structure;
-what matters beyond that is loop area, which is layout.
+Two recorded facts rather than problems. **+5 V is now down to two contacts**,
+from five before the negative rail and four after it: 61.5 mA per pin, and a
+single failed contact leaves one pin carrying the module's whole 123 mA. That
+is inside a 1.27 mm contact's rating with room, but the redundancy argument
+both `power.md` files make from "five parallel header contacts" no longer
+holds, and they still say five. And the arithmetic in `main_board.py`'s comment
+and in 0015 — "37 of them ground … 35 remain" — was never right at any point in
+this sequence: it was 36 before the rework and it is 38 now.
 
-## 5.2 A −6 V rail sits one column from a 2.5 V logic input, with no ground between
+## 5.2 −6 V next to a logic input — found here, fixed
 
-On a 2×40 odd/even header, pins 2k−1 and 2k share column k. So:
+**Closed.** When this review started, the map put −6V_A at pins 71/72, which on
+a 2×40 odd/even header is the column immediately beside 69/70 — ID0 and ID1,
+two GateMate GPIO — and pins 65 to 70 contained **no ground pin at all**. One
+bridge or whisker between pins 70 and 71 would have put −6 V onto a net
+reaching a GateMate input through nothing but two 10 kΩ pull-downs, with the
+input's clamp diode the only thing conducting and the bridge the only thing
+limiting current.
 
-    column 35 = pins 69, 70   ID0, ID1        2.5 V logic, GateMate GPIO
-    column 36 = pins 71, 72   -6V_A, -6V_A
-    column 37 = pins 73, 74   +5V, GND
+The pair is now column 37 (pins 73/74) with complete ground columns at 71/72
+and 75/76 on either side, and both netlists regenerate with all 80 pins still
+agreeing. The reason for keeping the two −6 V pins adjacent *to each other* was
+always sound and is retained: in the same column they mate simultaneously, so a
+half-inserted connector cannot present one without the other.
 
-The whole control block, pins 65–70, has **no ground pin in it** — MCLK, two
-oscillator enables, MUTE_N and both ID straps sit in three adjacent columns
-with returns only at either end — and the column immediately beside ID1 is now
-−6 V. On a 1.27 mm header, one bridge or one whisker between pins 70 and 71
-puts −6 V onto a net that reaches a GateMate GPIO through nothing but two 10 kΩ
-pull-downs. The input's clamp diode to ground conducts and the current is
-limited only by the bridge.
+## 5.3 What the two assertions can and cannot express
 
-Putting the −6 V pair *adjacent to each other* is well reasoned — the netlist
-comment is right that a half-inserted connector then cannot present one without
-the other. Putting them next to the ID straps is not. Moving the pair into the
-alternating tail, flanked by ground (e.g. 75/76 with 73/74 and 77/78 as
-ground), costs nothing and is a pin-map change rather than a circuit change.
-It does change `interface.md` and both netlists, so it is a decision, not a fix.
+`assert_below_abs_max` is **one-sided**: `ABS_MAX_V = 2.75`, and every
+comparison asks whether a net is one of the declared high-voltage rails. There
+is no voltage sign and no lower limit anywhere in it.
 
-## 5.3 The absolute-maximum assertion cannot see this, in two separate ways
+`assert_core_rail` was added during this review and asks the complementary
+question for supplies — a core ball may touch `+1V0` and ground and nothing
+else, whatever the other net's voltage. Its construction is right, including
+the part that took two attempts: it requires that **only** allowed names appear
+in the net group rather than that an allowed name is *present*, which is the
+distinction that matters because a short merges nets rather than replacing them,
+so the core rail's own name survives every short. And it separately walks
+two-terminal parts, because a resistive bridge does not merge the groups at all.
 
-`assert_below_abs_max` is the guard that exists precisely because both boards
-have shipped a rail onto a pin rated lower. It is **one-sided**: `ABS_MAX_V =
-2.75` and every comparison asks whether a net *is* one of the declared
-high-voltage rails. There is no voltage sign, no lower limit, and no concept of
-a negative rail anywhere in it. The design now carries a rail 20× outside a
-protected pin's negative absolute minimum and the guard is structurally unable
-to express the question.
+Four things neither assertion covers. The first is the one I would close next:
 
-Beyond that, the two boards declare different rails:
-
-- **main board**: `hv_rails` includes `-6V_A`, and `protected` lists
-  `mez: {"+5V", "-6V_A"}` — so a stray `-6V_A` on an *FPGA* pin would be
-  caught (the FPGA is allowed nothing), which is the important half.
-- **module**: `hv_rails = {"+5V", "+3V3_CLK", "+3V3_REF", "+5V_A", "-5V_A",
-  "PUMP_P", "PUMP_N", "+5V7_A", "-5V7_A"}` — **`-6V_A` is absent**, so on the
-  module the most dangerous net on the board is invisible to the check, and
-  four of the nine declared rails (`PUMP_P`, `PUMP_N`, `+5V7_A`, `-5V7_A`)
-  belong to the deleted charge pump and no longer exist.
-
-Decision 0014 records this exact mechanism in its own words — *"the overvoltage
-assertion is blind to any rail it is not told about: an undeclared rail
-reaching a protected pin passes silently"* — and the module's copy has been
-left in that state for the rail the decision itself introduced.
+1. **The bridge's own core rail is not protected.** `assert_core_rail` is
+   called with `protected=[fpga]` and `core_rails={"+1V0"}`. The FT601Q has a
+   1.0 V core rail of its own — `+1V0_FT`, six bridge pins — and `AVDD` on it
+   has a **1.4 V absolute maximum**. `main_board.py`'s own comment calls
+   putting 3.3 V there "a destroy-the-part error", and it is an error this
+   board has already made once. Extending the call to `[fpga, ftdi]` with
+   `+1V0_FT` also needs `VD10`/`AVDD`/`DV10` added to `CORE_SUPPLY_NAMES`,
+   which is a hardcoded tuple of GateMate ball names.
+2. **No subject count is asserted.** `CORE_SUPPLY_NAMES` is matched by exact
+   string. It currently finds 32 FPGA balls; if a symbol renames one, or a
+   future part calls its core `VCORE`, the loop finds nothing, `core_groups`
+   stays empty and the check passes. This is the third instance of the same
+   failure mode in this repository — the `pinfunction` reader, `ldo_rails`'
+   three silent skips (§1.1), and now this. **One assertion of "I expected N
+   subjects and found N" in each of the three would close the whole class.**
+3. **Only two-terminal bridges are walked.** `if len(pins) != 2: continue`
+   skips a ferrite or filter symbol with four pins, a resistor network, and any
+   transistor — all of which can tie a core ball to another rail.
+4. **No absolute *minimum* is expressible by either.** With §5.2 fixed there is
+   no live exposure, but the structure remains: if `-6V_A` ever reached a logic
+   pin, the main board would catch it only because that rail happens to be
+   declared in `hv_rails` — a positive-direction mechanism doing a
+   negative-direction job — and the module **would not catch it at all**,
+   because `-6V_A` is still absent from the module's `hv_rails` (PWR-S3).
+   0014's own words for this are "an undeclared rail reaching a protected pin
+   passes silently."
 
 ---
 
@@ -859,18 +875,24 @@ as generated, and the checks. Each is tagged, says which side I believe, and
 names the file and place. The netlists are treated as the authority on what is
 built; `hardware/lyrebird-*/​*.net` is what I actually read.
 
-### Schematic defects — the netlist itself is wrong
+### Schematic — the netlist itself
+
+Three of these were closed while the review was running, and they are kept
+because the reconciling agent needs to know they were real and are now
+resolved, not silently dropped.
 
 | Tag | Where | What |
 | --- | --- | --- |
-| **PWR-S1** | `main_board.py:278` and `:337`, both LMR33630s | Footprint `Package_SO:HTSSOP-8-1EP_3x3mm_P0.65mm_EP1.5x2.1mm` on an HSOIC-8 part. The datasheet's Device Information gives HSOIC (8), 5.00 × 4.00 mm; the KiCad symbol's own `fplist` names `Package_SO:Texas_HSOP-8-1EP_3.9x4.9mm_P1.27mm_ThermalVias`. A 0.65 mm-pitch 3 × 3 land cannot take a 1.27 mm-pitch 5 × 4 body. **Build-stopping.** Same class as the LTM4622 land-transposition found this round; that makes two footprint faults in the power tree. |
+| **PWR-S1** | `main_board.py`, U5 and U7 footprints | Footprint `Package_SO:HTSSOP-8-1EP_3x3mm_P0.65mm_EP1.5x2.1mm` on an HSOIC-8 part. The datasheet's Device Information gives HSOIC (8), 5.00 × 4.00 mm; the KiCad symbol's own `fplist` names `Package_SO:Texas_HSOP-8-1EP_3.9x4.9mm_P1.27mm_ThermalVias`. A 0.65 mm-pitch 3 × 3 land cannot take a 1.27 mm-pitch 5 × 4 body. **Build-stopping.** Same class as the LTM4622 land-transposition found this round; that makes two footprint faults in the power tree. |
 | **PWR-S2** | `main_board.py`, U7's input | **CLOSED during this review.** There was no capacitor from +12 V to −6V_A; U7's PGND *is* −6V_A, so SNVSAN3F 9.2.2.6's "minimum of 10 µF … required on the input" and pin 2's "directly to this pin and PGND" were unsatisfied. Measured: 100 % of the 0.69 A switch transition returned through the ground plane with 7.6 V across the pin pair. 10 µF + 100 nF is now fitted: 91 % local, 9 % plane, 2.6 V. **Residual:** the remaining 9 % and 2.6 V are set by loop inductance, so placement of these two parts is now a layout obligation, and it is the one place on either board where that is load-bearing for the analog ground. |
-| **PWR-S3** | `output_module.py:671–673` | `hv_rails` omits `-6V_A` — the board's most dangerous net is invisible to `assert_below_abs_max` on the module side — and still declares four nets deleted with the charge pump: `PUMP_P`, `PUMP_N`, `+5V7_A`, `-5V7_A`. 0014 records this exact mechanism in its own words. |
-| **PWR-S4** | `lyrebird_parts.py`, `assert_below_abs_max` | The guard is **one-sided**: `ABS_MAX_V = 2.75` with no lower limit and no notion of sign anywhere in it. The design now carries a −6 V rail across a connector whose adjacent pin is a 2.5 V GPIO with a −0.3 V floor, and the guard cannot express the question. |
-| **PWR-S5** | mezzanine pin map, both boards | Pins 71/72 (−6V_A) sit in the column immediately beside 69/70 (ID0/ID1), and pins 65–70 contain **no ground pin at all**. One bridge between 70 and 71 puts −6 V onto a GateMate GPIO through nothing but two 10 kΩ pull-downs. Moving the pair into the alternating tail flanked by ground costs nothing electrically but changes `interface.md` and both netlists. |
+| **PWR-S3** | `output_module.py`, the module's `assert_below_abs_max` call | `hv_rails` omits `-6V_A` — the board's most dangerous net is invisible to `assert_below_abs_max` on the module side — and still declares four nets deleted with the charge pump: `PUMP_P`, `PUMP_N`, `+5V7_A`, `-5V7_A`. 0014 records this exact mechanism in its own words. |
+| **PWR-S4** | `lyrebird_parts.py`, both assertions | Neither can express an absolute **minimum**. `assert_below_abs_max` has `ABS_MAX_V = 2.75` and no sign anywhere; `assert_core_rail` asks which net, not how negative. With PWR-S5 closed there is no live exposure, but if `-6V_A` ever reached a logic pin the main board would catch it only because that rail happens to be declared in `hv_rails` — a positive-direction mechanism doing a negative-direction job — and the module would not catch it at all (PWR-S3). |
+| **PWR-S5** | mezzanine pin map, both boards | **CLOSED during this review.** −6V_A sat at pins 71/72, the column immediately beside 69/70 (ID0/ID1), with **no ground pin anywhere in pins 65–70**; one bridge between 70 and 71 would have put −6 V onto a GateMate GPIO through nothing but two 10 kΩ pull-downs. The pair is now column 37 (73/74) with full ground columns at 71/72 and 75/76, both netlists regenerated, all 80 pins still agreeing across the connector, and the half-inserted-connector reasoning for keeping the pair adjacent to itself correctly retained. |
 | **PWR-S6** | `output_module.py`, U14 SET = 40.2 k | **CLOSED.** Independently rechecked across the full stack: dropout bound +433 mV (rail low corner 4.863 V, U14 high corner 4.100 V at the LT3045's 102 µA SET maximum, against 330 mV of over-temperature dropout) and swing bound +510 mV (U14 low corner 3.940 V against the 3.43 V the ±2.83 V output needs). The intermediate 45.3 k had only 3 mV on the dropout bound. **Side effect, still open:** widening U14's SET resistance from 45.3 k to 40.2 k moved its ramp from 511 ms to 455 ms while U8 stayed at 561 ms, so the two op amp rails now arrive **106 ms apart** rather than 51 ms, into a jack with no DC blocking (open item D10). |
-| **PWR-S8** | `output_module.py`, translator OE and U9's SET capacitor | The 10 µF on U9 makes VCC(A) the last rail so that `~OE` tied low cannot enable before both supplies exist. **The arithmetic holds with 2.34× of margin** (§4.4) — but it protects only bank 1, whose outputs are on the A side. Bank 2 has `2DIR` high, so it runs A→B and **its outputs sit on the B side, powered by the rail that arrives first**; the deliberate delay lengthens rather than shortens the window (≈94 ms) in which those drivers are powered and enabled while VCC(A) is between 0 V and its minimum. Both CCHD-957 enables are on those outputs, sharing one `OSC_RAW` net that is only legal with exactly one part enabled. Not shown to be a fault — SCES576I was not fetched and `Ioff` may cover it — but the remedy does not reach this bank and the comment in `output_module.py` claims it does. |
 | **PWR-S7** | both `bom.csv` | U5 and U7 rows carry the wrong footprint in the Package column *and* are marked **VERIFIED**. Separately, **no capacitor in either BOM carries a voltage rating or dielectric** — they are grouped by value alone — on a 12 V rail whose TVS clamps at 29.2 V, where the datasheet asks for "at least the maximum input voltage, preferably twice". |
+| **PWR-S8** | `output_module.py`, translator OE and U9's SET capacitor | **Verdict on the ramp claim: the arithmetic holds, and robustly.** Both rails are 100 µA into `R_SET ‖ C_SET` with fast-start disabled by PGFB-to-IN, so each is an exponential; VCC(A) reaches a 1.2 V minimum at **164 ms** against VCC(B) at **70 ms**, and because τ_A > τ_B *and* V_A(∞) < V_B(∞), VCC(A) lags at **every instant** rather than merely at the 90 % mark. The order inverts only if τ_A/τ_B falls below 0.682 against 1.596 fitted — a factor of **2.34**, which survives ±20 % on both capacitors and DC-bias derating on both at once. The 10 µF choice is a good one. **But it protects only bank 1**, whose outputs are on the A side. Bank 2 has `2DIR` high, so it runs A→B and its outputs sit on the **B side, powered by the rail that arrives first**; the deliberate delay lengthens rather than shortens the ≈94 ms window in which those drivers are powered and enabled while VCC(A) is between 0 V and its minimum. Both CCHD-957 enables are on those outputs, sharing one `OSC_RAW` net that is only legal with exactly one part enabled. Not shown to be a fault — SCES576I was not fetched and `Ioff` may cover it — but the remedy does not reach this bank and the comment in `output_module.py` reads as though it covers both. |
+| **PWR-S9** | `lyrebird_parts.py`, `assert_core_rail` | Correctly built — requiring that *only* allowed names appear rather than that an allowed name is present is the distinction that makes it work at all, since a short merges nets rather than replacing them. Three scope gaps: **(a)** it is called with `protected=[fpga]`, so the **FT601Q's own 1.0 V core rail is unprotected** — `+1V0_FT`, six pins, with `AVDD`'s 1.4 V absolute maximum on it, and `main_board.py` calls putting 3.3 V there "a destroy-the-part error" this board has already made once; extending to `[fpga, ftdi]` also needs `VD10`/`AVDD`/`DV10` added to the hardcoded `CORE_SUPPLY_NAMES`. **(b)** No subject count is asserted: `CORE_SUPPLY_NAMES` is matched by exact string, so a renamed ball leaves `core_groups` empty and the check passes. **(c)** `if len(pins) != 2: continue` skips ferrites, resistor networks and transistors as bridges. |
+| **PWR-S10** | mezzanine +5 V allocation | +5 V is now on **two** pins (77, 79), from five before the negative rail and four after it: 61.5 mA per contact, and a single failed contact leaves one pin carrying the module's whole 123 mA. Inside a 1.27 mm contact's rating with room, but the redundancy argument both `power.md` files draw from "five parallel header contacts" no longer holds — see PWR-M6 and PWR-A6. |
 
 ### Decision records 0014 and 0015 versus what is built
 
@@ -883,9 +905,9 @@ What is left:
 | --- | --- | --- |
 | **PWR-D1** | `0014`, "Why 12 V and not 5 V" | "That second stage **is not built yet** — see 'What this does not yet do'." 0015 built it, and the section it points at has since been retitled "What this did not do, and what has since". One sentence, and the only place in 0014 still asserting the inverter is unbuilt. |
 | **PWR-D2** | `0014`, Decision | "everything downstream of +5V is unchanged — the LTM4622, the LT3045 and **the mezzanine** all see the rail they were designed against." The mezzanine now carries −6 V on two pins taken from the ground and +5 V allocations. 0015 supersedes it, so an amendment marker is enough. |
-| **PWR-D3** | `0014`, "What this did not do" | "**The isolator is not fitted.** Still true. The SuperSpeed pairs **are routed**…" The SuperSpeed pairs are gone: `grep -c 'SSTX\|SSRX'` over `lyrebird-main.net` returns 0. Half of that bullet is now stale in the opposite direction from the rest. |
+| **PWR-D3** | `0014`, "What this did not do" | "**The isolator is not fitted.** Still true. The SuperSpeed pairs **are routed**…" The isolator half is still true; the SuperSpeed half is not — `grep -c 'SSTX\|SSRX'` over `lyrebird-main.net` returns 0, so the pairs are gone and the hardest constraint in the main board's layout went with them. One bullet, now stale in the opposite direction from the rest of its own section. |
 | **PWR-D4** | `0014`, the `hv_rails` paragraph | Lists `+12V`, `VIN_RAW` and `VIN_FUSED` as declared, and states the mechanism — "an undeclared rail reaching a protected pin passes silently" — as a general lesson. `-6V_A`, the rail 0015 went on to introduce, is declared on the main board and **not on the module** (PWR-S3). The paragraph should name it. |
-| **PWR-D5** | `0015`, the Decision list | "Two mezzanine pins, **taken from the ground allocation**. All 80 were assigned, **37** of them ground for 28 switching lines; **35** remain." The netlist has **36** ground pins, and one of the two came from the **+5 V** allocation — taking 71/72 shifted the alternating tail's parity, so +5 V went 5 → 4 and ground 37 → 36. Same error as PWR-C3; the two texts share it. |
+| **PWR-D5** | `0015`, the Decision list | "Two mezzanine pins, **taken from the ground allocation**. All 80 were assigned, **37** of them ground for 28 switching lines; **35** remain." Wrong at every stage of the sequence: before the §5.2 rework the netlist had **36** ground and 4 of +5 V (one pin came from the +5 V allocation, not from ground, because taking 71/72 shifted the alternating tail's parity); after it there are **38** ground and **2** of +5 V. Same arithmetic error as PWR-C3 — the two texts share it — and now also the wrong pin numbers, since the pair moved to 73/74. |
 | **PWR-D6** | `0015`, Decision and Consequences | "An LT3045 takes the header's 5 V to **+4.53 V**" and "It is **45.3 kΩ and 4.53 V** now." The netlist is **40.2 kΩ / 4.02 V** — 45.3 k was an intermediate value that had 3 mV of margin on the dropout bound at the tolerance corner (PWR-S6). |
 
 ### `main_board.py` comments versus `main_board.py` output
@@ -894,7 +916,7 @@ What is left:
 | --- | --- | --- |
 | **PWR-C1** | `main_board.py:157–159` | "That part is not built yet: the mezzanine still carries +5V and the module still has its charge pump" — U7, the inverter it is describing as unbuilt, is 60 lines further down the same function. |
 | **PWR-C2** | `main_board.py`, MUTE_N pull-down note | "MUTE_N … is a direct input to the charge pump's enables rather than a translator input." The charge pump is deleted; MUTE_N now drives U14's and U8's EN/UV. |
-| **PWR-C3** | `main_board.py`, mezzanine power allocation | "Two pins … taken from the ground allocation. 37 returns for 28 switching lines is generous; 35 still is." The netlist has **36** grounds, and one of the two pins came from the **+5 V** allocation, not from ground — taking 71/72 shifted the tail's parity, so +5 V went 5 → 4 pins and ground 37 → 36. The conclusion (generous) survives; the arithmetic does not. |
+| **PWR-C3** | `main_board.py`, mezzanine power allocation | "Two pins … taken from the ground allocation. 37 returns for 28 switching lines is generous; 35 still is." The netlist now has **38** ground pins and **2** of +5 V, and before the §5.2 rework it had 36 and 4 — never 37 or 35. The conclusion (generous) survives; the arithmetic never did, and the comment also needs the new pin numbers. |
 
 ### `output_module.py` comments versus `output_module.py` output
 
@@ -908,11 +930,11 @@ What is left:
 | Tag | Where | What |
 | --- | --- | --- |
 | **PWR-M1** | opening line | "Bus powered, no external input ([0009])". The board is externally powered from 12 V; 0009 is superseded. |
-| **PWR-M2** | "Where the boundary sits" | "+5 V pins … J2 pins 71, 73, 75, 77 and 79" — the netlist says **73, 75, 77, 79**; 71 and 72 are `-6V_A`. Also "downstream of the VBUS ferrite", which no longer supplies anything. |
+| **PWR-M2** | "Where the boundary sits" | "+5 V pins … J2 pins 71, 73, 75, 77 and 79". The netlist says **77 and 79** — two pins. 71/72 and 75/76 are ground and 73/74 are `-6V_A`. Also "downstream of the VBUS ferrite", which no longer supplies anything. |
 | **PWR-M3** | same section | "The header carries **unregulated bus voltage and ground, and no other rail**." It carries a regulated 5.016 V from a buck, and it carries −6 V. |
 | **PWR-M4** | rail table | +3V3 at **185 mA**, +2V5 at **15 mA**, +1V0 at **149 mA** against `verify_power.py`'s 60 / 90 / 80 mA. Reflected to +5 V these give 231 mA and 136 mA respectively, while both files state a 234 mA subtotal. Unresolved; needs the FT601Q's VCC33 figure from its datasheet. |
 | **PWR-M5** | "12 V input" summary block | "against **6.3 J** to trip F1" — `power_input_transient.py` computes **31.9 J** from the same model it cites. |
-| **PWR-M6** | "Totals at the input" | "**Five** parallel header contacts at 20 mΩ drop 2 mV at 123 mA" — four contacts, and the drop is 0.6 mV. |
+| **PWR-M6** | "Totals at the input" | "**Five** parallel header contacts at 20 mΩ drop 2 mV at 123 mA" — **two** contacts now, and the drop is 1.2 mV. See PWR-S10: the redundancy this sentence implies is gone. |
 | **PWR-M7** | "What has no source today" (final section) | Claims the LTM4622 is absent from `main_board.py`, that +2V5 and +1V0 "exist as nets with loads and no regulator", that the VBUS ferrite is absent and that there is no USB connector. **All four are false** — the netlist has U4 sourcing both rails, and `open-items.md` records the gap as closed. Delete the section. |
 | **PWR-M8** | Margin table | "F1 hold at 70 °C / 330 mA / 219 mA" omits the **305 mA** peak while both converters soft-start simultaneously. Not a trip risk (a PPTC integrates over seconds) but the table's own criterion is nearly met. |
 
@@ -922,11 +944,11 @@ What is left:
 | --- | --- | --- |
 | **PWR-A0** | rail table (line 41) and the op amp rail paragraph (line 55) | `+5V_A` given as **+4.53 V** with "U14 is programmed to +4.53 V, which leaves 3.93 V of swing". The netlist is 40.2 kΩ, i.e. **4.02 V**, leaving 3.42 V of swing against the 2.83 V needed. Same stale value as PWR-D6. |
 | **PWR-A1** | opening line | "regulates its own rails from the +5 V the main board hands it ([0009], interface.md)". The negative rail arrives pre-inverted at −6 V; `interface.md` already documents that. |
-| **PWR-A2** | "Where the boundary sits" | "J1 pins 71, 73, 75, 77 and 79 … **five pins** of unregulated bus voltage downstream of the main board's VBUS ferrite" and "**Nothing else crosses.**" Four pins; regulated; and −6V_A crosses on 71/72. |
+| **PWR-A2** | "Where the boundary sits" | "J1 pins 71, 73, 75, 77 and 79 … **five pins** of unregulated bus voltage downstream of the main board's VBUS ferrite" and "**Nothing else crosses.**" Two pins (77, 79); regulated from a buck, not bus voltage; and −6V_A crosses on 73/74. |
 | **PWR-A3** | "Reflected to the USB input, and margin" | Still reads main 234 + module **238** = **472 mA**, with USB 3.0/2.0 utilisation tables and "the USB 2.0 line is no longer comfortable … 94 %". The same page's own totals are 123 mA of +5 V and 64 mA of −6 V. 0014 retired the whole budget. |
 | **PWR-A4** | "Against 0009's budget" | Module subtotal **238 mA**, from the same retired era. |
 | **PWR-A5** | "What is still uncertain here" | Two rows are about the deleted charge pump: "3 mA of pump quiescent" and "4.43 V at the header … it decides whether the charge pump is inside its input range". |
-| **PWR-A6** | "Headroom at the worst input" | "**five** parallel header contacts"; and the paragraph reasons from a 5.02 V header without the ±1.5 % that makes U14 marginal (PWR-S6). |
+| **PWR-A6** | "Headroom at the worst input" | "**five** parallel header contacts" — two; and the paragraph reasons from a 5.02 V header without the tolerance spread that made the earlier U14 value marginal (PWR-S6, PWR-V16). |
 | **PWR-A7** | "The op amp rails" / open item D10 | The page treats MUTE_N gating as an open audio question with no numbers. It now has numbers: 511 ms of ramp on `+5V_A`, 561 ms on `-5V_A`, and **51 ms of asymmetry** between them into a jack with no DC blocking. |
 
 ### The checks, as documentation of the circuit
