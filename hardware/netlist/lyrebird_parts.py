@@ -180,6 +180,54 @@ CORE_ABS_MAX_V = 1.20
 CORE_SUPPLY_NAMES = ("VDD", "VDD_PLL", "VDD_SER", "VDD_SER_PLL")
 
 
+def assert_symbol_footprints(circuit, justified=None) -> None:
+    """Fail the build if a part overrides a symbol that names its own land.
+
+    Two faults of exactly this shape reached the netlists. An LT3045, an
+    11-pin part, was given a 12-pad DFN meant for the LT3094. Both LMR33630s
+    were given an HTSSOP-8 at 3 x 3 mm and 0.65 mm pitch when the package is
+    HSOP-8 at 3.9 x 4.9 mm and 1.27 mm -- a different part entirely, and
+    unbuildable. In both cases the KiCad symbol already carried the right
+    answer in its own footprint field and an explicit override replaced it.
+
+    The rule only applies where the symbol names a SPECIFIC footprint.
+    Generic symbols -- R, C, D, L, connectors -- name none, because choosing
+    the package is the designer's job there, so they are skipped rather than
+    flagged. That is what makes this checkable at all: the parts with a
+    default are precisely the parts whose package is not a choice.
+    """
+    # An override may be right, because a symbol can be wrong. It has to say
+    # why: justified maps a reference to the reason, and an unexplained
+    # override fails the build.
+    justified = justified or {}
+    cache: dict[tuple, str] = {}
+    bad = []
+    for part in circuit.parts:
+        try:
+            lib = str(part.lib.filename).split("/")[-1].replace(".kicad_sym", "")
+            name = str(part.name)
+        except Exception:                              # noqa: BLE001
+            continue
+        key = (lib, name)
+        if key not in cache:
+            try:
+                cache[key] = str(getattr(Part(lib, name, dest=None),
+                                         "footprint", "") or "")
+            except Exception:                          # noqa: BLE001
+                cache[key] = ""
+        default, mine = cache[key], str(getattr(part, "footprint", "") or "")
+        if default and mine and default != mine and part.ref not in justified:
+            bad.append(f"  {part.ref} ({part.value}): symbol names\n"
+                       f"      {default}\n    but the netlist assigns\n"
+                       f"      {mine}")
+    if bad:
+        raise AssertionError(
+            f"{len(bad)} part(s) override a symbol that names its own "
+            f"footprint:\n" + "\n".join(sorted(bad))
+            + "\n  Either take the symbol's footprint or say in a comment why "
+              "it is wrong.")
+
+
 def assert_core_rail(circuit, protected, core_rails, tolerated=()):
     """Fail the build if anything but a declared core rail reaches a core ball.
 

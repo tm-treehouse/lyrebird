@@ -286,9 +286,16 @@ def build():
     # ---- 12 V to 5 V. Everything downstream of +5V is unchanged, which is
     # the point: the LTM4622, the LT3045 and the mezzanine all see the rail
     # they were designed against.
+    # The footprint is the symbol's own default and is NOT overridden. It was,
+    # with an HTSSOP-8 3x3 mm 0.65 mm-pitch land on a part whose package is
+    # HSOP-8 at 3.9 x 4.9 mm and 1.27 mm pitch -- a different package
+    # entirely, and unbuildable. That is the second time an override has
+    # replaced a correct default with a wrong one on this board; the LT3045
+    # got a 12-lead land for a 10-lead part the same way. The symbol carries
+    # the right answer in its own fplist, so the rule now is to take it.
     buck5 = Part("Regulator_Switching", "LMR33630ADDA", ref="U5",
                  value="LMR33630 12V->5V 3A",
-                 footprint="Package_SO:HTSSOP-8-1EP_3x3mm_P0.65mm_EP1.5x2.1mm")
+                 footprint="Package_SO:Texas_HSOP-8-1EP_3.9x4.9mm_P1.27mm_ThermalVias")
     for p in lp.pins_named(buck5, "GND"):
         p += v["GND"]
     buck5["VIN"] += v["+12V"]
@@ -347,7 +354,7 @@ def build():
     # regulates the difference: 1.0 V x (1 + 124k/24.9k) = 5.98 V.
     inv = Part("Regulator_Switching", "LMR33630ADDA", ref="U7",
                value="LMR33630 12V->-6V inverting",
-               footprint="Package_SO:HTSSOP-8-1EP_3x3mm_P0.65mm_EP1.5x2.1mm")
+               footprint="Package_SO:Texas_HSOP-8-1EP_3.9x4.9mm_P1.27mm_ThermalVias")
     for p_ in lp.pins_named(inv, "GND"):
         p_ += v["-6V_A"]            # the device's ground IS the negative rail
     inv["VIN"] += v["+12V"]
@@ -878,6 +885,7 @@ def build():
     # asks the other question -- a core ball may touch +1V0 and ground and
     # nothing else, whatever the voltage of whatever else arrives.
     lp.assert_core_rail(builtins.default_circuit, [fpga], core_rails={"+1V0"})
+    lp.assert_symbol_footprints(builtins.default_circuit)
 
     return fpga, ftdi, elem_nets
 

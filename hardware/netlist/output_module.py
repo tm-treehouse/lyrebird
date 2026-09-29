@@ -704,9 +704,27 @@ def build():
     import builtins
     lp.assert_below_abs_max(
         builtins.default_circuit,
-        hv_rails={"+5V", "+3V3_CLK", "+3V3_REF", "+5V_A", "-5V_A",
-                  "PUMP_P", "PUMP_N", "+5V7_A", "-5V7_A"},
-        protected={mez: {"+5V"}})
+        # PUMP_P, PUMP_N, +5V7_A and -5V7_A were in this list and no longer
+        # exist -- they were the charge pump's rails, deleted by 0015. Naming
+        # a rail that is gone is harmless but it hides the list's real
+        # weakness, which is the reverse: the check is membership-based, so a
+        # rail it has NOT been told about reaches a protected pin silently.
+        # -6V_A was missing for exactly that reason.
+        hv_rails={"+5V", "+3V3_CLK", "+3V3_REF", "+5V_A", "-5V_A", "-6V_A"},
+        # The header carries +5V and -6V deliberately; everything else on it
+        # must be unable to exceed 2.75 V.
+        protected={mez: {"+5V", "-6V_A"}})
+    lp.assert_symbol_footprints(
+        builtins.default_circuit,
+        # U8 overrides its symbol, and the symbol is the one that is wrong.
+        # KiCad's LT3094xDD and LT3094xMSE carry the SAME default footprint,
+        # an MSOP-12 -- so the DD symbol names the MSE package. Compare
+        # LT3045xDD, which correctly defaults to a DFN-10 while LT3045xMSE
+        # defaults to MSOP-12: the library gets the pattern right for one part
+        # and wrong for the other. The LT3094's DD package is a 12-lead 3 x 3
+        # mm DFN, which is what is assigned, and its 13 pads match the
+        # symbol's 13 pins.
+        justified={"U8": "KiCad's LT3094xDD symbol carries the MSE footprint"})
 
 
 def main() -> int:
