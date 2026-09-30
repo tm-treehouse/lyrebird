@@ -177,7 +177,13 @@ ABS_MAX_V = 2.75
 CORE_ABS_MAX_V = 1.20
 
 # Pin names on the GateMate that sit on the core rail rather than on I/O.
-CORE_SUPPLY_NAMES = ("VDD", "VDD_PLL", "VDD_SER", "VDD_SER_PLL")
+CORE_SUPPLY_NAMES = ("VDD", "VDD_PLL", "VDD_SER", "VDD_SER_PLL",
+                     # The FT601Q's own 1.0 V domain, fed by its internal LDO
+                     # through DV10. AVDD's absolute maximum is 1.4 V and this
+                     # board has already shipped a revision with it on +3V3,
+                     # which main_board.py calls a destroy-the-part error --
+                     # so it is guarded here rather than trusted to a comment.
+                     "VD10", "AVDD")
 
 
 def assert_symbol_footprints(circuit, justified=None) -> None:
@@ -265,22 +271,32 @@ def assert_core_rail(circuit, protected, core_rails, tolerated=()):
                            f"also carries {'/'.join(sorted(extra))}")
 
     # A resistor from another rail to the core does not merge the nets, so the
-    # test above cannot see it. Walk two-terminal parts with one leg on a core
-    # net: whatever is on the other leg is tied to a 1.20 V maximum through an
+    # test above cannot see it. Any PASSIVE part with a leg on a core net and
+    # a leg elsewhere ties a 1.20 V maximum to that elsewhere through an
     # impedance, which for a supply pin is not a defence.
+    #
+    # This walked only two-terminal parts, which missed the commonest case on
+    # this design: the module fits 17 four-element resistor ARRAYS against 14
+    # discrete resistors, so a single 10 k bridge was caught and an array was
+    # not. Judged by pin function rather than pin count now.
     for part in circuit.parts:
         pins = list(part.pins)
-        if len(pins) != 2:
+        # Every pin passive, which means a resistor, an array, a ferrite or an
+        # inductor. An integrated circuit spans supply domains as its whole
+        # purpose and is not a bridge: judging by "has some passive pins"
+        # reported the FPGA itself, which is how this rule was first written.
+        if len(pins) < 2 or any(x.func is not Pin.types.PASSIVE
+                                for x in pins):
             continue
-        gs = [pin_group.get(id(x)) for x in pins]
-        if None in gs:
+        gs = {pin_group.get(id(x)) for x in pins} - {None}
+        touching_core = gs & core_groups
+        if not touching_core:
             continue
-        for a, b in (gs, gs[::-1]):
-            if a in core_groups and b not in core_groups:
-                other = groups[b][0] - allowed
-                if other:
-                    bad.append(f"  {part.ref} bridges the core rail to "
-                               f"{'/'.join(sorted(other))}")
+        for g in gs - core_groups:
+            other = groups[g][0] - allowed
+            if other:
+                bad.append(f"  {part.ref} ({part.value}) bridges the core "
+                           f"rail to {'/'.join(sorted(other))}")
     if bad:
         raise AssertionError(
             f"nets other than the core rail reach {len(bad)} core supply "
@@ -381,13 +397,31 @@ def assert_below_abs_max(circuit, hv_rails, protected, exempt=("GND",)):
 
     bad = []
     for part, allowed in protected.items():
-        ok = exempt | set(allowed)
+        # An allowance may be a set of net names, meaning "anywhere on this
+        # part", or a mapping of net name -> the pin numbers that may carry
+        # it. The set form is a per-PART allowance and it is too coarse for a
+        # connector: allowing the mezzanine to carry -6V_A let -6 V land on
+        # any of its 80 pins, including all 32 element lines and both ID
+        # straps, and build clean. A header's whole job is that different
+        # pins carry different things.
+        if isinstance(allowed, dict):
+            ok = exempt
+            pin_ok = {k: {str(x) for x in v} for k, v in allowed.items()}
+        else:
+            ok = exempt | set(allowed)
+            pin_ok = {}
         for p in part.pins:
             if (p.func in (Pin.types.PWRIN, Pin.types.PWROUT)
                     or _SUPPLY_NAME.match(str(p.name))):
                 continue
             g = pin_group.get(id(p))
             if g is None or g not in hv or groups[g][0] & ok:
+                continue
+            # Per-pin allowance: this net may be here only if this pin is one
+            # of the pins named for it.
+            if any(str(p.num) in pins
+                   for net, pins in pin_ok.items()
+                   if net in groups[g][0]):
                 continue
             bad.append(f"  {part.ref}.{p.num} ({p.name}) on net "
                        f"{'/'.join(sorted(groups[g][0]))}")

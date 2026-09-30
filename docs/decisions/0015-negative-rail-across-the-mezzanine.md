@@ -49,11 +49,14 @@ positive analog rail regulates down from the +5V already there.**
   negative output, so it sees VIN + |VOUT| = 18 V against a 36 V rating.
   Feedback is referenced to the device's own ground, so the divider runs from
   system ground down to the rail: 1.0 V × (1 + 124k/24.9k) = 5.98 V.
-- **Two mezzanine pins**, taken from the ground allocation. All 80 were
-  assigned, 37 of them ground for 28 switching lines; 35 remain.
+- **Two mezzanine pins**, 73 and 74, flanked by full ground columns at 71/72
+  and 75/76 so a whisker cannot reach the ID straps. All 80 pins were already
+  assigned; the four pins the flanking needed came from `+5V`, which drops
+  from five to two, and ground actually rose from 37 to **38**.
 - The module's LT3094 takes the −6 V and makes −5 V at the point of load, where
   its rejection is what the design leans on.
-- An LT3045 takes the header's 5 V to **+4.53 V** for the op amp positive rail.
+- An LT3045 takes the header's 5 V to **+4.02 V** for the op amp positive
+  rail — a value set by solving two bounds rather than chosen, see below.
 
 **The LTC3265 is deleted**, with two flying capacitors, two ADJ dividers, two
 reference bypasses and their bulk — sixteen parts. **The analog board now
@@ -86,7 +89,11 @@ circuit:
 
 - The op amp positive regulator kept the SET resistor that suited the pump's
   5.69 V, programming 4.99 V from a 5.02 V input: 30 mV against a 260 mV
-  dropout. It is 45.3 kΩ and 4.53 V now. `verify_power.py` had been checking
+  dropout. It is **40.2 kΩ and 4.02 V** — 45.3 kΩ was the first attempt and
+  was still 90 mV short once the regulator's own feedback tolerance, the SET
+  reference's 98–102 µA and the 330 mV dropout at this current were stacked;
+  40.2 kΩ solves both the dropout and the swing bound with +510 mV each side.
+  `verify_power.py` had been checking
   one regulator out of six, the one with 1.7 V of headroom, so nothing caught
   it; it now reads all six from the netlists.
 - The inverter's power-good pin and its pull-up landed on separate single-node
@@ -97,8 +104,10 @@ circuit:
 
 ## What this does not do
 
-**The isolator is still not fitted.** The ADuM4165/4166 and dropping the
-SuperSpeed pairs remain 0014's unfinished half.
+**The isolator is still not fitted.** The ADuM4165/4166 is not in the netlist
+and remains 0014's unfinished half. The SuperSpeed pairs, which 0014 also
+listed there, **are** gone — a review found them wired receiver-to-receiver
+with nothing driving them, so they were removed rather than corrected.
 
 **It does not touch the reference-rail risk.** That is transition current into
 rail impedance and is indifferent to where the rail's power comes from. It

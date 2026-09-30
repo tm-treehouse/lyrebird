@@ -659,16 +659,27 @@ def build():
     # A full ground column either side costs four pins out of a surplus and
     # removes that. The two netlists must agree pin for pin, so the module
     # does the same thing in the same order.
+    # Which pins carry which rail is recorded as it is allocated, because the
+    # overvoltage check needs it per pin rather than per part. Allowing the
+    # header to carry -6V_A anywhere let -6 V land on an element line and
+    # build clean.
+    rail_pins = {"+5V": set(), "-6V_A": set()}
     for _ in range(2):
         v["GND"] += next_mez()
     for _ in range(2):
-        v["-6V_A"] += next_mez()
+        pin = next_mez()
+        v["-6V_A"] += pin
+        rail_pins["-6V_A"].add(str(pin.num))
     for _ in range(2):
         v["GND"] += next_mez()
     # Remaining pins: supply and ground, alternating.
     while idx < len(mez_pins):
-        rail = v["+5V"] if idx % 2 == 0 else v["GND"]
-        rail += next_mez()
+        pin = next_mez()
+        if idx % 2 == 1:        # idx already advanced by next_mez
+            v["+5V"] += pin
+            rail_pins["+5V"].add(str(pin.num))
+        else:
+            v["GND"] += pin
 
     # ID pins pulled low here so "no module fitted" is detectable.
     #
@@ -879,12 +890,13 @@ def build():
         # fatal as a high one, and this check is the only thing looking.
         hv_rails={"+3V3", "+5V", "USB_VBUS", "VIN_RAW", "VIN_FUSED", "+12V",
                   "-6V_A"},
-        protected={fpga: set(), mez: {"+5V", "-6V_A"}})
+        protected={fpga: set(), mez: rail_pins})
     # The core's 1.20 V maximum, which the check above cannot see: it compares
     # against 2.75 V and skips supply pins, so +2V5 on a VDD ball passes. This
     # asks the other question -- a core ball may touch +1V0 and ground and
     # nothing else, whatever the voltage of whatever else arrives.
-    lp.assert_core_rail(builtins.default_circuit, [fpga], core_rails={"+1V0"})
+    lp.assert_core_rail(builtins.default_circuit, [fpga, ftdi],
+                        core_rails={"+1V0", "+1V0_FT"})
     lp.assert_symbol_footprints(builtins.default_circuit)
 
     return fpga, ftdi, elem_nets

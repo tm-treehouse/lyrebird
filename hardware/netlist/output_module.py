@@ -101,15 +101,22 @@ def build():
     # control block with no ground pin in it, is one whisker away from a
     # GateMate GPIO that has only a 10 k pull-down between it and the rail.
     mez_neg = Net("-6V_A")
+    rail_pins = {"+5V": set(), "-6V_A": set()}
     for _ in range(2):
         gnd += nxt()
     for _ in range(2):
-        mez_neg += nxt()
+        pin = nxt()
+        mez_neg += pin
+        rail_pins["-6V_A"].add(str(pin.num))
     for _ in range(2):
         gnd += nxt()
     while idx < len(mez_pins):
-        rail = v5 if idx % 2 == 0 else gnd
-        rail += nxt()
+        pin = nxt()
+        if idx % 2 == 1:
+            v5 += pin
+            rail_pins["+5V"].add(str(pin.num))
+        else:
+            gnd += pin
 
     # ---- Oscillators. Crystek CCHD-957 at twice the element clock (0012),
     # option X for -40 to +85 C at +/-25 ppm. Standby shuts the resonator
@@ -713,7 +720,7 @@ def build():
         hv_rails={"+5V", "+3V3_CLK", "+3V3_REF", "+5V_A", "-5V_A", "-6V_A"},
         # The header carries +5V and -6V deliberately; everything else on it
         # must be unable to exceed 2.75 V.
-        protected={mez: {"+5V", "-6V_A"}})
+        protected={mez: rail_pins})
     lp.assert_symbol_footprints(
         builtins.default_circuit,
         # U8 overrides its symbol, and the symbol is the one that is wrong.

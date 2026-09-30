@@ -421,7 +421,7 @@ negative-rail current expensive enough to force the difference network to
 
 The LT3045 was already the part on this board; U14 is a fourth one. It sits on
 the header's **+5V** — the charge pump whose LDO output used to feed it is
-deleted — and is programmed to **+4.53 V by 45.3 kΩ** on SET. Its housekeeping
+deleted — and is programmed to **+4.02 V by 40.2 kΩ** on SET. Its housekeeping
 is the same shared helper the other three use, with `EN/UV` taken from
 `MUTE_N` rather than tied to IN.
 
@@ -437,8 +437,8 @@ The **LT3094** at U8 was in the netlist with only OUT and GND connected — the
 netlist README lists its input as one of two genuinely open things on the
 module. It is now wired against its own datasheet rather than by analogy:
 
-- `SET`: 45.3 kΩ to ground, for 4.53 V. "The regulator's output voltage is determined by
-  VSET = ISET • RSET" with a precision 100 µA reference, and 45.3 kΩ is the
+- `SET`: 40.2 kΩ to ground, for 4.02 V. "The regulator's output voltage is determined by
+  VSET = ISET • RSET" with a precision 100 µA reference, and 40.2 kΩ is the
   value its own Table 1 lists for −5 V. 4.7 µF of SET bypass, which is what
   the quoted noise figure is measured with.
 - `EN/UV`: tied to IN. "If unused, tie EN/UV to IN. Do not float the EN/UV

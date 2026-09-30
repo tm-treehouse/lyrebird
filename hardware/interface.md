@@ -53,7 +53,9 @@ both oscillator enables, `MUTE_N` and both ID straps run from pin 65 to 70 with
 returns only at either end. A bridge or a whisker across 1.27 mm from `ID1`
 would otherwise put −6 V on a net that reaches a GateMate GPIO through nothing
 but a 10 kΩ pull-down, with the input's clamp diode conducting and the current
-limited only by the bridge. Four pins out of a ground surplus removes that.
+limited only by the bridge. Three pins came out of `+5V`, which drops from
+five to two, and ground went **up** from 37 to 38 — an earlier version of this
+paragraph said four pins came out of a ground surplus, which is backwards.
 
 **Logic levels on the header are 2.5 V.** This is set by the GateMate GPIO
 banks, which are LVCMOS up to 2.5 V and are not 3.3 V tolerant. See
@@ -80,8 +82,9 @@ create it.
 **Every element line sits adjacent to a ground pin.** Element return currents
 are the analog signal.
 
-**Exactly one oscillator runs at a time**, and this is now enforced rather
-than merely stated. The main board enables the family it needs; a module fitted
+**Exactly one oscillator runs at a time**, and this is still a rule rather
+than a guarantee — an earlier version of this paragraph claimed it was
+enforced, and it is not. The main board enables the family it needs; a module fitted
 with only one family ignores the other enable and straps its ID accordingly.
 
 The rule matters because a module may share one output net between two
