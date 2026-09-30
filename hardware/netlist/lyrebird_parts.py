@@ -297,6 +297,17 @@ def assert_core_rail(circuit, protected, core_rails, tolerated=()):
             if other:
                 bad.append(f"  {part.ref} ({part.value}) bridges the core "
                            f"rail to {'/'.join(sorted(other))}")
+    # A check that finds no subjects reports success, and that failure mode is
+    # invisible in a passing run. It has already happened twice here: a reader
+    # that looked for pin-name fields the netlist does not contain returned no
+    # regulators, and this function with CORE_SUPPLY_NAMES matching nothing
+    # passed a dead short. So the subject count is asserted, not assumed.
+    if not core_groups:
+        raise AssertionError(
+            "assert_core_rail found no core supply pins at all. Either "
+            "CORE_SUPPLY_NAMES no longer matches this symbol's pin names or "
+            "the wrong parts were passed -- a check with no subjects passes "
+            "silently, which is worse than no check.")
     if bad:
         raise AssertionError(
             f"nets other than the core rail reach {len(bad)} core supply "
@@ -425,6 +436,10 @@ def assert_below_abs_max(circuit, hv_rails, protected, exempt=("GND",)):
                 continue
             bad.append(f"  {part.ref}.{p.num} ({p.name}) on net "
                        f"{'/'.join(sorted(groups[g][0]))}")
+    if not protected:
+        raise AssertionError(
+            "assert_below_abs_max was given nothing to protect. A check with "
+            "no subjects passes silently.")
     if bad:
         raise AssertionError(
             f"nets above the {ABS_MAX_V} V absolute maximum reach "

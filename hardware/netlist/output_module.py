@@ -308,7 +308,19 @@ def build():
     # even 1.65k + 1.65k would be 3.30 kohm and fail the power-on limit by
     # a hair. Constant-current drive is untouched: the DC current is still
     # V_ref/(R1+R2) at every code.
-    ELEM_R1 = "1.69k 0.1% thin film"     # register side of the split
+    # Both halves the same value, which is one part number rather than two.
+    #
+    # It was 1.69k + 1.65k = 3.34 kohm because an even split gives 3.30 kohm
+    # and the one-unit-load rule needed at least 3312 ohm at power-on with the
+    # flip-flops in an undefined state. 0014 retired that rule with bus power,
+    # so the only reason for the asymmetry is gone -- and an even split is
+    # better on what remains: marginally lower total resistance is marginally
+    # quieter, the two halves of every element now match each other by
+    # construction rather than by tolerance, and there is one line on the BOM.
+    #
+    # The pole moves from 1.059 to 1.072 MHz, which is three decades above the
+    # band and does not matter.
+    ELEM_R1 = "1.65k 0.1% thin film"     # register side of the split
     ELEM_R2 = "1.65k 0.1% thin film"     # summing-node side of the split
     # Four summing nodes, not two. Left and right each need their own pair:
     # an earlier revision summed both channels into one differential pair,

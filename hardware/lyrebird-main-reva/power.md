@@ -161,14 +161,33 @@ partly coincidence — four lines moved and they cancelled.
 | Regulator quiescent and margin | 20 | 3 | quiescent only; margin sits in the lines |
 | **Total** | **380** | **381** | |
 
-## What has no source today
+## Every rail has a source
 
-**The 1.0 V and 2.5 V rails have no supply.** The LTM4622 selected in 0009 is
-not in `main_board.py`, so both rails exist in the netlist as nets with loads
-and no regulator. It is also absent from the stock KiCad libraries, so it needs
-a symbol before it can be wired. Until then the FPGA cannot be powered and none
-of the 1.0 V or 2.5 V arithmetic above can be measured.
+This section asserted the opposite for seventeen days, in five sentences of
+which four were false, about the rails that power the FPGA. It said the
+LTM4622 was absent and the 1.0 V and 2.5 V rails had no regulator; that there
+was no USB connector, so the 5 V input had no entry point; and that the VBUS
+ferrite was missing. All of it was true when written and none of it since.
 
-The VBUS ferrite is likewise named in 0009 and absent, and there is no USB
-connector, so the 5 V input has no entry point either. The rails that do exist
-— 5 V passthrough and 3.3 V — are wired.
+| Rail | Source | State |
+| --- | --- | --- |
+| +12V | J4 barrel jack via F1, D1, with D2 and D3 clamping | fitted |
+| +5V | U5, LMR33630 | fitted |
+| −6V_A | U7, LMR33630 inverting | fitted |
+| +3V3 | U3, LT3045 | fitted |
+| +2V5 | U4, LTM4622 channel 1 | fitted |
+| +1V0 | U4, LTM4622 channel 2 | fitted |
+| +1V0_FT | the bridge's own internal LDO, via `DV10` | fitted |
+
+The VBUS ferrite is gone rather than missing: `VBUS` no longer supplies
+anything, and reaches one pin — the bridge's sense input. The USB receptacle is
+fitted with its High Speed pair; the SuperSpeed pairs are deliberately
+unrouted (0014).
+
+**What is genuinely unfinished on this board** is the ADuM4165/4166 isolator,
+which 0014 argues for and which is not in the netlist, and the PCB layout,
+which does not exist — the `.kicad_pcb` holds placed footprints and zero
+tracks.
+
+`hardware/check_freshness.py` exists because of this section. It compares the
+documents against the netlists, and a page like this one is what it is for.

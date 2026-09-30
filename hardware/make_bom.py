@@ -148,9 +148,12 @@ ANNOTATION: dict[str, tuple[str, str, str, str, str]] = {
                "regulates its own. Nothing on this rail reaches the signal, "
                "so a cheaper part would do; it is an LT3045 for consistency."),
     "U14_dac": ("Analog Devices", "LT3045EDD#TRPBF", "+5V analog", V,
-                "Takes the mezzanine's 5 V straight down to +4.53 V, chosen for "
-                "490 mV of headroom rather than for the swing, which needs "
-                "only 3.43 V. This is "
+                "Takes the mezzanine's 5 V straight down to +4.02 V. The "
+                "value solves two bounds rather than being chosen: dropout "
+                "needs Vout below 4.61 V at the worst-case input, the swing "
+                "needs it above 3.43 V, and 40.2 k sits at the midpoint with "
+                "+510 mV each side. It read 4.99 V and then 4.53 V before "
+                "the tolerances were stacked. This is "
                 "what deleted the charge pump: the output swings +/-2.83 V "
                 "peak and the OPA1612 reaches within 600 mV of its rails, so "
                 "the positive supply needs about 3.5 V and the header already "

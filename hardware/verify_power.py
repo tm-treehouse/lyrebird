@@ -83,6 +83,7 @@ U5_RTHJA = Fact(45.0, "C/W", DS, "HTSSOP-8 with thermal pad, JEDEC board")
 # that was 90 mV short once every tolerance stacked.
 U3_DROPOUT = Fact(0.330, "V", DS, "LT3045 max at 1-50 mA, not the 500 mA figure")
 U3_ISET_TOL = Fact(0.02, "", DS, "SET reference current, 98-102 uA")
+LDO_EXPECTED = 6        # U3 main; U5, U6, U8, U9, U14 module
 V5_TOL_LO = Fact(0.0157, "", CALC, "LMR33630 VFB 0.985 V min with 1% divider")
 U3_IQ = Fact(2.0, "mA", DS, "ground pin current")
 
@@ -308,9 +309,24 @@ def main() -> int:
     #
     # Read from the netlists rather than restated here, so a SET resistor
     # changing cannot silently pass. 100 uA through SET programs the output.
+    # The design has six post-regulators. Asserting that is the whole defence
+    # against ldo_rails failing open, which it does three ways: a value
+    # spelled 45300R rather than 45.3k, an IN rail absent from the small
+    # `known` map, or a family name missing from the component value. Each
+    # silently drops a regulator and each leaves the suite reporting every
+    # check passed.
+    found = {b: ldo_rails(n) for b, n in
+             (("main", "lyrebird-main-reva/lyrebird-main.net"),
+              ("module", "lyrebird-dac-reva/lyrebird-dac.net"))}
+    n_found = sum(len(v) for v in found.values())
+    check("Every post-regulator was located",
+          n_found == LDO_EXPECTED,
+          f"{n_found} of {LDO_EXPECTED} found: "
+          + ", ".join(f"{b} {[r[0] for r in v]}" for b, v in found.items()),
+          "a reader that finds nothing reports that everything passed")
     for board, netname in (("main", "lyrebird-main-reva/lyrebird-main.net"),
                            ("module", "lyrebird-dac-reva/lyrebird-dac.net")):
-        for ref, vin, vout, load in ldo_rails(netname):
+        for ref, vin, vout, load in found[board]:
             # The corner, not the nominal. A rail can be comfortable at
             # nominal and short once the regulator feeding it sits at its
             # tolerance minimum while the SET reference sits at its maximum --

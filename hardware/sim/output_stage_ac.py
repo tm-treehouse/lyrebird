@@ -40,7 +40,7 @@ import numpy as np  # noqa: E402
 
 # ---------------------------------------------------------------- the board
 # Values read off hardware/netlist/output_module.py, not retyped from prose.
-R_EL_TOP = 1.69e3       # register side of the split element
+R_EL_TOP = 1.65e3       # register side of the split (even now) element
 R_EL_BOT = 1.65e3       # summing-node side
 C_EL = 180e-12          # C0G, between the halves
 N_ELEM = 7              # unit elements per side
