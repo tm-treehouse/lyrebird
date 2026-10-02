@@ -38,7 +38,7 @@ referenced to that rail and **never to 3.3 V**. The module therefore needs a
 | --- | --- | --- | --- | --- | --- |
 | `+3V3_REF` | 3.32 | LT3045, U5 | 2 register packages, 28 elements, 8× 100 nF | 58 mA | 60 mA of +5V |
 | `+3V3_CLK` | 3.3 | LT3045, U6 | Y1, Y2, U1 divider, U12 buffer, translator `VCC(B)` | 33.5 mA | 35.5 mA of +5V |
-| `+5V_A` | +4.53 | LT3045, U14, **straight off the header's +5V** | op amp `V+` | 21.6 mA | 23.6 mA of +5V |
+| `+5V_A` | +4.02 | LT3045, U14, **straight off the header's +5V** | op amp `V+` | 21.6 mA | 23.6 mA of +5V |
 | `-5V_A` | −5 | LT3094, U8, from the mezzanine's **−6V** | op amp `V−`, **and all the signal current** | 56.5–63.5 mA | 64 mA of −6V |
 | `+2V5` | 2.5 | LT3045, U9 | translator `VCC(A)` | <1 mA | 3 mA of +5V |
 
@@ -52,11 +52,14 @@ removing one.
 because the module made both polarities symmetrically from one 5 V input. The
 output swings ±2.83 V peak and the OPA1612 reaches within 600 mV of its rails,
 so the positive analog supply wants about 3.5 V — and the header had carried
-5 V all along. U14 is programmed to **+4.53 V**, which leaves 3.93 V of swing
+5 V all along. U14 is programmed to **+4.02 V**, which leaves 3.42 V of swing
 available against the 2.83 V needed — and 490 mV of headroom over its input,
-which matters more than the swing does. It was 4.99 V until a review caught
-that: the SET resistor still held the value that suited the charge pump's
-5.69 V, leaving 30 mV against a part whose published dropout is 260 mV.
+which matters more than the swing does. It read 4.99 V and then 4.53 V before the
+tolerances were stacked: the SET resistor first held the value that suited the
+charge pump's 5.69 V, and the replacement was still 90 mV short once the
+regulator's own feedback spread, the SET reference's 98-102 uA and the 330 mV
+dropout at this current were taken together. 40.2 k solves the dropout bound
+and the swing bound with +510 mV each side.
 
 **The two analog rails are not symmetric**, and that is the most consequential
 fact on this page. The negative one carries the op amps' quiescent current
@@ -292,15 +295,12 @@ total       472 mA                                        (calculation)
 | USB 3.0, configured | 900 mA | 472 mA | 428 mA | 52 % |
 | USB 2.0 host | 500 mA | 472 mA | 28 mA | 94 % |
 
-**The USB 2.0 line is no longer comfortable**, and it is the one number on this
-page that should worry a reader. Two things soften it and neither is an
-argument for ignoring it. The 234 mA of main board includes 185 mA of bridge
-in *active SuperSpeed*; a host that only offers 500 mA is a High Speed host,
-where the FT601Q draws substantially less, so the real USB 2.0 figure is lower
-than 472 mA — by how much is not computed here. And 472 mA is full scale on
-both channels at once with maximum quiescent current assumed nowhere; at mid
-code it is 467 mA. If it has to come down, the difference network is the lever:
-every milliampere saved on the negative rail is two at the input.
+**There is no USB current line any more.** This paragraph warned that 472 mA
+against a 500 mA host was the one number on the page that should worry a
+reader, and discussed whether a High Speed host's lower bridge draw softened
+it. 0014 retired bus power entirely: the board takes a 12 V supply, nothing is
+negotiated, and the module's draw is bounded by what the main board's
+converters deliver rather than by a host.
 
 This is the line-output module. 0009 puts a hard-driven headphone stage at
 roughly 200 mA more, reaching about 580 mA: comfortable on USB 3.0, over the
@@ -389,5 +389,4 @@ rather than at the far end of a connector.
 | 34.3 mA of register current | `Cpd` read as per flip-flop rather than per package; a bench measurement settles it, and the rail is 26 mA if the other reading is right |
 | 10.4 mA of element filter capacitors | Depends on the rotation's transition rate, which is a model question, and it is the one term on this rail that is not constant with code |
 | 10 mA of fanout buffer | Read off a curve rather than a table; the tabulated figure is 33 mA at 100 MHz with four outputs loaded |
-| 3 mA of pump quiescent | Datasheet gives 3 mA typical and 6 mA maximum on each input pin in constant frequency mode |
-| 4.43 V at the header | Guaranteed USB minimum plus *estimated* ferrite and contact drops; it decides whether the charge pump is inside its input range |
+| 5.02 V at the header | The main board's buck output, *calculated* from its feedback divider rather than measured. It decides every module LDO's headroom, and `verify_power.py` now tests all six at the stacked corner rather than one at nominal |
